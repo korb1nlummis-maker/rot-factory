@@ -1,4 +1,5 @@
-import { CATS, UPGRADES, isUnlocked } from './upgrades.js';
+import { CATS, UPGRADES, isUnlocked, needsText } from './upgrades.js';
+import { STATUS } from './crew.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { RARITY, species, speciesCount, NEEDLE, DECOYS } from './plushdata.js';
 import { speciesIcon, needleFrames } from './icons.js';
@@ -122,6 +123,9 @@ export class UI {
   setDanger(v) { $('vig').style.boxShadow = `inset 0 0 220px 40px rgba(255,60,30,${(v * 0.45).toFixed(3)})`; }
   hurt(v) { const h = $('hurt'); h.style.opacity = v; setTimeout(() => (h.style.opacity = 0), 60); }
   setAssay(on, v) { $('assay').classList.toggle('hidden', !on); if (on) $('assayBar').style.transform = `scaleX(${Math.max(0.03, v).toFixed(3)})`; }
+  setPower(on, frac, txt) { const e = $('power'); e.classList.toggle('hidden', !on); if (on) { $('pwFill').style.width = (frac * 100).toFixed(0) + '%'; $('pwTxt').textContent = txt; } }
+  setAir(on, dust, lung, txt) { const e = $('air'); e.classList.toggle('hidden', !on); if (on) { $('airFill').style.width = Math.min(100, dust * 100).toFixed(0) + '%'; $('lungFill').style.width = Math.min(100, lung * 100).toFixed(0) + '%'; $('airTxt').textContent = txt; } }
+  blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setDepth(txt) { $('depth').textContent = txt; }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
@@ -186,6 +190,7 @@ export class UI {
     if (id === 'dossier') { this.startDossier(); $('clueList').innerHTML = (this.game.S.clues || []).map((c) => `<div>📎 ${c}</div>`).join('') || '<div>No clues yet. Depot Beacons far from the bay turn up old paperwork.</div>'; }
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();
+    if (id === 'crew') { this.renderCrew(); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
   }
   closeModalsSilently() { for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden'); this.openModal = null; }
 
@@ -193,15 +198,17 @@ export class UI {
     const g = this.game;
     $('shopMoney').textContent = fmt(g.S.money);
     const tabs = $('shopTabs');
-    tabs.innerHTML = CATS.map((c) => `<button data-cat="${c.id}" class="${c.id === this.shopCat ? 'sel' : ''}">${c.icon} ${c.name}</button>`).join('');
+    tabs.innerHTML = CATS.filter((c) => !c.special || g.T.contractSlots > 0).map((c) => `<button data-cat="${c.id}" class="${c.id === this.shopCat ? 'sel' : ''}">${c.icon} ${c.name}</button>`).join('');
     for (const b of tabs.querySelectorAll('button')) b.onclick = () => { this.shopCat = b.dataset.cat; this.renderShop(); };
     const grid = $('shopGrid');
+    if (this.shopCat === 'contracts') { this.renderContracts(grid); return; }
     const list = UPGRADES.filter((u) => u.cat === this.shopCat);
     grid.innerHTML = '';
     for (const u of list) {
       const lvl = g.S.up[u.id] || 0;
       const maxed = lvl >= u.max;
-      const unlocked = isUnlocked(u, g.S.up);
+      const unlocked = isUnlocked(u, g.S.up, g.S);
+      const nt = needsText(u, g.S);
       const cost = maxed ? 0 : u.cost[lvl];
       const can = unlocked && !maxed && g.S.money >= cost;
       const el = document.createElement('div');
@@ -212,10 +219,24 @@ export class UI {
       if (u.names) extra = ` <small>${u.names[lvl]}${!maxed ? ' → ' + u.names[lvl + 1] : ''}</small>`;
       const reqU = u.req ? UPGRADES.find((x) => x.id === u.req.id) : null;
       el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p><div class="pips">${pips}</div>
-        <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : !unlocked ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : `Buy  ◈ ${fmt(cost)}`}</button>`;
+        <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : nt ? nt : !unlocked ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : `Buy  ◈ ${fmt(cost)}`}</button>`;
       el.querySelector('button').onclick = () => { if (g.buy(u.id)) this.renderShop(); };
       grid.appendChild(el);
     }
+  }
+
+  renderContracts(grid) {
+    const g = this.game;
+    g.contracts.fill();
+    grid.innerHTML = '';
+    g.S.contracts.forEach((c, i) => {
+      const el = document.createElement('div');
+      el.className = 'card';
+      const pct = Math.min(100, (c.have / c.need) * 100);
+      el.innerHTML = `<h3><span>${c.desc}</span><small>${c.have}/${c.need}</small></h3><div class="bar" style="height:7px"><i style="width:${pct}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div><p>Reward: <b style="color:var(--accent)">◈ ${fmt(c.reward)}</b>${c.boost ? ' + a permanent boost' : ''}</p><button>Swap (◈ ${fmt(Math.round(c.reward * 0.08))})</button>`;
+      el.querySelector('button').onclick = () => { if (g.contracts.reroll(i)) this.renderShop(); else g.sound.error(); };
+      grid.appendChild(el);
+    });
   }
 
   renderDex() {
@@ -249,6 +270,27 @@ export class UI {
       if (i < imgs.length && this.openModal === 'dex') requestAnimationFrame(work);
     };
     work();
+  }
+
+  renderCrew() {
+    const g = this.game, box = $('crewList');
+    const bots = g.S.crew || [];
+    $('crewCount').textContent = `${bots.length} / ${g.T.crewMax}`;
+    box.innerHTML = '';
+    if (!bots.length) { box.innerHTML = '<div class="jcard">No crew yet. Buy a Scrapper Bot in the Crew tab of the terminal.</div>'; return; }
+    for (const b of bots) {
+      const need = g.crew.xpNeeded(b);
+      const el = document.createElement('div');
+      el.className = 'crew-row';
+      el.innerHTML = `<div class="crew-head"><b>${b.name}</b><span>Lv ${b.level}</span><em>${STATUS[b.state] || b.state}</em></div>
+        <div class="bar" style="height:5px"><i style="width:${Math.min(100, (b.xp / need) * 100)}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div>
+        <div class="crew-stats">Load ${b.carry.length}/${g.crew.capacity(b)} · Battery ${Math.round(b.battery * 100)}% · ${Math.round(Math.hypot(b.x, b.z))} m out</div>
+        <div class="crew-btns">
+          <button data-d="3">▲ N</button><button data-d="0">▶ E</button><button data-d="1">▼ S</button><button data-d="2">◀ W</button>
+          <button data-a="follow">Follow me</button><button data-a="home">Home</button><button data-a="stay">Stay</button></div>`;
+      for (const btn of el.querySelectorAll('button')) btn.onclick = () => { g.crewCommand(b, btn.dataset); this.renderCrew(); };
+      box.appendChild(el);
+    }
   }
 
   startDossier() {

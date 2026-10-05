@@ -34,6 +34,8 @@
     <div id="carry"><div class="carry-label">CARRYING <b id="carryN">0</b> / <b id="carryMax">1</b></div><div id="carryChips"></div></div>
     <div id="hotbar"></div>
   </div>
+  <div id="power" class="hidden"><div class="sig-title" style="color:#7ad7ff">GRID</div><div class="sig-meter"><i id="pwFill"></i></div><div class="sig-row"><span id="pwTxt"></span></div></div>
+  <div id="air" class="hidden"><div class="sig-title" style="color:#d8c58a">AIR</div><div class="sig-meter"><i id="airFill"></i></div><div class="sig-meter" style="height:5px"><i id="lungFill"></i></div><div class="sig-row"><span id="airTxt"></span></div></div>
   <div id="signal" class="hidden">
     <div class="sig-title">THE ONE</div>
     <div class="sig-meter"><i id="sigFill"></i></div>
@@ -41,6 +43,7 @@
   </div>
   <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Hold left mouse on the plush around you.</span></div>
   <div id="vig"></div>
+  <div id="blackout"></div>
   <div id="hurt"></div>
 </div>
 
@@ -72,6 +75,14 @@
   <div class="panel wide">
     <header><h2>PLUSHDEX</h2><div class="bal"><b id="dexCount">0</b> / <span id="dexTotal">576</span> species</div><button class="x" data-close>✕</button></header>
     <div id="dexGrid"></div>
+  </div>
+</div>
+<div id="crew" class="modal hidden">
+  <div class="panel wide">
+    <header><h2>CREW</h2><div class="bal" id="crewCount" style="font-size:14px"></div>
+      <button class="x" style="width:auto;padding:0 12px" id="crewAllHome">All home</button><button class="x" style="width:auto;padding:0 12px" id="crewAllFollow">All follow</button><button class="x" data-close>✕</button></header>
+    <div style="padding:10px 22px 0;color:var(--dim);font-size:12px;line-height:1.5">Orders start from where the bot stands. <b>T</b> in the field sends every bot digging the way you face, from where you stand. Bots grow as they work: more plush per trip, wider tunnels, faster hands.</div>
+    <div id="crewList" style="padding:14px 20px 20px;overflow:auto;display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));align-content:start;flex:1"></div>
   </div>
 </div>
 <div id="note" class="modal hidden">

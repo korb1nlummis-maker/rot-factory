@@ -85,6 +85,13 @@ export class Sound {
     s.connect(f); f.connect(g); g.connect(this.dry); s.start(t); s.stop(t + dur + 0.1);
   }
 
+  chirp(p = 1) {
+    if (!this.ctx) return;
+    const f = 520 * p;
+    this.tone('square', f, f * 1.6, 0.07, 0.05);
+    this.tone('triangle', f * 1.6, f * 1.1, 0.12, 0.07, 0.07);
+  }
+  cough() { if (!this.ctx) return; this.noise(0.12, 900, 300, 0.22, 'bandpass', 0, 1.2); this.noise(0.14, 800, 250, 0.2, 'bandpass', 0.16, 1.2); this.tone('sawtooth', 160, 110, 0.12, 0.07); }
   squeak(pitch = 1, vol = 0.18) {
     if (!this.ctx) return;
     const f = (700 + Math.random() * 500) * pitch;

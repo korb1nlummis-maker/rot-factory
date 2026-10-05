@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config.js';
 import { species, RARITY, NEEDLE, BULK } from './plushdata.js';
 import { compaction } from './util.js';
+import { FUEL_MAX_RARITY } from './power.js';
 
 export const DX = [1, 0, -1, 0];
 export const DZ = [0, 1, 0, -1];
-export const LOGI = new Set(['belt', 'sorter', 'vault', 'mech']);
+export const LOGI = new Set(['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan']);
 const YAW = [Math.PI / 2, 0, -Math.PI / 2, Math.PI]; // model +Z -> dir
 const MAXBELT = 4500;
 
@@ -115,6 +116,7 @@ export class Logistics {
     ent.items = ent.items || [];
     if (ent.type === 'sorter') { ent.q = ent.q || []; ent.kept = ent.kept || []; ent.timer = 0; ent.mode = ent.mode || 0; ent.filter = ent.filter ?? 7; }
     if (ent.type === 'vault') ent.stored = ent.stored || [];
+    if (ent.type === 'gen') { ent.q = ent.q || []; ent.burn = ent.burn || 0; ent.lit = false; }
     if (ent.type === 'mech') { ent.buf = ent.buf || []; ent.timer = 1.0; ent.out = 0; ent.state = 'dig'; ent.adv = ent.adv || 0; ent.arm = null; }
     const key = idx(ent.i, ent.j, ent.k);
     this.tiles.set(key, ent);
@@ -149,6 +151,28 @@ export class Logistics {
       const lid = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.6), M.dark); lid.position.y = 0.53;
       for (const s of [-1, 1]) { const strap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.52, 0.6), M.steel); strap.position.set(s * 0.18, 0.26, 0); g.add(strap); }
       g.add(box, lid);
+    } else if (ent.type === 'gen') {
+      const red = new THREE.MeshStandardMaterial({ color: 0x8a2a1c, roughness: 0.5, metalness: 0.6 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.46, 0.58), red); body.position.y = 0.3;
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.6), M.dark); base.position.y = 0.04;
+      const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.5, 10), M.steel); chim.position.set(0.18, 0.78, -0.15);
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.02), M.dark); win.position.set(0, 0.32, 0.3); win.name = 'win';
+      const hopper = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.18, 10, 1, true), M.steel); hopper.position.set(-0.1, 0.62, 0.0);
+      const light = new THREE.PointLight(0xff8030, 0, 5, 1.8); light.position.set(0, 0.5, 0.5); light.name = 'glow';
+      g.add(base, body, chim, win, hopper, light);
+    } else if (ent.type === 'pole') {
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 2.0, 8), M.steel); mast.position.y = 1.0;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.05), M.dark); arm.position.y = 1.95;
+      for (const s of [-1, 0, 1]) { const ins = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), M.rail); ins.position.set(s * 0.22, 2.0, 0); g.add(ins); }
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 10), M.dark); base.position.y = 0.04;
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M.glowR); lamp.position.set(0, 1.75, 0.06); lamp.name = 'lamp';
+      g.add(mast, arm, base, lamp);
+    } else if (ent.type === 'fan') {
+      const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.5, 8), M.dark); stand.position.y = 0.25;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 8, 20), M.steel); ring.position.y = 0.62;
+      const blades = new THREE.Group(); blades.position.y = 0.62; blades.name = 'blades';
+      for (let b = 0; b < 4; b++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.015), M.yellow); bl.position.set(0.12, 0, 0); bl.rotation.z = 0.35; const gp = new THREE.Group(); gp.rotation.z = (b / 4) * Math.PI * 2; gp.add(bl); blades.add(gp); }
+      g.add(stand, ring, blades);
     } else if (ent.type === 'mech') {
       const tr = new THREE.BoxGeometry(0.14, 0.2, 0.62);
       const l = new THREE.Mesh(tr, M.dark), r = new THREE.Mesh(tr, M.dark); l.position.set(-0.26, 0.1, 0); r.position.set(0.26, 0.1, 0);
@@ -214,6 +238,14 @@ export class Logistics {
       n.q.push({ sp: item.sp, vr: item.vr, t: 0 });
       return true;
     }
+    if (n.type === 'gen') {
+      if (item.sp === NEEDLE) { this.game.registerDex(NEEDLE); this.game.foundNeedle('a Generator'); return true; }
+      const r = species[item.sp] ? species[item.sp].rarity : 9;
+      if (r > FUEL_MAX_RARITY || n.q.length >= (this.game.T.genBuffer)) return false;
+      n.q.push({ sp: item.sp, vr: item.vr });
+      this.game.power.markDirty();
+      return true;
+    }
     if (n.type === 'vault') {
       if (n.stored.length >= this.vaultCap()) return false;
       n.stored.push({ sp: item.sp, vr: item.vr });
@@ -232,26 +264,32 @@ export class Logistics {
     const g = this.game, T = g.T, S = g.S;
     if (this.dirty) this.rebuildBelts();
     const spd = T.beltSpeed;
+    const tick = this.game.time;
     let moving = 0;
     arrowTex.offset.y = (arrowTex.offset.y - dt * spd * 0.5) % 1;
     for (const t of this.tiles.values()) {
       if (t.type === 'belt') {
         const its = t.items;
         if (!its.length) continue;
-        moving++;
+        const pw = t.pw ?? 0;
+        if (pw > 0.02) moving++;
         for (let n = 0; n < its.length; n++) {
           const it = its[n];
           const limit = n === 0 ? 1 : its[n - 1].t - 0.34;
-          it.t = Math.min(it.t + spd * dt, Math.max(it.t, limit));
+          it.t = Math.min(it.t + spd * pw * dt, Math.max(it.t, limit));
         }
         const f = its[0];
-        if (f.t >= 1) {
+        if (f.t >= 1 && pw > 0.02) {
           const nx = this.nextOf(t);
           if (nx && this.accept(nx, f, t.dir)) its.shift();
+          else if (!nx && this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C)) { its.shift(); if (f.sp === NEEDLE) { this.game.registerDex(NEEDLE); this.game.foundNeedle('a belt'); } else this.game.sellAuto(f.sp, f.vr, 1); }
           else if (!nx && this.game.world.get(t.i + DX[t.dir], t.j, t.k + DZ[t.dir]) === 0 && this.dropEnd(t, f)) its.shift();
         }
       } else if (t.type === 'sorter') this.updateSorter(t, dt);
       else if (t.type === 'mech') this.updateMech(t, dt);
+      else if (t.type === 'gen') this.updateGen(t, dt, tick);
+      else if (t.type === 'fan') { const o = this.objs.get(t.id); const b = o && o.getObjectByName('blades'); if (b) b.rotation.z += dt * 14 * (t.pw ?? 0); }
+      else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.glowR; }
     }
     this.hum = moving;
   }
@@ -263,16 +301,26 @@ export class Logistics {
     return i >= 0;
   }
 
+  updateGen(t, dt, tick) {
+    const o = this.objs.get(t.id);
+    if (!o) return;
+    const win = o.getObjectByName('win'), glow = o.getObjectByName('glow');
+    const lit = t.burn > 0;
+    if (win) win.material = lit ? M.glowO : M.dark;
+    if (glow) glow.intensity = lit ? 3 + Math.sin(tick * 11) * 0.8 : 0;
+    if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18, t.j * C + 1.1, cellZ(t.k) - 0.15);
+  }
+
   updateSorter(t, dt) {
     const g = this.game, T = g.T;
-    t.timer -= dt;
+    t.timer -= dt * (t.pw ?? 0);
     // front tile
     const front = this.tiles.get(idx(t.i + DX[t.dir], t.j, t.k + DZ[t.dir])) || this.tiles.get(idx(t.i + DX[t.dir], t.j + 1, t.k + DZ[t.dir])) || this.tiles.get(idx(t.i + DX[t.dir], t.j - 1, t.k + DZ[t.dir]));
     // kept items try to leave
     if (t.kept.length && front && this.accept(front, t.kept[0], t.dir)) t.kept.shift();
     if (!t.q.length) { this.setLamp(t, M.glowG); return; }
     const head = t.q[0];
-    head.t += dt * T.beltSpeed * 1.4;
+    head.t += dt * T.beltSpeed * 1.4 * (t.pw ?? 0);
     if (head.t < 1) { this.setLamp(t, M.glowO); return; }
     const sp = species[head.sp];
     if (head.sp === NEEDLE) { t.q.shift(); g.registerDex(NEEDLE); g.foundNeedle('a Sorting Box'); return; }
@@ -316,7 +364,8 @@ export class Logistics {
     }
     const cap = T.mechBuffer;
     if (m.buf.length >= cap) { this.setLamp(m, M.glowO); return; }
-    m.timer -= dt;
+    m.timer -= dt * (m.pw ?? 0);
+    if ((m.pw ?? 0) < 0.05) { this.setLamp(m, M.glowR); return; }
     // arm animation
     const arm = obj && obj.getObjectByName('arm');
     if (m.arm && arm) {

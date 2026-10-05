@@ -232,6 +232,7 @@ export class World {
     const vr = this.getVr(i, j, k);
     this.setCell(i, j, k, 0, 0);
     if (queue) this.stabQueue.push({ i, j, k });
+    if (this.onRemove) this.onRemove(i, j, k);
     return { sp, vr };
   }
 
@@ -261,6 +262,7 @@ export class World {
     const pcx = ci >> 4, pcz = ck >> 4;
     for (const [key, c] of this.cols) {
       if (c.mod) continue;
+      if (this.pins && this.pins.has(c.cz * NCX + c.cx)) continue;
       if (Math.abs(c.cx - pcx) > r2 || Math.abs(c.cz - pcz) > r2) this.cols.delete(key);
     }
     this._lk = -1;

@@ -406,7 +406,7 @@ export class Machines {
       if (!best) { it.idle = 2.0; return; }
       it.target = best; it.phase = 0;
     }
-    it.phase += dt / rate;
+    it.phase += dt * (e.pw ?? 0) / rate;
     const tg = it.target;
     const tx = cellX(tg.i), ty = cellY(tg.j) + 0.1, tz = cellZ(tg.k);
     let p;
@@ -450,7 +450,7 @@ export class Machines {
     it.obj.position.y += (ty - it.obj.position.y) * Math.min(1, dt * 6);
     it.shield.x = it.obj.position.x; it.shield.z = it.obj.position.z; it.shield.y = ty + 0.9;
     if (e.done) { it.shield.b = 0; return; }
-    it.timer -= dt;
+    it.timer -= dt * (e.pw ?? 0);
     if (it.timer > 0) return;
     it.timer = T.borerRate * compaction(cellX(e.i), cellZ(e.k));
     this.game.noteDist(cellX(e.i), cellZ(e.k));

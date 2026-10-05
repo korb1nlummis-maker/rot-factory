@@ -91,6 +91,12 @@ export class FX {
         Math.min(1, r * 0.6 + 0.5), Math.min(1, g * 0.6 + 0.5), Math.min(1, b * 0.6 + 0.5), 0.9, 0.05 + Math.random() * 0.06, 0.7 + Math.random() * 0.6, 3.0, 1.2, 0);
     }
   }
+  smoke(x, y, z) {
+    this.norm.add(x, y, z, (Math.random() - 0.5) * 0.15, 0.5 + Math.random() * 0.4, (Math.random() - 0.5) * 0.15, 0.3, 0.3, 0.3, 0.45, 0.14, 2.2 + Math.random(), -0.05, 0.4, 0.18);
+  }
+  haze(x, y, z, a) {
+    this.norm.add(x, y, z, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.1, 0.6, 0.55, 0.45, a, 0.16 + Math.random() * 0.16, 2.5, 0, 0.3, 0.05);
+  }
   sparkle(x, y, z, count = 14, r = 1, g = 0.85, b = 0.4) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * 6.283, u = Math.random() * 2 - 1, s = 0.5 + Math.random() * 2.2;

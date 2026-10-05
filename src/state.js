@@ -22,6 +22,7 @@ export function newState(seed) {
     settings: { quality: 'high', vol: 0.7, sens: 1 },
     boosts: { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0 },
     notes: [],
+    contracts: [],
     clues: [],
     clueLevel: 0,
   };
