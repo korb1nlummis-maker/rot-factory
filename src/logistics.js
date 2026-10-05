@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config.js';
-import { species, RARITY, NEEDLE, BULK } from './plushdata.js';
+import { species, RARITY, NEEDLE, BULK, REMAINS } from './plushdata.js';
 import { compaction } from './util.js';
 import { FUEL_MAX_RARITY } from './power.js';
 
@@ -55,7 +55,7 @@ export class Logistics {
 
   clear() {
     this.tiles.clear();
-    for (const o of this.objs.values()) this.root.remove(o);
+    for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); }
     this.objs.clear();
     this.dirty = true;
   }
@@ -130,7 +130,7 @@ export class Logistics {
     this.tiles.delete(key);
     this.game.world.reserved.delete(key);
     const o = this.objs.get(ent.id);
-    if (o) { this.root.remove(o); this.objs.delete(ent.id); }
+    if (o) { this.game.machines.disposeObj(o); this.root.remove(o); this.objs.delete(ent.id); }
     this.dirty = true;
   }
 
@@ -242,7 +242,6 @@ export class Logistics {
       const r = species[item.sp] ? species[item.sp].rarity : 9;
       if (r > FUEL_MAX_RARITY || n.q.length >= (this.game.T.genBuffer)) return false;
       n.q.push({ sp: item.sp, vr: item.vr });
-      this.game.power.markDirty();
       return true;
     }
     if (n.type === 'vault') {
@@ -383,12 +382,13 @@ export class Logistics {
     for (let f = 1; f <= 2; f++) for (let l = -1; l <= 1; l++) for (let v = 0; v <= 2; v++) {
       const [i, j, k] = this.mechCell(m, f, l, v);
       const s = w.get(i, j, k);
-      if (!s || s === BULK || w.reserved.has(idx(i, j, k))) continue;
+      if (!s || s === BULK || s === REMAINS || w.reserved.has(idx(i, j, k))) continue;
       const sc = f * 10 + Math.abs(l) * 3 + v;
       if (sc < bs) { bs = sc; best = [i, j, k]; }
     }
     if (best) {
       const it = w.removeCell(best[0], best[1], best[2]);
+      if (!it) m.timer = 0.5;
       if (it) {
         g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
         if (it.sp === NEEDLE) return;
@@ -414,7 +414,7 @@ export class Logistics {
     m.arm = null;
     if (T.mechLayer && !this.tiles.has(oldKey) && g.S.money >= 3) {
       g.S.money -= 3; g.ui.setMoney(g.S.money);
-      g.addEntity({ id: g.nextId(), type: 'belt', i: oi, j: oj, k: ok, dir: (m.dir + 2) & 3, rise: 0, items: [] });
+      g.layBelt(oi, oj, ok, (m.dir + 2) & 3);
     }
     if (T.mechBolt && m.adv % 3 === 0) g.machines.autoFrame(oi, oj, ok, m.dir);
     this.dirty = true;

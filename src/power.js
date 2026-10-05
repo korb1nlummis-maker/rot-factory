@@ -80,6 +80,8 @@ export class Power {
     // cables
     const arr = new Float32Array(segs.length * 3);
     for (let s = 0; s < segs.length; s++) { const p = np[segs[s]]; arr[s * 3] = p[0]; arr[s * 3 + 1] = p[1] + 1.1; arr[s * 3 + 2] = p[2]; }
+    this.line.geometry.dispose();
+    this.line.geometry = new THREE.BufferGeometry();
     this.line.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3));
     this.line.geometry.computeBoundingSphere();
     this.dirty = false;

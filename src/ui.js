@@ -191,7 +191,7 @@ export class UI {
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();
     if (id === 'craft') this.renderCraft();
-    if (id === 'crew') { this.renderCrew(); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
+    if (id === 'crew') { this.renderCrew(); clearInterval(this._crewT); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
   }
   closeModalsSilently() { for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden'); this.openModal = null; }
 

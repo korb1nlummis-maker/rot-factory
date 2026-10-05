@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { FRAME_TYPES } from './upgrades.js';
-import { sellValue, NEEDLE } from './plushdata.js';
+import { sellValue, NEEDLE, BULK, REMAINS } from './plushdata.js';
 import { compaction } from './util.js';
 
 const woodTex = (() => {
@@ -82,8 +82,12 @@ export class Machines {
     this.tmpV = new THREE.Vector3();
   }
 
+  disposeObj(o) {
+    o.traverse((c) => { if (c.geometry) c.geometry.dispose(); if (c.material && !c.material.__shared && c.isLineSegments) c.material.dispose(); });
+  }
+
   clear() {
-    for (const it of this.items.values()) this.root.remove(it.obj);
+    for (const it of this.items.values()) { this.disposeObj(it.obj); this.root.remove(it.obj); }
     this.items.clear();
     this.setGhost(null);
   }
@@ -400,7 +404,8 @@ export class Machines {
       const ci = toI(ax), cj = toJ(ay), ck = toK(az);
       for (let dj = -rc; dj <= rc; dj++) for (let dk = -rc; dk <= rc; dk++) for (let di = -rc; di <= rc; di++) {
         const i = ci + di, j = cj + dj, k = ck + dk;
-        if (w.get(i, j, k) === 0) continue;
+        const gs = w.get(i, j, k);
+        if (gs === 0 || gs === BULK || gs === REMAINS) continue;
         const x = cellX(i), y = cellY(j), z = cellZ(k);
         const d = Math.hypot(x - ax, y - ay, z - az);
         if (d > reach) continue;
@@ -476,6 +481,7 @@ export class Machines {
       }
     }
     e.i = nx; e.k = nk;
+    e.x = cellX(e.i); e.z = cellZ(e.k);
     e.steps = (e.steps || 0) + 1;
     game.fx.dust(cellX(nx) + e.dx * 0.8, e.j * C + 0.8, cellZ(nk) + e.dz * 0.8, 6, 0.8, 1);
     if (e.steps % 2 === 0) {

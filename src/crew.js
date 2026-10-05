@@ -69,7 +69,7 @@ export class Crew {
 
   get bots() { return this.game.S.crew; }
 
-  clear() { for (const o of this.objs.values()) this.root.remove(o); this.objs.clear(); this.connCache.clear(); }
+  clear() { for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); } this.objs.clear(); this.connCache.clear(); }
 
   home() { return { x: this.game.hall.binPos.x, z: this.game.hall.binPos.z + 1.6 }; }
 
@@ -78,7 +78,7 @@ export class Crew {
     const S = this.game.S, T = this.game.T;
     S.crew = S.crew || [];
     while (S.crew.length < T.crewMax) this.spawn();
-    for (const b of S.crew) if (!this.objs.has(b.id)) this.build(b);
+    for (const b of S.crew) { delete b.arm; delete b.aim; delete b.advTo; if (b.state === 'advance') b.state = 'farm'; if (!this.objs.has(b.id)) this.build(b); }
   }
 
   spawn() {
@@ -261,7 +261,11 @@ export class Crew {
       case 'farm': case 'advance': this.thinkFarm(b, dt, time); break;
       case 'blocked': case 'stuck': {
         b.timer -= dt;
-        if (b.timer <= 0) this.goHome(b);
+        if (b.timer <= 0) {
+          this.goHome(b);
+          b.origin = null; // give up on this face, it is blocked
+          g.ui.toast({ icon: '🤖', title: `${b.name} is blocked`, text: 'It cannot dig any further that way and is heading home.', ms: 4000 });
+        }
         break;
       }
     }
@@ -303,7 +307,7 @@ export class Crew {
     b.tx = cellX(bi) + dx * 0.1; b.tz = cellZ(bk) + dz * 0.1;
     b.timer -= dt;
     b.battery -= dt * 0.003 / T.crewBattery;
-    if (b.carry.length >= this.capacity(b) && !this.beltFor(b)) { this.goHome(b); return; }
+    if (b.carry.length >= this.capacity(b)) { this.goHome(b); return; }
     if (b.timer > 0) return;
     // work volume
     const W = 2 + Math.floor(b.level / 6), H = 3 + (b.level >= 10 ? 1 : 0);
@@ -319,14 +323,13 @@ export class Crew {
     }
     if (best) {
       const belt = this.beltFor(b);
-      if (!belt && b.carry.length >= this.capacity(b)) { this.goHome(b); return; }
       const it = w.removeCell(best[0], best[1], best[2]);
       if (!it) { b.timer = 0.3; return; }
-      b.arm = performance.now();
+      b.arm = performance.now() / 1000;
       b.aim = [cellX(best[0]), cellY(best[1]), cellZ(best[2])];
       g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
       if (it.sp === NEEDLE) return;
-      if (!(belt && g.logi.accept(belt, it, null))) b.carry.push({ sp: it.sp, vr: it.vr });
+      if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.carry.length >= this.capacity(b)) { this.goHome(b); b.timer = this.digTime(b, b.x, b.z); return; } }
       this.gainXp(b, 1);
       if (Math.random() < 0.15) g.sound.chirp(0.9 + Math.random() * 0.5);
       b.timer = this.digTime(b, b.x, b.z);
@@ -344,7 +347,7 @@ export class Crew {
       this.noteDist(b);
       if (T.crewBelt && !g.logi.tileAt(oi, bj, ok) && g.S.money >= 3) {
         g.S.money -= 3; g.ui.setMoney(g.S.money);
-        g.addEntity({ id: g.nextId(), type: 'belt', i: oi, j: bj, k: ok, dir: (b.dir + 2) & 3, rise: 0, items: [] });
+        g.layBelt(oi, bj, ok, (b.dir + 2) & 3);
       }
       if (T.crewBolt && b.adv % 3 === 0) g.machines.autoFrame(oi, bj, ok, b.dir);
     } else {
@@ -400,7 +403,7 @@ export class Crew {
     const head = o.getObjectByName('head');
     // eyes look at what matters: the dig target, else the player if near, else ahead
     let lx = pp.x - b.x, lz = pp.z - b.z, show = Math.hypot(lx, lz) < 7;
-    if (b.aim && performance.now() - (b.arm || 0) < 700) { lx = b.aim[0] - b.x; lz = b.aim[2] - b.z; show = true; }
+    if (b.aim && performance.now() / 1000 - (b.arm || 0) < 0.7) { lx = b.aim[0] - b.x; lz = b.aim[2] - b.z; show = true; }
     if (head) {
       const target = show ? Math.atan2(lx, lz) - o.rotation.y : 0;
       const dd = ((target - head.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
@@ -412,7 +415,7 @@ export class Crew {
     for (const n of ['eyeL', 'eyeR']) { const e = o.getObjectByName(n); if (e) e.scale.y = blink; }
     const lowBat = b.battery < 0.2;
     for (const n of ['eyeL', 'eyeR']) { const l = o.getObjectByName(n)?.getObjectByName('lens'); if (l) l.material = lowBat || b.state === 'blocked' ? M.lensWarn : M.lens; }
-    const digging = b.arm && performance.now() - b.arm < 500;
+    const digging = b.arm && performance.now() / 1000 - b.arm < 0.5;
     for (const [n, s] of [['armL', -1], ['armR', 1]]) { const a = o.getObjectByName(n); if (a) a.rotation.x = digging ? -0.4 + Math.sin(time * 18 + s) * 0.5 : Math.sin(time * 1.5 + s) * 0.06; }
     const led = o.getObjectByName('led');
     if (led) led.visible = Math.sin(time * 4 + b.id) > -0.3;

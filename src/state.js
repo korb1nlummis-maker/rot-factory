@@ -51,7 +51,7 @@ export function saveGame(S, world, sim) {
     world.forEachDiff((id, sp, vr) => { if (t < n) { ids[t] = id; sps[t] = sp; vrs[t] = vr; t++; } });
     const loose = [];
     if (sim) for (let i = 0; i < sim.n; i++) loose.push([sim.sp[i], sim.vr[i], +sim.x[i].toFixed(2), +sim.y[i].toFixed(2), +sim.z[i].toFixed(2)]);
-    const payload = { v: 1, loose, S, diff: { n, ids: b64(ids), sps: b64(sps), vrs: b64(vrs) }, needle: world.needle };
+    const payload = { v: 1, dim: NX, loose, S, diff: { n, ids: b64(ids), sps: b64(sps), vrs: b64(vrs) }, needle: world.needle };
     localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
     return true;
   } catch (e) {
@@ -65,7 +65,7 @@ export function loadSaved() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw);
-    if (p.v !== 1) return null;
+    if (p.v !== 1 || p.dim !== NX) return null; // saves from other world sizes cannot be loaded
     return p;
   } catch (e) { return null; }
 }

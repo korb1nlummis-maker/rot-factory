@@ -270,12 +270,30 @@ export class World {
 
   // ---------- supports ----------
   supportBonus(x, y, z) {
+    if (this._sgLen !== this.supports.length || this._sgRef !== this.supports) this.buildSupportGrid();
     let b = 0;
-    for (const s of this.supports) {
+    const check = (s) => {
       const dx = x - s.x, dy = y - s.y, dz = z - s.z;
       if (dx * dx + dy * dy + dz * dz < s.r * s.r && s.b > b) b = s.b;
+    };
+    const gx = Math.floor(x / 16), gz = Math.floor(z / 16);
+    for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) {
+      const arr = this._sg.get((gz + c) * 100000 + (gx + a));
+      if (arr) for (const s of arr) check(s);
     }
+    for (const s of this._movers) check(s);
     return b;
+  }
+
+  buildSupportGrid() {
+    this._sg = new Map(); this._movers = [];
+    for (const s of this.supports) {
+      if (typeof s.id === 'string' && s.id.startsWith('shield')) { this._movers.push(s); continue; }
+      const k = Math.floor(s.z / 16) * 100000 + Math.floor(s.x / 16);
+      let arr = this._sg.get(k); if (!arr) { arr = []; this._sg.set(k, arr); }
+      arr.push(s);
+    }
+    this._sgLen = this.supports.length; this._sgRef = this.supports;
   }
 
   // how much extra roof strength the pile needs the further you are from the start (denser, heavier plush)

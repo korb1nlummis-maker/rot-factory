@@ -56,6 +56,7 @@ export class Contracts {
   fill() {
     const S = this.game.S;
     S.contracts = S.contracts || [];
+    for (let n = 0; n < S.contracts.length; n++) if (S.contracts[n].have >= S.contracts[n].need && !this._pending) S.contracts[n] = this.make();
     while (S.contracts.length < this.game.T.contractSlots) S.contracts.push(this.make());
     if (S.contracts.length > this.game.T.contractSlots) S.contracts.length = this.game.T.contractSlots;
   }
@@ -93,8 +94,8 @@ export class Contracts {
     S.stats.contracts = (S.stats.contracts || 0) + 1;
     g.ui.toast({ icon: '📋', title: 'Contract complete', text: `◈ ${fmt(c.reward)}${extra}`, cls: 'ach', ms: 5000 });
     g.sound.ach();
-    const idx = S.contracts.indexOf(c);
-    setTimeout(() => { S.contracts[idx] = this.make(); if (g.ui.openModal === 'shop') g.ui.renderShop(); }, 1500);
+    const id = c.id;
+    setTimeout(() => { const n = S.contracts.findIndex((x) => x.id === id); if (n >= 0 && S.contracts[n].have >= S.contracts[n].need) S.contracts[n] = this.make(); if (g.ui.openModal === 'shop') g.ui.renderShop(); }, 1500);
   }
 
   reroll(i) {
