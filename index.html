@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Rot Factory</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23202418'/%3E%3Cellipse cx='32' cy='36' rx='20' ry='18' fill='%23ff8fc4'/%3E%3Ccircle cx='24' cy='32' r='3' fill='%23201'/%3E%3Ccircle cx='40' cy='32' r='3' fill='%23201'/%3E%3C/svg%3E" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="topleft">
+    <div class="logo-mini">ROT<span>FACTORY</span></div>
+    <div id="money"><span class="coin">◈</span><b id="moneyVal">0</b><i id="moneyDelta"></i></div>
+    <div id="assay" class="hidden"><span>VEIN ASSAY</span><div class="bar"><i id="assayBar"></i></div></div>
+    <div id="streak" class="hidden"><span id="streakVal">x1</span><div class="bar"><i id="streakBar"></i></div></div>
+  </div>
+  <div id="topcenter">
+    <div id="compass" class="hidden"><canvas id="compassCv" width="560" height="64"></canvas><div id="compassTxt"></div></div>
+    <div id="depth"></div>
+  </div>
+  <div id="topright"><div id="toasts"></div></div>
+
+  <div id="center">
+    <div id="cross"></div>
+    <svg id="ring" viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="18"/><circle id="ringFg" class="fg" cx="22" cy="22" r="18"/></svg>
+    <div id="target" class="hidden"><div class="tn"></div><div class="tr"></div><div class="tv"></div></div>
+  </div>
+  <div id="warn" class="hidden"></div>
+  <div id="hint"></div>
+
+  <div id="bottom">
+    <div id="carry"><div class="carry-label">CARRYING <b id="carryN">0</b> / <b id="carryMax">1</b></div><div id="carryChips"></div></div>
+    <div id="hotbar"></div>
+  </div>
+  <div id="signal" class="hidden">
+    <div class="sig-title">THE ONE</div>
+    <div class="sig-meter"><i id="sigFill"></i></div>
+    <div class="sig-row"><span id="sigArrow">➤</span><span id="sigDist"></span></div>
+  </div>
+  <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Hold left mouse on the plush around you.</span></div>
+  <div id="vig"></div>
+  <div id="hurt"></div>
+</div>
+
+<div id="title" class="screen">
+  <div class="title-card">
+    <div class="eyebrow">A SORTING SHIFT AT WAREHOUSE 07</div>
+    <h1>ROT<br><span>FACTORY</span></h1>
+    <p class="tag">Millions of plush. One of them matters.<br>Dig through, or dig out.</p>
+    <div class="title-buttons">
+      <button id="btnContinue" class="big hidden">Continue</button>
+      <button id="btnNew" class="big">New Shift</button>
+    </div>
+    <div class="how">
+      <div><kbd>WASD</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Space</kbd> jump &nbsp; <kbd>C</kbd> crouch</div>
+      <div><kbd>G</kbd> grab (hold) / drop &nbsp; <kbd>F</kbd> throw &nbsp; <kbd>E</kbd> use &nbsp; <kbd>Tab</kbd> upgrades</div>
+      <div><kbd>Wheel</kbd> or <kbd>1-9</kbd> build tools &nbsp; <kbd>Q</kbd> hands &nbsp; <kbd>X</kbd> remove &nbsp; <kbd>N</kbd> dex &nbsp; <kbd>J</kbd> goals</div>
+    </div>
+  </div>
+</div>
+
+<div id="shop" class="modal hidden">
+  <div class="panel wide">
+    <header><h2>UPGRADE TERMINAL</h2><div class="bal">◈ <b id="shopMoney">0</b></div><button class="x" data-close>✕</button></header>
+    <nav id="shopTabs"></nav>
+    <div id="shopGrid"></div>
+  </div>
+</div>
+<div id="dex" class="modal hidden">
+  <div class="panel wide">
+    <header><h2>PLUSHDEX</h2><div class="bal"><b id="dexCount">0</b> / <span id="dexTotal">576</span> species</div><button class="x" data-close>✕</button></header>
+    <div id="dexGrid"></div>
+  </div>
+</div>
+<div id="note" class="modal hidden">
+  <div class="panel narrow">
+    <header><h2 id="noteTitle">NOTE</h2><button class="x" data-close>✕</button></header>
+    <div class="menu">
+      <div id="noteWho" style="font-size:12px;letter-spacing:.14em;color:var(--dim)"></div>
+      <div id="noteBody" class="paper"></div>
+      <div id="noteReward" style="font-weight:800;color:var(--accent)"></div>
+    </div>
+  </div>
+</div>
+<div id="journal" class="modal hidden">
+  <div class="panel wide">
+    <header><h2>FIELD JOURNAL</h2><div class="bal" id="journalBoosts" style="font-size:13px"></div><button class="x" data-close>✕</button></header>
+    <div id="journalList" style="padding:18px 20px;overflow:auto;display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));align-content:start;flex:1"></div>
+  </div>
+</div>
+<div id="travel" class="modal hidden">
+  <div class="panel narrow">
+    <header><h2>DEPOT NETWORK</h2><div class="bal">◈ <b id="travelMoney">0</b></div><button class="x" data-close>✕</button></header>
+    <div class="menu" id="travelList"></div>
+  </div>
+</div>
+<div id="dossier" class="modal hidden">
+  <div class="panel narrow">
+    <header><h2>DOSSIER: THE ONE</h2><button class="x" data-close>✕</button></header>
+    <div class="menu" style="align-items:center;text-align:center">
+      <canvas id="dossierCv" width="320" height="320" style="width:320px;height:320px"></canvas>
+      <div style="font-size:22px;font-weight:900;letter-spacing:.06em;color:#fff3a0">IL ROTTO SUPREMO</div>
+      <div style="font-size:13px;color:var(--dim);line-height:1.6">Gold plush with a small crown and a floating halo ring.<br>Squeaks once, loudly, when picked up.<br>Somewhere in this warehouse. The pile is deeper than the maps say.<br>Facility records put it <b style="color:var(--ink)">more than four kilometers</b> from Sorting Bay 07, in a far corner. The EXIT is a mere three.</div>
+      <div style="font-size:12px;color:var(--dim)">Better sensors in the Upgrade Terminal will narrow the search.</div>
+      <div id="clueList" style="width:100%;text-align:left;font-size:12px;color:var(--dim);line-height:1.55"></div>
+    </div>
+  </div>
+</div>
+<div id="ach" class="modal hidden">
+  <div class="panel wide">
+    <header><h2>ACHIEVEMENTS</h2><div class="bal"><b id="achCount">0</b> / <span id="achTotal"></span></div><button class="x" data-close>✕</button></header>
+    <div id="achGrid"></div>
+  </div>
+</div>
+<div id="pause" class="modal hidden">
+  <div class="panel narrow">
+    <header><h2>PAUSED</h2><button class="x" data-close>✕</button></header>
+    <div class="menu">
+      <button id="btnResume" class="big">Resume</button>
+      <label>Graphics
+        <select id="selQuality"><option value="ultra">Ultra</option><option value="high" selected>High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      </label>
+      <label>Volume <input id="rngVol" type="range" min="0" max="1" step="0.05" value="0.7"></label>
+      <label>Mouse sensitivity <input id="rngSens" type="range" min="0.3" max="2.5" step="0.05" value="1"></label>
+      <div class="menu-row"><button id="btnSave">Save</button><button id="btnShop">Terminal</button><button id="btnDex">Plushdex</button><button id="btnAch">Achievements</button></div>
+      <button id="btnReset" class="danger">Abandon shift (new warehouse)</button>
+      <div class="stats" id="statsBox"></div>
+    </div>
+  </div>
+</div>
+<div id="ending" class="screen hidden">
+  <div class="title-card">
+    <div class="eyebrow" id="endEyebrow"></div>
+    <h1 id="endTitle"></h1>
+    <p class="tag" id="endText"></p>
+    <div class="stats" id="endStats"></div>
+    <div class="title-buttons"><button id="btnKeep" class="big">Keep Playing</button><button id="btnNew2" class="big alt">New Warehouse</button></div>
+  </div>
+</div>
+<div id="loading" class="screen"><div class="load-card"><div class="spin"></div><div id="loadTxt">Stacking plush…</div></div></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
