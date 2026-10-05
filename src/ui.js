@@ -83,7 +83,7 @@ export class UI {
     t.classList.remove('hidden');
     t.querySelector('.tn').textContent = info.name;
     const tr = t.querySelector('.tr');
-    tr.textContent = info.rarity + (info.shiny ? '  ✦ SHINY' : '');
+    tr.textContent = info.rarity + (info.shiny ? '  ✦ SHINY' : '') + (info.volatile ? '  ⚠ VOLATILE' : '');
     tr.className = 'tr r' + info.rid;
     t.querySelector('.tv').textContent = info.value;
   }
@@ -190,6 +190,7 @@ export class UI {
     if (id === 'dossier') { this.startDossier(); $('clueList').innerHTML = (this.game.S.clues || []).map((c) => `<div>📎 ${c}</div>`).join('') || '<div>No clues yet. Depot Beacons far from the bay turn up old paperwork.</div>'; }
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();
+    if (id === 'craft') this.renderCraft();
     if (id === 'crew') { this.renderCrew(); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
   }
   closeModalsSilently() { for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden'); this.openModal = null; }
@@ -221,6 +222,23 @@ export class UI {
       el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p><div class="pips">${pips}</div>
         <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : nt ? nt : !unlocked ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : `Buy  ◈ ${fmt(cost)}`}</button>`;
       el.querySelector('button').onclick = () => { if (g.buy(u.id)) this.renderShop(); };
+      grid.appendChild(el);
+    }
+  }
+
+  renderCraft() {
+    const g = this.game;
+    $('craftMoney').textContent = fmt(g.S.money);
+    const grid = $('craftGrid');
+    grid.innerHTML = '';
+    const list = g.recipeList();
+    if (!list.length) { grid.innerHTML = '<div class="jcard">Nothing to craft yet. Unlock Timber Frames, Work Lanterns, belts and more in the terminal.</div>'; return; }
+    for (const r of list) {
+      const have = g.S.items[r.id] || 0;
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? 'have ' + have : ''}</small></h3><p>${r.desc}</p><div style="display:flex;gap:6px">${r.batch.map((n) => `<button data-n="${n}" ${g.S.money >= r.price * n ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(r.price * n)}</button>`).join('')}</div>`;
+      for (const b of el.querySelectorAll('button')) b.onclick = () => { if (g.craftItem(r.id, +b.dataset.n)) this.renderCraft(); };
       grid.appendChild(el);
     }
   }

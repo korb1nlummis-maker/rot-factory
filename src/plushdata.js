@@ -52,7 +52,7 @@ export const pools = RARITY.map(() => []);
     const pal = Math.floor((s - 1) / ARCH_COUNT);
     const r = rarityOf[s] ?? 0;
     const name = `${PREFIXES[pal]} ${ARCH_NAMES[arch]}`;
-    species[s] = { id: s, arch, pal, rarity: r, name };
+    species[s] = { id: s, arch, pal, rarity: r, name, volatile: arch === 31 };
     pools[r].push(s);
   }
   species[NEEDLE] = { id: NEEDLE, arch: 36, pal: 99, rarity: 6, name: 'Il Rotto Supremo' };

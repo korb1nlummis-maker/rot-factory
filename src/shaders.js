@@ -16,6 +16,7 @@ export const U = {
   uLampRange: { value: 16 },
   uPt: { value: Array.from({ length: 6 }, () => new THREE.Vector4(0, -999, 0, 1)) },
   uPtCol: { value: Array.from({ length: 6 }, () => new THREE.Color(0, 0, 0)) },
+  uPtN: { value: 1 },
   uStressOn: { value: 0 },
 };
 
@@ -49,19 +50,22 @@ precision highp float;
 uniform float uTime; uniform vec3 uFogColor; uniform float uFogDensity; uniform float uCamSky;
 uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uHemiSky; uniform vec3 uHemiGround;
 uniform vec3 uLampPos; uniform vec3 uLampDir; uniform vec3 uLampColor; uniform vec2 uLampCone; uniform float uLampRange;
-uniform vec4 uPt[6]; uniform vec3 uPtCol[6];
+uniform vec4 uPt[6]; uniform vec3 uPtCol[6]; uniform int uPtN;
 varying vec3 vN; varying vec3 vWP; varying vec3 vCol; varying vec4 vData; varying vec3 vOP;
 ${noise}
 void main(){
   float ao = vData.x, sky = vData.y, flags = vData.z, seed = vData.w;
   vec3 N = normalize(vN);
-  vec3 q = vOP * 34.0 + seed * 19.0;
-  float n1 = vnoise(q);
-  vec3 pert = vec3(vnoise(q + 11.0), vnoise(q + 23.0), vnoise(q + 37.0)) - 0.5;
-  N = normalize(N + pert * 0.30);
   vec3 toCam = cameraPosition - vWP;
   float dist = length(toCam);
   vec3 V = toCam / dist;
+  float n1 = 0.5;
+  if (dist < 16.0) {
+    vec3 q = vOP * 34.0 + seed * 19.0;
+    n1 = hash31(floor(q * 0.5));
+    vec3 pert = vec3(hash31(floor(q)), hash31(floor(q) + 11.0), hash31(floor(q) + 23.0)) - 0.5;
+    N = normalize(N + pert * 0.28 * (1.0 - dist / 16.0));
+  }
   vec3 alb = vCol * (0.92 + 0.16 * n1);
 
   vec3 L = vec3(0.0);
@@ -81,6 +85,7 @@ void main(){
 
   // placed lamps
   for (int i = 0; i < 6; i++) {
+    if (i >= uPtN) break;
     vec3 pv = uPt[i].xyz - vWP; float pd = length(pv);
     float pr = uPt[i].w;
     if (pd < pr) {

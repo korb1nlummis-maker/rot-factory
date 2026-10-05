@@ -14,6 +14,8 @@ import { Logistics, LOGI } from './logistics.js';
 import { Power } from './power.js';
 import { Contracts } from './contracts.js';
 import { Crew } from './crew.js';
+import { recipes, craft } from './crafting.js';
+import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
@@ -192,7 +194,7 @@ export class Game {
     window.addEventListener('mousedown', (e) => this.onMouse(e, true));
     window.addEventListener('mouseup', (e) => this.onMouse(e, false));
     window.addEventListener('contextmenu', (e) => e.preventDefault());
-    window.addEventListener('wheel', (e) => { if (this.mode === 'play' && !this.ui.isModalOpen() && this.tools.length > 1) { this.selectTool((this.tool + (e.deltaY > 0 ? 1 : -1) + this.tools.length) % this.tools.length); } }, { passive: true });
+    window.addEventListener('wheel', (e) => { if (this.mode === 'play' && !this.ui.isModalOpen() && this.tools.length > 1) { this.selectTool(this.buildIdx + (e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
     window.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === this.canvas && this.mode === 'play') {
         const s = 0.0022 * this.sens;
@@ -252,7 +254,7 @@ export class Game {
       this.S.stats.noPropDeep = this.S.stats.noPropDeep || false;
       this.requestLock();
       this.sound.resume();
-      if (isNew) setTimeout(() => this.ui.hint('Hold <kbd>G</kbd> on a plush to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the terminal for upgrades.', 11), 800);
+      if (isNew) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>G</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
       else this.ui.hint('Welcome back to Warehouse 07.', 4);
     }, 60);
   }
@@ -287,56 +289,32 @@ export class Game {
     else if (e.code === 'KeyG') this.gPress();
     else if (e.code === 'KeyJ') this.openModal('ach');
     else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < this.tools.length) this.selectTool(n); }
+    else if (e.code === 'KeyB') this.bPress();
+    else if (e.code === 'BracketRight' || e.code === 'ArrowRight') this.selectTool(this.buildIdx + 1);
+    else if (e.code === 'BracketLeft' || e.code === 'ArrowLeft') this.selectTool(this.buildIdx - 1);
     else if (e.code === 'KeyE') this.useKey();
     else if (e.code === 'KeyF') this.throwOne();
-    else if (e.code === 'KeyQ') this.selectTool(0);
+    else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); this.ui.hint(this.stowed ? 'Build item stowed. <kbd>Q</kbd> brings it back.' : 'Build item ready. <kbd>B</kbd> places it.', 2); }
     else if (e.code === 'KeyX') this.deconstruct();
     else if (e.code === 'KeyR') {
-      if (this.curTool().kind === 'frame') { this.frameIdx = (this.frameIdx + 1) % this.T.frames.length; this.rebuildTools(); }
-      else this.rampMode = (this.rampMode + 1) % 3;
+      this.rampMode = (this.rampMode + 1) % 2;
       this.machines.setGhost(null);
     }
   }
 
-  onMouse(e, down) {
-    if (this.mode !== 'play' || this.ui.isModalOpen()) return;
-    if (document.pointerLockElement !== this.canvas) return;
-    if (e.button === 0) {
-      this.mouse.l = down;
-      if (down) this.onLeftPress();
-      else this.grab.latch = false;
-    }
-    if (e.button === 2) {
-      this.mouse.r = down;
-      if (down) { if (this.curTool().kind === 'hands' || this.curTool().kind === 'vac') this.throwOne(); else this.selectTool(0); }
-    }
-  }
+  onMouse() { /* the mouse only looks around; everything is on the keyboard */ }
 
   // ======================= tools =======================
+  // inventory of crafted build items. With an item in hand a green outline shows where it will go; B sets it down.
   rebuildTools() {
-    const T = this.T;
-    const list = [{ id: 'hands', kind: 'hands', icon: '✋', label: 'Grab' }];
-    if (T.vac > 0) list.push({ id: 'vac', kind: 'vac', icon: '🌀', label: 'Vacuum' });
-    if (T.frames.length) {
-      if (this.frameIdx == null || this.frameIdx >= T.frames.length) this.frameIdx = T.frames.length - 1;
-      const f = T.frames[this.frameIdx];
-      list.push({ id: 'frame' + f, kind: 'frame', fk: f, icon: FRAME_TYPES[f].icon, label: FRAME_TYPES[f].name.split(' ')[0], count: '◈' + fmt(FRAME_TYPES[f].cost) });
-    }
-    if (T.lantern) list.push({ id: 'lan', kind: 'lantern', icon: '🏮', label: 'Lantern', count: '◈6' });
-    if (T.machines.includes('gen')) list.push({ id: 'gen', kind: 'gen', icon: '🔥', label: 'Generator', count: '◈' + this.genCost() });
-    if (T.machines.includes('pole')) list.push({ id: 'pole', kind: 'pole', icon: '⚡', label: 'Pole', count: '◈20' });
-    if (T.machines.includes('fan')) list.push({ id: 'fan', kind: 'fan', icon: '🌬️', label: 'Fan', count: '◈240' });
-    if (T.machines.includes('belt')) list.push({ id: 'belt', kind: 'belt', icon: '🛤️', label: 'Belt', count: '◈3' });
-    if (T.machines.includes('sorter')) list.push({ id: 'sorter', kind: 'sorter', icon: '🗃️', label: 'Sorter', count: '◈' + this.sorterCost() });
-    if (T.machines.includes('vault')) list.push({ id: 'vault', kind: 'vault', icon: '🧰', label: 'Vault', count: '◈140' });
-    if (T.machines.includes('mech')) list.push({ id: 'mech', kind: 'mech', icon: '🤖', label: 'Mech', count: '◈' + this.mechCost() });
-    if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', label: 'Bulkhead', count: '◈10' });
-    if (T.depots) list.push({ id: 'beacon', kind: 'beacon', icon: '📡', label: 'Depot', count: '◈' + fmt(this.beaconCost()) });
-    if (T.machines.includes('claw')) list.push({ id: 'claw', kind: 'claw', icon: '🦾', label: 'Claw Rig', count: '◈' + this.rigCost() });
-    if (T.machines.includes('borer')) list.push({ id: 'borer', kind: 'borer', icon: '🚇', label: 'Borer', count: '◈' + this.borerCost() });
+    const S = this.S;
+    S.items = S.items || {};
+    const list = recipes(this).filter((r) => (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
+    // items whose recipe is no longer listed (should not happen) still count
     this.tools = list;
-    if (this.tool >= list.length) this.tool = 0;
-    this.ui.setHotbar(list, this.tool);
+    if (this.buildIdx == null || this.buildIdx >= list.length) this.buildIdx = 0;
+    this.ui.setHotbar(list, this.stowed ? -1 : this.buildIdx);
+    if (!list.length) this.machines.setGhost(null);
   }
   beaconCost() { return Math.round(4000 * Math.pow(2.6, this.beaconList().length - 1)); }
   genCost() { return Math.round(350 * Math.pow(1.35, this.logi ? this.logi.count('gen') : 0)); }
@@ -344,13 +322,19 @@ export class Game {
   mechCost() { return Math.round(2500 * Math.pow(1.55, this.logi ? this.logi.count('mech') : 0)); }
   rigCost() { return Math.round(150 * Math.pow(1.4, this.machines ? this.machines.count('claw') : 0)); }
   borerCost() { return Math.round(3200 * Math.pow(1.7, this.machines ? this.machines.count('borer') : 0)); }
-  curTool() { return this.tools[this.tool] || this.tools[0]; }
+  curTool() { return !this.stowed && this.tools[this.buildIdx] ? this.tools[this.buildIdx] : { kind: 'hands' }; }
   selectTool(n) {
-    this.tool = n;
-    this.ui.setHotbar(this.tools, n);
+    if (!this.tools.length) return;
+    this.buildIdx = (n + this.tools.length) % this.tools.length;
+    this.stowed = false;
+    this.ui.setHotbar(this.tools, this.buildIdx);
     this.machines.setGhost(null);
     this.sound.tone('sine', 700, 900, 0.05, 0.05);
   }
+  giveItem(id, n = 1) { this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }
+
+  recipeList() { return recipes(this); }
+  craftItem(id, n) { return craft(this, id, n); }
 
   // ======================= buying =======================
   buy(id) {
@@ -379,8 +363,10 @@ export class Game {
 
   // ======================= core loop =======================
   frame(now) {
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    const raw = now - this.last;
+    const dt = Math.min(0.05, raw / 1000);
     this.last = now;
+    this.perf(raw);
     this.time += dt;
     try {
       if (this.mode === 'title') this.updateTitle(dt);
@@ -388,6 +374,25 @@ export class Game {
     } catch (err) { console.error(err); }
     this.renderer.render(dt, this.time);
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  // frame-time governor: keep the game near 60 fps by trading resolution, and an F3 readout
+  perf(raw) {
+    if (raw > 250) return; // tab was hidden
+    this.msAvg = this.msAvg ? this.msAvg * 0.94 + raw * 0.06 : raw;
+    this.perfT = (this.perfT || 0) + raw;
+    if (this.keys.F3 && !this._f3) { this._f3 = true; this.showFps = !this.showFps; document.getElementById('fps').classList.toggle('hidden', !this.showFps); }
+    if (!this.keys.F3) this._f3 = false;
+    if (this.showFps && this.perfT > 400) {
+      const r = this.renderer.renderer.info.render;
+      document.getElementById('fps').textContent = `${(1000 / this.msAvg).toFixed(0)} fps · ${this.msAvg.toFixed(1)} ms · res ${(this.renderer.dynScale * 100).toFixed(0)}% · ${r.calls} calls · ${(r.triangles / 1e6).toFixed(1)}M tris`;
+    }
+    if (this.perfT < 1500) return;
+    this.perfT = 0;
+    if (this.S && this.S.settings && this.S.settings.adaptive === false) return;
+    const s = this.renderer.dynScale;
+    if (this.msAvg > 19.5 && s > 0.5) this.renderer.setDynScale(s - 0.1);
+    else if (this.msAvg < 12.2 && s < 1) this.renderer.setDynScale(s + 0.05);
   }
 
   updateTitle(dt) {
@@ -416,8 +421,11 @@ export class Game {
     this.camSky += (sky - this.camSky) * Math.min(1, dt * 4);
     U.uCamSky.value = this.camSky;
     const cs = 0.12 + 0.88 * this.camSky;
-    this.hall.hemi.intensity = 0.55 * cs;
-    this.hall.sun.intensity = 1.2 * cs;
+    const lo = this.hall.lightsOn === false ? 0.04 : 1;
+    this.hall.hemi.intensity = 0.55 * cs * lo;
+    this.hall.sun.intensity = 1.2 * cs * lo;
+    U.uSunColor.value.setRGB(1.05 * lo, 1.1 * lo, 0.95 * lo);
+    U.uHemiSky.value.setRGB(0.36 * (0.1 + 0.9 * lo), 0.4 * (0.1 + 0.9 * lo), 0.3 * (0.1 + 0.9 * lo));
     this.renderer.scene.environmentIntensity = 0.28 * cs;
     this.sound.setAmbientMuffle(1 - this.camSky);
     // fog tint dims in tunnels
@@ -466,6 +474,7 @@ export class Game {
     this.camLamp.distance = T.lampRange + 4;
     // placed lights
     const ls = this.machines.lights(cam.position, 5);
+    U.uPtN.value = 1 + ls.length;
     for (let i = 0; i < 6; i++) {
       const L = U.uPt.value[i], Lc = U.uPtCol.value[i];
       if (i === 0) { L.set(this.hall.binPos.x, 1.1, this.hall.binPos.z, 7); Lc.setRGB(1.3, 0.55, 0.15); continue; }
@@ -486,6 +495,8 @@ export class Game {
     });
     this.updateAfters(dt);
     this.machines.update(dt, this.time);
+    this.updateFuses(dt);
+    this.updateSurge(dt);
     this.power.update(dt);
     this.logi.update(dt);
     this.crew.update(dt, this.time);
@@ -574,7 +585,7 @@ export class Game {
     const r = RARITY[s.rarity];
     const shiny = !!(tg.vr & 128);
     let val = tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? 'hold G to take down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
-    return { name: s.name, rarity: r.name, rid: s.rarity, shiny, value: val };
+    return { name: s.name, rarity: r.name, rid: s.rarity, shiny, value: val, volatile: !!s.volatile };
   }
 
   valueOf(sp, vr, streakN) {
@@ -591,11 +602,11 @@ export class Game {
   interact(dt, eye, dir) {
     const T = this.T, S = this.S, tool = this.curTool();
     const G = this.grab;
-    let tg = null;
-    if (tool.kind === 'hands' || tool.kind === 'vac') tg = this.findTarget(eye, dir);
+    const tg = this.findTarget(eye, dir);
+    const building = tool.kind !== 'hands';
 
     this.curTargetRef = tg;
-    // ghost / info for grab tools
+    // outline of the plush you are looking at
     if (tg) {
       this.ui.setTarget(this.targetInfo(tg));
       const sp = species[tg.sp];
@@ -610,11 +621,19 @@ export class Game {
       this.ui.setCross(true);
     } else { this.ui.setTarget(null); this.renderer.setGhost(0); this.ui.setCross(false); }
 
-    if (tool.kind === 'hands') {
+    // vacuum burst (tap G once the Plush Vacuum is owned)
+    if (T.vac > 0) {
+      if (this.keys.KeyG) this.vacT = Math.max(this.vacT || 0, 0.3);
+      if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
+      this.ui.setGrab(0, false);
+    } else {
+      // single-plush grab
       const full = S.carry.length >= T.carry;
       const key = tg ? (tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : `b${tg.idx}`) : '';
+      if (this.grabWant && !tg) { this.grabWantT += dt; if (this.grabWantT > 0.5) { this.grabWant = false; } }
+      else this.grabWantT = 0;
       if (this.holdGrab() && tg && !G.latch) {
-        if (full) { this.ui.hint('Hands full. Walk to the SORT bin, or <kbd>F</kbd> to throw.', 2.5); G.p = 0; }
+        if (full) { this.ui.hint('Hands full. Walk to the SORT bin, or <kbd>F</kbd> to throw.', 2.5); G.p = 0; this.grabWant = false; }
         else {
           if (key !== G.key) { G.key = key; G.p = Math.min(G.p, 0.15) * 0.5; }
           const rare = 1 + Math.max(0, species[tg.sp].rarity - 1) * 0.12;
@@ -623,32 +642,26 @@ export class Game {
           if (G.p >= 1) {
             this.collect(tg);
             G.p = 0;
-            if (!T.autoRepeat) G.latch = true;
+            if (!(T.autoRepeat && this.keys.KeyG)) { this.grabWant = false; if (this.keys.KeyG) G.latch = true; }
           }
         }
         this.ui.setGrab(G.p, true);
       } else {
         G.p = Math.max(0, G.p - dt * 3);
-        if (!this.holdGrab()) G.latch = false;
+        if (!this.keys.KeyG) G.latch = false;
         this.ui.setGrab(G.p, G.p > 0);
         if (!tg) G.key = '';
       }
-    } else if (tool.kind === 'vac') {
-      this.ui.setGrab(0, false);
-      if (this.holdGrab()) this.runVacuum(dt, eye, dir);
-      else this.vacAcc = 0;
-    } else {
-      // build tools
-      this.ui.setGrab(0, false);
-      this.updateBuild(tool, eye, dir);
     }
+    if (building) this.updateBuild(tool, eye, dir);
+    else this.machines.showPreview(null, null);
 
     // proximity hints
     const tp = this.hall.termPos, bp = this.hall.binPos, pp = this.player.pos;
     const dTerm = Math.hypot(pp.x - tp.x, pp.z - tp.z), dBin = Math.hypot(pp.x - bp.x, pp.z - bp.z);
-    if (!tg && tool.kind === 'hands') {
+    if (!tg && !building) {
       if (dTerm < 3.2 && !this._termHint) { this._termHint = true; this.ui.hint('<kbd>E</kbd> opens the upgrade terminal. <kbd>Tab</kbd> works anywhere.', 5); }
-      if (dBin < 3.2 && S.carry.length && !this._binHint) { this._binHint = true; this.ui.hint('<kbd>E</kbd> sells everything you carry. Or throw plush in for a streak bonus.', 5); }
+      if (dBin < 3.2 && S.carry.length && !this._binHint) { this._binHint = true; this.ui.hint('Plush you carry get sucked into the bin when you stand close. <kbd>F</kbd> throws one in for a streak bonus.', 5); }
     }
   }
 
@@ -659,7 +672,7 @@ export class Game {
     if (tg.type === 'cell' && tg.sp === BULK) {
       w.setCell(tg.i, tg.j, tg.k, 0, 0);
       w.stabQueue.push({ i: tg.i, j: tg.j, k: tg.k });
-      S.money += 5; this.ui.setMoney(S.money);
+      this.giveItem('bulk');
       this.sound.thump(0.15, 150);
       this.fx.dust(cellX(tg.i), cellY(tg.j), cellZ(tg.k), 6, 0.6, 0.6);
       return true;
@@ -713,7 +726,9 @@ export class Game {
     if (item.vr & 128) S.stats.shiny++;
     this.registerDex(item.sp);
     if (item.sp === NEEDLE) { this.foundNeedle('your hands'); return; }
-    S.carry.push({ sp: item.sp, vr: item.vr });
+    const carried = { sp: item.sp, vr: item.vr };
+    S.carry.push(carried);
+    if (sp.volatile && !quiet) this.lightFuse(carried);
     this.ui.setCarry(S.carry, this.T.carry);
     this.heldPop = 1;
     // flier to the hand
@@ -788,102 +803,19 @@ export class Game {
     this.heldPop = -0.6;
   }
 
-  holdGrab() { return this.mouse.l || !!this.keys.KeyG; }
+  holdGrab() { return this.grabWant || !!this.keys.KeyG; }
 
-  // G: grab what you are looking at (hold), or drop what you carry when nothing is in reach
+  // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
   gPress() {
-    if (this.curTool().kind !== 'hands' && this.curTool().kind !== 'vac') { this.selectTool(0); return; }
-    if (this.curTargetRef) return; // the hold-to-grab loop handles it
+    if (this.T.vac > 0) { this.vacT = 1.8; return; }
+    if (this.curTargetRef) { this.grabWant = true; this.grabWantT = 0; this.grab.latch = false; return; }
     if (this.S.carry.length) this.dropOne();
   }
 
-  refreshTuning() {
-    this.T = computeTuning(this.S.up, this.S.boosts);
-    this.world.stabBonus = this.T.stabBonus;
-    this.rebuildTools();
-    this.ui.setCarry(this.S.carry, this.T.carry);
-  }
-
-  // ---------------- crew commands ----------------
-  crewFarmAhead() {
-    if (!this.S.crew || !this.S.crew.length) { this.ui.hint('No crew yet. Buy a Scrapper Bot in the terminal.', 3); return; }
-    const p = this.player, f = p.forward(_fwd);
-    const dir = Math.abs(f.x) > Math.abs(f.z) ? (f.x > 0 ? 0 : 2) : (f.z > 0 ? 1 : 3);
-    const n = this.crew.orderAll(dir, p.pos.x, p.pos.y, p.pos.z);
-    this.ui.hint(n ? `Crew: ${n} bot${n > 1 ? 's' : ''} sent digging ${['east', 'south', 'west', 'north'][dir]}.` : 'No pile that way within 120 m.', 3);
-  }
-
-  crewHomeAll() {
-    if (!this.S.crew || !this.S.crew.length) return;
-    for (const b of this.S.crew) this.crew.goHome(b);
-    this.ui.hint('Crew: heading home.', 2);
-  }
-
-  crewCommand(b, d) {
-    if (d.d !== undefined) this.crew.order(b, +d.d, b.x, b.y, b.z);
-    else if (d.a === 'follow') this.crew.follow(b);
-    else if (d.a === 'home') this.crew.goHome(b);
-    else if (d.a === 'stay') this.crew.stand(b);
-  }
-
-  // does a belt end close enough to the bin or a depot to feed it?
-  sinkNear(x, z) {
-    const bp = this.hall.binPos;
-    if (Math.hypot(x - bp.x, z - bp.z) < 1.9) return true;
-    for (const it of this.machines.items.values()) if (it.ent.type === 'beacon' && Math.hypot(x - it.ent.x, z - it.ent.z) < 1.6) return true;
-    return false;
-  }
-
-  hasGen() { for (const t of this.logi.tiles.values()) if (t.type === 'gen') return true; return false; }
-
-  useTile(t) {
-    const T = this.T, S = this.S;
-    if (t.type === 'gen') {
-      let n = 0;
-      for (let q = S.carry.length - 1; q >= 0; q--) {
-        const it = S.carry[q];
-        if (species[it.sp].rarity <= 2 && t.q.length < T.genBuffer) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
-      }
-      this.ui.setCarry(S.carry, T.carry); this.power.markDirty();
-      this.ui.hint(n ? `Fed ${n} plush to the generator (${t.q.length}/${T.genBuffer}).` : `Generator fuel ${t.q.length}/${T.genBuffer}. It burns Common to Rare plush.`, 3);
-      return true;
-    }
-    if (t.type === 'pole' || t.type === 'fan') { this.ui.hint(`${t.type === 'pole' ? 'Pole' : 'Fan'}: ${(t.pw ?? 0) > 0.05 ? 'powered' : 'no power'} (${Math.round((t.pw ?? 0) * 100)}%)`, 2.5); return true; }
-    if (t.type === 'sorter') {
-      const modes = 1 + T.sorterTiers + 1;
-      t.mode = (t.mode + 1) % modes;
-      const last = t.mode === modes - 1;
-      t.filter = last ? 0 : t.mode === 0 ? 7 : t.mode;
-      const names = ['Sell everything', 'Keep Uncommon+', 'Keep Rare+', 'Keep Epic+', 'Keep Legendary+', 'Keep Mythic+'];
-      const label = last ? 'Pass everything (no selling)' : names[t.mode];
-      this.ui.hint(`Sorting Box: <b>${label}</b>`, 2.5);
-      this.sound.tone('triangle', 600, 900, 0.1, 0.07);
-      const o = this.logi.objs.get(t.id), top = o && o.getObjectByName('top');
-      if (top) top.material = new THREE.MeshBasicMaterial({ color: last ? new THREE.Color(1.5, 1.5, 1.5) : t.mode === 0 ? new THREE.Color(0.4, 3, 1) : new THREE.Color(RARITY[t.mode].color).multiplyScalar(3) });
-      return true;
-    }
-    if (t.type === 'vault') {
-      let n = 0;
-      while (t.stored.length && S.carry.length < T.carry) { S.carry.push(t.stored.shift()); n++; }
-      this.ui.setCarry(S.carry, T.carry);
-      this.ui.hint(n ? `Took ${n} plush from the vault. ${t.stored.length} left.` : t.stored.length ? 'Your hands are full.' : 'The vault is empty.', 2.5);
-      return true;
-    }
-    if (t.type === 'mech') {
-      t.off = !t.off;
-      this.ui.hint(t.off ? 'Mech parked.' : 'Mech running.', 2);
-      return true;
-    }
-    return false;
-  }
-
-  mechDug(it, x, y, z) {
-    const S = this.S;
-    S.stats.plush++; S.stats.rar[species[it.sp].rarity]++; S.stats.cells++;
-    if (it.vr & 128) S.stats.shiny++;
-    this.registerDex(it.sp);
-    if (it.sp === NEEDLE) this.foundNeedle('a Mech Scooper');
-    if (Math.random() < 0.5) this.fx.dust(x, y, z, 2, 0.5, 0.5);
+  bPress() {
+    if (!this.tools.length) { this.ui.hint('Nothing to build with. Craft items at the <b>Crafting Table</b> (<kbd>E</kbd> next to it).', 4); return; }
+    if (this.stowed) { this.stowed = false; this.rebuildTools(); return; }
+    this.placeCurrent(this.curTool());
   }
 
   dropOne() {
@@ -910,6 +842,7 @@ export class Game {
     for (const it of this.machines.items.values()) {
       if (it.ent.type === 'beacon' && Math.hypot(it.ent.x - this.player.pos.x, it.ent.z - this.player.pos.z) < 3.2) { this.openModal('travel'); return; }
     }
+    { const cp = this.hall.craftPos, pp2 = this.player.pos; if (Math.hypot(pp2.x - cp.x, pp2.z - cp.z) < 3.6) { this.openModal('craft'); return; } }
     {
       const pp = this.player.pos, kp = this.hall.kioskPos;
       if (Math.hypot(pp.x - kp.x, pp.z - kp.z) < 3.0) { this.openModal('dossier'); return; }
@@ -1071,22 +1004,21 @@ export class Game {
     this.plan = plan; this.planCost = cost;
     if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
-    if (plan && plan.ok && this.mouse.l && (tool.kind === 'belt' || tool.kind === 'bulk')) {
+    if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk')) {
       const key = `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
       if (key !== this.lastPaint) { this.lastPaint = key; this.placeCurrent(tool); }
     }
-    if (!this.mouse.l) this.lastPaint = '';
+    if (!this.keys.KeyB) this.lastPaint = '';
     if (plan) {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
-      else if (S.money < cost) this.ui.hint(`Need ◈ ${fmt(cost)}`, 0.4);
-      else this.ui.hint(`<kbd>LMB</kbd> place · ◈ ${fmt(cost)}${tool.kind === 'borer' ? ' · digs along the way you face' : ''}`, 0.4);
+      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
   }
 
   planLogi(tool, eye, dir, yaw) {
     const T = this.T;
-    const rise = [0, 1, -1][this.rampMode];
+    const rise = tool.ramp ? (this.rampMode % 2 === 1 ? -1 : 1) : 0;
     const kind = tool.kind;
     if (kind === 'bulk') {
       const a = this.logi.aimCell(eye, dir);
@@ -1106,7 +1038,7 @@ export class Game {
       return { plan: { ok: !bad, why: bad ? 'Too close' : null, ent: { type: 'bulk', ...last, dir: 0 } }, cost: 10 };
     }
     const plan = this.logi.plan(kind, eye, dir, yaw, rise);
-    let cost = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
+    let cost = 0; const _unused = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
     if (plan.ok && kind === 'mech' && this.logi.count('mech') >= T.mechMax) { plan.ok = false; plan.why = `Mech limit reached (${T.mechMax})`; }
     return { plan, cost };
   }
@@ -1127,23 +1059,21 @@ export class Game {
       if (tool.kind !== 'bulk' && tool.kind !== 'vault') g.add(arrow);
       g.add(box);
       g.rotation.y = [Math.PI / 2, 0, -Math.PI / 2, Math.PI][e.dir || 0];
+      ghostify(g, plan.ok);
       this.machines.setGhost(g, key);
     }
     const gp = this.machines.ghost;
     if (gp) gp.position.set(cellX(e.i), tool.kind === 'bulk' ? cellY(e.j) - 0.3 : e.j * C, cellZ(e.k));
   }
 
-  onLeftPress() {
-    const tool = this.curTool();
-    if (['frame', 'lantern', 'claw', 'borer', 'belt', 'sorter', 'vault', 'mech', 'bulk', 'beacon', 'gen', 'pole', 'fan'].includes(tool.kind)) this.placeCurrent(tool);
-  }
-
   placeCurrent(tool) {
-    const S = this.S, plan = this.plan, cost = this.planCost;
-    if (!plan || !plan.ok) { this.sound.error(); return; }
-    if (S.money < cost) { this.sound.error(); this.ui.hint(`Need ◈ ${fmt(cost)}`, 1.5); return; }
-    S.money -= cost;
-    this.ui.setMoney(S.money);
+    const S = this.S, plan = this.plan;
+    const cost = 0;
+    if (!plan || !plan.ok) { this.sound.error(); if (plan && plan.why) this.ui.hint(plan.why, 2); return; }
+    if (!(S.items[tool.id] > 0)) { this.sound.error(); return; }
+    S.items[tool.id]--;
+    if (S.items[tool.id] <= 0) delete S.items[tool.id];
+    const left = S.items[tool.id] || 0;
     const id = this.nextId();
     let ent;
     const e = plan.ent;
@@ -1151,10 +1081,11 @@ export class Game {
       this.world.setCell(e.i, e.j, e.k, BULK, (Math.random() * 127) | 0);
       this.world.stabQueue.push({ i: e.i, j: e.j, k: e.k });
       this.sound.place(); this.S.stats.bulk = (this.S.stats.bulk || 0) + 1;
+      this.rebuildTools();
       return;
     }
     if (['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan'].includes(tool.kind)) {
-      ent = { id, type: tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0, paid: cost };
+      ent = { id, type: tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
       S.entities.push(ent);
       this.addEntity(ent);
       this.sound.place();
@@ -1162,6 +1093,7 @@ export class Game {
       this.power.markDirty();
       if (!this.hasGen() && ['belt', 'sorter', 'mech'].includes(tool.kind) && !this._pwHint) { this._pwHint = true; this.ui.hint('Machines need power. Build a <b>Generator</b>, feed it commons, and link it with <b>Poles</b>.', 8); }
       S.stats.built = (S.stats.built || 0) + 1;
+      this.rebuildTools();
       return;
     }
     if (tool.kind === 'frame') { ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h }; S.stats.props++; }
@@ -1169,9 +1101,10 @@ export class Game {
     else if (tool.kind === 'beacon') { ent = { id, type: 'beacon', x: e.x, y: e.y, z: e.z, i: e.i, j: e.j, k: e.k }; this.onBeaconPlaced(ent); }
     else if (tool.kind === 'claw') { ent = { id, type: 'claw', x: e.x, y: e.y, z: e.z, ry: Math.random() * 6.28 }; S.stats.rigs++; this.rebuildTools(); }
     else if (tool.kind === 'borer') { ent = { id, type: 'borer', i: e.i, j: e.j, k: e.k, dx: e.dx, dz: e.dz, w: e.w, h: e.h, x: e.x, y: e.y, z: e.z }; S.stats.borers++; this.rebuildTools(); }
-    ent.paid = cost;
     S.entities.push(ent);
     this.machines.setGhost(null);
+    this.rebuildTools();
+    void left;
     this.machines.add(ent);
     this.sound.place();
     this.shake = Math.max(this.shake, 0.15);
@@ -1192,7 +1125,7 @@ export class Game {
       this.S.entities = this.S.entities.filter((x) => x.id !== tile.id);
       const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
       for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
-      this.S.money += Math.floor((tile.paid || 3) / 2); this.ui.setMoney(this.S.money);
+      this.giveItem(tile.type === 'belt' ? (tile.rise ? 'ramp' : 'belt') : tile.type);
       this.ui.setCarry(this.S.carry, this.T.carry);
       this.sound.thump(0.15, 140);
       if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
@@ -1212,8 +1145,7 @@ export class Game {
     }
     if (!best) return;
     const e = best.ent;
-    const refund = Math.floor((e.paid ?? (e.type === 'frame' ? FRAME_TYPES[e.kind].cost : 6)) / 2);
-    this.S.money += refund; this.ui.setMoney(this.S.money);
+    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.type);
     this.machines.root.remove(best.obj);
     this.machines.items.delete(e.id);
     this.S.entities = this.S.entities.filter((x) => x.id !== e.id);
@@ -1329,6 +1261,74 @@ export class Game {
     this.sound.whoosh(0.2);
     this.fx.sparkle(b.x, b.y + 1, b.z, 30, 0.5, 1, 0.8);
     this.shake = 0.2;
+  }
+
+  // ======================= volatile plush =======================
+  lightFuse(item) {
+    this.fuses = this.fuses || [];
+    this.fuses.push({ item, t: 2.4 });
+    this.ui.toast({ icon: '🧨', title: 'Fuse lit!', text: 'A Razzo plush is ticking. Throw it (F) or drop it (G) now.', ms: 2600 });
+    this.sound.tone('square', 900, 900, 0.05, 0.08);
+  }
+
+  updateFuses(dt) {
+    if (!this.fuses || !this.fuses.length) return;
+    const S = this.S;
+    for (let n = this.fuses.length - 1; n >= 0; n--) {
+      const f = this.fuses[n];
+      const idx2 = S.carry.indexOf(f.item);
+      if (idx2 < 0) { this.fuses.splice(n, 1); continue; }
+      f.t -= dt;
+      f.tick = (f.tick || 0) - dt;
+      if (f.tick <= 0) { f.tick = Math.max(0.08, f.t * 0.18); this.sound.tone('square', 1100, 1100, 0.025, 0.06); this.heldPop = 0.4; }
+      this.ui.setWarn(`FUSE ${Math.max(0, f.t).toFixed(1)}`);
+      if (f.t <= 0) {
+        S.carry.splice(idx2, 1); this.fuses.splice(n, 1);
+        this.ui.setCarry(S.carry, this.T.carry);
+        this.explode(this.player.pos.x, this.player.pos.y + 1, this.player.pos.z);
+      }
+    }
+  }
+
+  explode(x, y, z) {
+    const w = this.world;
+    this.fx.burst(x, y, z, 50, 1, 0.6, 0.2, 5, 0.12, 1.2);
+    this.fx.dust(x, y, z, 24, 1.6, 2.5);
+    this.dust.add(x, y, z, 0.5);
+    this.sound.rumble(1.2); this.shake = Math.max(this.shake, 1.0 * this.T.shakeMul);
+    this.ui.hurt(0.5);
+    const ci = toI(x), cj = toJ(y), ck = toK(z);
+    for (let dk = -5; dk <= 5; dk++) for (let dj = -4; dj <= 4; dj++) for (let di = -5; di <= 5; di++) {
+      if (di * di + dj * dj + dk * dk > 28) continue;
+      const i = ci + di, j = cj + dj, k = ck + dk;
+      if (!w.get(i, j, k)) continue;
+      const s = w.slipChance(i, j, k, 4.5);
+      if (s && Math.random() < s.p) { const l = Math.hypot(di, dj, dk) || 1; this.slipCell(i, j, k, di / l * 4, dj / l * 3 + 1, dk / l * 4); }
+    }
+    this.player.vel.y += 3;
+    this.S.stats.boom = (this.S.stats.boom || 0) + 1;
+  }
+
+  // ======================= grid surges =======================
+  updateSurge(dt) {
+    const S = this.S;
+    if (this.surgeT === undefined) this.surgeT = 1500 + Math.random() * 1200;
+    if (this.outage > 0) {
+      this.outage -= dt;
+      if (this.outage <= 0) { this.power.outage = false; this.power.markDirty(); this.hall.setLights(true); this.ui.toast({ icon: '💡', title: 'Power restored', text: 'The grid came back.', ms: 3000 }); }
+      return;
+    }
+    if (!this.hasGen()) return;
+    this.surgeT -= dt;
+    if (this.surgeT <= 0) {
+      this.surgeT = 1800 + Math.random() * 2400;
+      this.outage = 40;
+      this.power.outage = true; this.power.markDirty();
+      this.hall.setLights(false);
+      this.sound.rumble(0.6);
+      this.ui.toast({ icon: '⚡', title: 'Grid surge', text: 'Everything is down for about 40 seconds. The hall lights died too.', ms: 6000 });
+      S.stats.surges = (S.stats.surges || 0) + 1;
+    }
   }
 
   // ======================= dust and lungs =======================
@@ -1659,7 +1659,7 @@ export class Game {
     this.logi.forEachItem((it, x, y, z, sc) => r.addDynamic(it.sp, it.vr, x, y, z, 0, 0, 0, 1, sc, 0.95, Math.max(0.5, this.camSky)));
     this.crew.forEachItem((it, x, y, z, sc) => r.addDynamic(it.sp, it.vr, x, y, z, 0, 0, 0, 1, sc, 0.95, Math.max(0.5, this.camSky)));
     // held plush in view
-    if (this.mode === 'play' && S.carry.length && this.curTool().kind !== 'frame') {
+    if (this.mode === 'play' && S.carry.length) {
       const it = S.carry[S.carry.length - 1];
       const hq = this.renderer.camera.quaternion;
       const spin = _q.setFromAxisAngle(_v.set(0, 1, 0), 0.5 + Math.sin(this.time * 0.8) * 0.15);

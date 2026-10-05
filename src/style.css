@@ -188,3 +188,5 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 .crew-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .crew-btns button { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.07); font-weight: 700; font-size: 12px; }
 .crew-btns button:hover { background: var(--accent); color: #1a2008; }
+
+#fps { position: fixed; right: 10px; bottom: 8px; z-index: 40; font: 600 11px ui-monospace, Menlo, monospace; color: #b8ffb0; background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 6px; pointer-events: none; }

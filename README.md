@@ -1,23 +1,24 @@
 # Rot Factory
 
-A needle-in-a-haystack game set in a liminal warehouse packed with millions of brainrot squishies.
-Find the one rare plush (Il Rotto Supremo) or dig your way out the EXIT door in the east wall.
+A needle-in-a-haystack game in a liminal warehouse packed with millions of brainrot plush.
+Find Il Rotto Supremo (576 species and four convincing fakes stand in the way) or dig your way to the EXIT, 3 km east.
 
 ```bash
 npm install
 npm run dev      # http://localhost:5273
 npm run build
+node tools/pace-sim.mjs   # rough pacing model (exit ~250 h, the plush ~500 h for a greedy player)
 ```
 
-## Controls
-WASD move, Shift sprint, Space jump, C crouch, hold LMB grab, RMB / F throw, E use (terminal, bin sell),
-Tab upgrade terminal, G plushdex, J achievements, 1-9 or wheel tools, X deconstruct, hold U emergency recall.
+## Keys (laptop friendly, the mouse only looks)
+- **G** tap to grab what you are looking at, tap with nothing in reach to drop. **F** throw. Walk near the SORT bin and it sucks your plush in.
+- **E** use (desk = upgrades, bench = crafting, kiosk = dossier, depots, machines).
+- **B** set down the build item you hold (green outline shows where). Hold **B** to lay belts/bulkheads. **1-9**, **[ ]** or the wheel pick an item, **Q** stow, **R** flips ramps, **X** takes something down (you get the item back).
+- **Tab** upgrades, **V** crew, **N** plushdex, **L** journal, **J** goals, **T/Y** send crew digging / home, **Esc** pause, **F3** fps, hold **U** to recall.
 
-## How it works
-- The hall is a 240x240x72 lattice (0.6 m cells), about 2.5M plush, generated from a seed. Only changes are saved.
-- Digging removes lattice cells. `World.stress` decides which roof cells lack support:
-  a cell over a void is stable if a supported cell is within `B` cells laterally, where
-  `B = 1 + upgrades + nearby frames - overburden/24`. Unstable cells creak, then drop as loose bodies (`sim.js`)
-  and re-freeze into the lattice when they settle.
-- Rendering draws a two-cell shell around open air, instanced per plush archetype, with a custom fabric shader.
-- Upgrades (`upgrades.js`), achievements (`achievements.js`), Claw Rigs and Tunnel Borers (`machines.js`).
+## Systems
+- Lazy chunked 6 km hall (`world.js`), 576 species, old workings with remains and notes (`remains.js`).
+- Roof support/collapse rules, slope slides, aftershocks, dust and lungs (`dust.js`).
+- Crafting table, belts, sorters, vaults, mechs, generators/poles/fans (`crafting.js`, `logistics.js`, `power.js`), depots with clues.
+- Contracts, crew bots that grow (`crew.js`), grid surges, volatile Razzo plush.
+- Adaptive resolution keeps the frame rate near 60.

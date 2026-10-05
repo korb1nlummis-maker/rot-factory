@@ -20,9 +20,9 @@ export const UPGRADES = [
   { id: 'gloves', cat: 'hands', name: 'Grippy Gloves', desc: 'Faster grabbing. Your fingers learn the pile.', max: 7, cost: geo(8, 2.25, 7), effect: (t, l) => { t.grabTime *= Math.pow(0.84, l); } },
   { id: 'reach', cat: 'hands', name: 'Telescoping Grabber', desc: 'Reach further into the pile.', max: 4, cost: [18, 70, 260, 900], effect: (t, l) => { t.reach += 0.5 * l; } },
   { id: 'bag', cat: 'hands', name: 'Carry Capacity', desc: 'Tote, pack, cart, pallet jack. Hold more plush before you have to walk back.', max: 8, cost: [14, 45, 130, 360, 950, 2600, 7200, 19000], effect: (t, l) => { t.carry = [1, 3, 6, 10, 16, 26, 42, 70, 120][l]; }, names: ['Bare Hands', 'Tote Bag', 'Backpack', 'Hiker Pack', 'Wheelbarrow', 'Hand Cart', 'Pallet Jack', 'Forklift Fork', 'Gantry Hopper'] },
-  { id: 'repeat', cat: 'hands', name: 'Auto-Grip', desc: 'Hold the button and keep grabbing. No more clicking.', max: 1, cost: [40], effect: (t) => { t.autoRepeat = true; } },
+  { id: 'repeat', cat: 'hands', name: 'Auto-Grip', desc: 'Hold G and keep grabbing without tapping.', max: 1, cost: [40], effect: (t) => { t.autoRepeat = true; } },
   { id: 'scoop', cat: 'hands', name: 'Scoop Hands', desc: 'Each grab also scoops neighbouring plush. Bigger scoops pull the pile apart faster.', max: 4, cost: [120, 480, 1900, 7800], req: { id: 'bag', lvl: 2 }, effect: (t, l) => { t.scoop = [0, 1, 3, 6, 12][l]; } },
-  { id: 'vac', cat: 'hands', name: 'Plush Vacuum', desc: 'Hold RIGHT MOUSE with slot 2 equipped to inhale plush in a cone. Upgrades raise suction rate.', max: 5, cost: [650, 1800, 5200, 15000, 42000], req: { id: 'bag', lvl: 3 }, effect: (t, l) => { t.vac = l; t.vacRate = [0, 3, 5, 8, 12, 18][l]; } },
+  { id: 'vac', cat: 'hands', name: 'Plush Vacuum', desc: 'Tapping G now inhales plush in a cone for a couple of seconds instead of grabbing one. Upgrades raise suction rate.', max: 5, cost: [650, 1800, 5200, 15000, 42000], req: { id: 'bag', lvl: 3 }, effect: (t, l) => { t.vac = l; t.vacRate = [0, 3, 5, 8, 12, 18][l]; } },
   { id: 'throw', cat: 'hands', name: 'Throwing Arm', desc: 'Hurl plush further and straighter toward the bin.', max: 3, cost: [25, 120, 600], effect: (t, l) => { t.throwPower = 11 + l * 4; } },
 
   // ---------------- SORTING ----------------
@@ -36,7 +36,7 @@ export const UPGRADES = [
   { id: 'shinyEye', cat: 'sort', name: "Collector's Loupe", desc: 'Shiny plush are worth 8x instead of 5x.', max: 1, cost: [1200], effect: (t) => { t.shinyMult = 8; } },
 
   // ---------------- MINING ----------------
-  { id: 'timber', cat: 'mine', name: 'Timber Frames', desc: 'Unlocks the Timber Frame. Props a tunnel roof. Place one every few meters. R cycles frame tier once you own several.', max: 1, cost: [30], effect: (t) => { t.frames.push('timber'); } },
+  { id: 'timber', cat: 'mine', name: 'Timber Frames', desc: 'Unlocks the Timber Frame recipe. Props a tunnel roof. Place one every few meters.', max: 1, cost: [30], effect: (t) => { t.frames.push('timber'); } },
   { id: 'steel', cat: 'mine', name: 'Steel Frames', desc: 'Stronger frames that reach further.', max: 1, cost: [420], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.frames.push('steel'); } },
   { id: 'concrete', cat: 'mine', name: 'Concrete Lining', desc: 'Poured lining for deep tunnels.', max: 1, cost: [3800], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.frames.push('concrete'); } },
   { id: 'rebar', cat: 'mine', name: 'Rebar Cages', desc: 'Reinforced arches. The pile gets heavier the further you go from the bay.', max: 1, cost: [32000], req: { id: 'concrete', lvl: 1 }, effect: (t) => { t.frames.push('rebar'); } },
@@ -58,7 +58,7 @@ export const UPGRADES = [
 
   // ---------------- LIGHT ----------------
   { id: 'lamp', cat: 'light', name: 'Headlamp', desc: 'Brighter, wider, further.', max: 5, cost: [10, 55, 260, 1300, 6500], effect: (t, l) => { t.lampRange = 10 + l * 3; t.lampPower = 1 + l * 0.28; } },
-  { id: 'lantern', cat: 'light', name: 'Work Lanterns', desc: 'Unlocks Work Lanterns (slot). Hang them in the tunnel to light the way back.', max: 1, cost: [60], effect: (t) => { t.lantern = true; } },
+  { id: 'lantern', cat: 'light', name: 'Work Lanterns', desc: 'Unlocks the Work Lantern recipe. Hang them in the tunnel to light the way back.', max: 1, cost: [60], effect: (t) => { t.lantern = true; } },
 
   // ---------------- SENSORS ----------------
   { id: 'scan', cat: 'sense', name: 'Squeak Ear', desc: 'You can faintly hear The One. Tiers: close-range squeaks, a signal meter, a bearing arrow on your compass, distance, then long-range arrays that cover kilometers.', max: 8, cost: [90, 700, 6000, 90000, 1500000, 40000000, 900000000, 60000000000], effect: (t, l) => { t.scan = l; t.scanRange = [0, 7, 16, 40, 120, 350, 900, 2800, 6800][l]; } },
@@ -81,7 +81,7 @@ export const UPGRADES = [
   { id: 'crewBolt', cat: 'crew', name: 'Bot Bolter', desc: 'Bots brace the roof every third step with your best frame, paid from your Fluff.', max: 1, cost: [26000], needs: 8000, req: { id: 'crewBelt', lvl: 1 }, effect: (t) => { t.crewBolt = true; } },
 
   // ---------------- MACHINES ----------------
-  { id: 'claw', cat: 'machine', name: 'Claw Rig', desc: 'Unlocks the Claw Rig (build slot). Plants itself on the pile and plucks the highest plush in reach, auto-selling them. Finds The One too. Needs power.', max: 1, cost: [900], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('claw'); t.rigMax += 2; } },
+  { id: 'claw', cat: 'machine', name: 'Claw Rig', desc: 'Unlocks the Claw Rig recipe. Plants itself on the pile and plucks the highest plush in reach, auto-selling them. Finds The One too. Needs power.', max: 1, cost: [900], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('claw'); t.rigMax += 2; } },
   { id: 'rigCount', cat: 'machine', name: 'More Rigs', desc: 'Allows two more Claw Rigs at once.', max: 5, cost: geo(1400, 2.3, 5), req: { id: 'claw', lvl: 1 }, effect: (t, l) => { t.rigMax += 2 * l; } },
   { id: 'rigSpeed', cat: 'machine', name: 'Rig Motors', desc: 'Claw Rigs grab faster.', max: 6, cost: geo(700, 2.3, 6), req: { id: 'claw', lvl: 1 }, effect: (t, l) => { t.rigRate *= Math.pow(0.78, l); } },
   { id: 'rigReach', cat: 'machine', name: 'Rig Boom', desc: 'Longer arms: bigger area per rig.', max: 4, cost: geo(1100, 2.6, 4), req: { id: 'claw', lvl: 1 }, effect: (t, l) => { t.rigReach += 1.2 * l; } },
@@ -90,7 +90,7 @@ export const UPGRADES = [
   { id: 'gridRange', cat: 'machine', name: 'Grid Range', desc: 'Poles link and reach further.', max: 4, cost: geo(500, 2.8, 4), req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.poleLink += 4 * l; t.poleReach += 1.5 * l; } },
   { id: 'genBuffer', cat: 'machine', name: 'Fuel Hoppers', desc: 'Generators hold more plush in reserve.', max: 3, cost: [800, 4000, 20000], req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.genBuffer = [8, 16, 32, 64][l]; } },
   { id: 'fans', cat: 'machine', name: 'Vent Fans', desc: 'Unlocks Vent Fans. Powered fans clear dust from tunnels within about 14 m.', max: 1, cost: [600], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('fan'); } },
-  { id: 'belts', cat: 'machine', name: 'Conveyor Belts', desc: 'Unlocks belts (R toggles ramp up/down). Run plush from the pile to the bin or sorters, through tunnels and up slopes. Paint a line by holding LMB. Needs power.', max: 1, cost: [350], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('belt'); } },
+  { id: 'belts', cat: 'machine', name: 'Conveyor Belts', desc: 'Unlocks belts (R toggles ramp up/down). Run plush from the pile to the bin or sorters, through tunnels and up slopes. Lay a line by holding B. Needs power.', max: 1, cost: [350], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('belt'); } },
   { id: 'beltSpeed', cat: 'machine', name: 'Belt Motors', desc: 'Faster belts.', max: 6, cost: geo(450, 2.4, 6), req: { id: 'belts', lvl: 1 }, effect: (t, l) => { t.beltSpeed *= Math.pow(1.3, l); } },
   { id: 'sorter', cat: 'machine', name: 'Sorting Box', desc: 'A processing box. Sells what falls under its filter and passes the rest on. Also sucks in plush you carry when you are near, so build them at the face.', max: 1, cost: [600], req: { id: 'belts', lvl: 1 }, effect: (t) => { t.machines.push('sorter'); } },
   { id: 'optics', cat: 'machine', name: 'Rarity Optics', desc: 'Sorting Boxes learn to keep rarer plush instead of selling it. Press E on a box to cycle its filter.', max: 5, cost: geo(1200, 2.5, 5), req: { id: 'sorter', lvl: 1 }, effect: (t, l) => { t.sorterTiers = l; } },

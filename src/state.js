@@ -23,6 +23,7 @@ export function newState(seed) {
     boosts: { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0 },
     notes: [],
     contracts: [],
+    items: {},
     clues: [],
     clueLevel: 0,
   };

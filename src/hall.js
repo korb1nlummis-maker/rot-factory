@@ -93,7 +93,7 @@ export function buildHall(scene) {
 
   // floor
   const floorTex = concreteTex([HALL_HX / 3, HALL_HZ / 3]);
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.62, metalness: 0.0, roughnessMap: null, color: 0xffffff });
+  const floorMat = new THREE.MeshLambertMaterial({ map: floorTex, color: 0xdddddd });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(HALL_HX * 2, HALL_HZ * 2), floorMat);
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
@@ -116,7 +116,7 @@ export function buildHall(scene) {
 
   // walls
   const wt = wallTex(HALL_HX * 2);
-  const wmat = new THREE.MeshStandardMaterial({ map: wt, roughness: 0.75, metalness: 0.3, color: 0xcfd0b8 });
+  const wmat = new THREE.MeshLambertMaterial({ map: wt, color: 0xcfd0b8 });
   const mkWall = (w, px, pz, ry) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, HALL_H), wmat);
     m.position.set(px, HALL_H / 2, pz); m.rotation.y = ry; scene.add(m);
@@ -127,7 +127,7 @@ export function buildHall(scene) {
   mkWall(HALL_HX * 2, 0, -HALL_HZ, 0);
 
   // ceiling + trusses + lights
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(HALL_HX * 2, HALL_HZ * 2), new THREE.MeshStandardMaterial({ color: 0x4d4f46, roughness: 0.9 }));
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(HALL_HX * 2, HALL_HZ * 2), new THREE.MeshLambertMaterial({ color: 0x4d4f46 }));
   ceil.rotation.x = Math.PI / 2; ceil.position.y = HALL_H; scene.add(ceil);
   const beamMat = new THREE.MeshStandardMaterial({ color: 0x2b2d2a, roughness: 0.6, metalness: 0.7 });
   const SP = 12, RW = 11;
@@ -257,6 +257,28 @@ export function buildHall(scene) {
   term.rotation.y = Math.atan2(0 - hall.termPos.x, -1.4 - hall.termPos.z);
 
 
+  // ---- crafting table ----
+  hall.craftPos = new THREE.Vector3(-6.4, 0, -6.4);
+  const bench = new THREE.Group();
+  bench.position.copy(hall.craftPos);
+  bench.rotation.y = Math.atan2(0 - hall.craftPos.x, -1.4 - hall.craftPos.z);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 0.6 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 0.9), wood); top.position.y = 0.95;
+  for (const sx of [-0.9, 0.9]) for (const sz of [-0.38, 0.38]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.95, 0.1), wood); l.position.set(sx, 0.47, sz); bench.add(l); }
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.06, 0.7), wood); shelf.position.y = 0.35;
+  const vise = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.2), steel); vise.position.set(-0.7, 1.12, 0.2);
+  const anvil = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.22), dark); anvil.position.set(0.3, 1.11, 0);
+  const horn = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.25, 8), dark); horn.rotation.z = -Math.PI / 2; horn.position.set(0.62, 1.12, 0);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.04), wood); handle.position.set(-0.2, 1.03, -0.2); handle.rotation.y = 0.5;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.1), steel); head.position.set(-0.4, 1.03, -0.28);
+  const lampB = new THREE.PointLight(0xffd080, 2.8, 7, 1.8); lampB.position.set(0, 1.9, 0.4);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.2, 1.6) })); bulb.position.set(0, 1.9, 0.4);
+  const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.9, 5), dark); cord.position.set(0, 2.35, 0.4);
+  const cSign = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.3), new THREE.MeshBasicMaterial({ map: labelTex('CRAFTING [E]', 512, 140, { fg: '#ffe9b0', bg: '#2b2418', size: 64 }), toneMapped: false })); cSign.position.set(0, 1.55, -0.4);
+  bench.add(top, shelf, vise, anvil, horn, handle, head, lampB, bulb, cord, cSign);
+  station.add(bench);
+  hall.colliders.push({ x: hall.craftPos.x, z: hall.craftPos.z, r: 1.15, h: 1.1 });
+
   // ---- dossier kiosk: shows the target plush on a turntable ----
   hall.kioskPos = new THREE.Vector3(-0.2, 0, -8.4);
   const kiosk = new THREE.Group();
@@ -328,6 +350,7 @@ export function buildHall(scene) {
   exitSign.position.set(0, 4.3, 0.1);
   const light = new THREE.PointLight(0x4dff9a, 14, 14, 1.5); light.position.set(0, 3, 1.2);
   door.add(dl, dr, exitSign, light);
+  hall.doorLight = light;
   scene.add(door);
 
   // dust motes
@@ -339,8 +362,11 @@ export function buildHall(scene) {
   scene.add(motes);
   hall.motes = motes;
 
+  hall.lightsOn = true;
+  hall.setLights = (on) => { hall.lightsOn = on; const c = on ? new THREE.Color(3.2, 3.4, 2.9) : new THREE.Color(0.25, 0.05, 0.03); lightsA.material.color.copy(c); lightsB.material.color.copy(c); sun.intensity = on ? 1.2 : 0.05; hemi.intensity = on ? 0.55 : 0.03; };
   hall.update = (t, camPos) => {
     hall.relight(camPos);
+    hall.doorLight.intensity = camPos.x > HALL_HX - 80 ? 14 : 0;
     hall.flicker[0].color.setScalar(0.7 + 2.5 * (Math.sin(t * 31) * Math.sin(t * 7.3) > -0.82 ? 1 : 0.15));
     hall.binRim.material.color.setRGB(0.4, 2.2 + Math.sin(t * 3) * 0.5, 0.9);
     hall.binLight.intensity = 5 + Math.sin(t * 9) * 0.8 + Math.sin(t * 23) * 0.6;

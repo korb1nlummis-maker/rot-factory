@@ -55,9 +55,18 @@ export function buildFrameMesh(kind, axis, w, h) {
   return g;
 }
 
-function ghostify(group, ok) {
-  const mat = new THREE.MeshBasicMaterial({ color: ok ? 0x5dffa0 : 0xff5a4a, transparent: true, opacity: 0.45, depthWrite: false });
-  group.traverse((o) => { if (o.isMesh) o.material = mat; });
+export function ghostify(group, ok) {
+  const col = ok ? 0x5dffa0 : 0xff5a4a;
+  const mat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false });
+  const lineMat = new THREE.LineBasicMaterial({ color: ok ? 0x9dffc4 : 0xff8a7a, transparent: true, opacity: 1, depthTest: false });
+  const meshes = [];
+  group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  for (const o of meshes) {
+    o.material = mat;
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 25), lineMat);
+    e.renderOrder = 10;
+    o.add(e);
+  }
   return group;
 }
 
@@ -244,8 +253,7 @@ export class Machines {
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 2.2, 12), MATS.steel); mast.position.y = 1.2;
     const panel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.06), MATS.dark); panel.position.set(0, 1.4, 0.12);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.03, 8, 28), MATS.glowG); ring.position.y = 2.35; ring.rotation.x = Math.PI / 2; ring.name = 'ring';
-    const light = new THREE.PointLight(0x7effc0, 5, 10, 1.6); light.position.y = 2.2;
-    g.add(base, mast, panel, ring, light);
+    g.add(base, mast, panel, ring);
     return g;
   }
 

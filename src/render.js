@@ -67,6 +67,7 @@ function makeInstMesh(geom, cap, material) {
 }
 function flush(m, n) {
   m.count = n;
+  m.visible = n > 0;
   const upd = (a, size) => { a.clearUpdateRanges(); if (n > 0) a.addUpdateRange(0, n * size); a.needsUpdate = n > 0; };
   upd(m.instanceMatrix, 16);
   upd(m.instanceColor, 3);
@@ -79,7 +80,8 @@ export class Renderer {
     this.canvas = canvas;
     this.q = QUALITY[quality] || QUALITY.high;
     this.qName = quality;
-    const r = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.dynScale = 1;
+    const r = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
     r.setPixelRatio(Math.min(window.devicePixelRatio, this.q.pr));
     r.setSize(window.innerWidth, window.innerHeight);
     r.toneMapping = THREE.ACESFilmicToneMapping;
@@ -146,21 +148,36 @@ export class Renderer {
   initComposer() {
     const w = window.innerWidth, h = window.innerHeight;
     const pr = this.renderer.getPixelRatio();
-    const rt = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: this.q.msaa });
+    const rt = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: this.q.msaa, depthBuffer: true });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), this.q.bloom, 0.7, 0.92);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(Math.max(64, w >> 1), Math.max(64, h >> 1)), this.q.bloom, 0.7, 0.92);
+    this.bloom.enabled = this.q.bloom > 0;
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(gradeShader);
+    this.grade.uniforms.uCA.value = this.q.ca ? 0.0016 : 0;
     this.composer.addPass(this.grade);
+  }
+
+  // adaptive resolution: scale the internal pixel ratio between 0.5x and 1x of the preset
+  setDynScale(s) {
+    s = Math.max(0.5, Math.min(1, s));
+    if (Math.abs(s - this.dynScale) < 0.01) return;
+    this.dynScale = s;
+    const pr = Math.min(window.devicePixelRatio, this.q.pr) * s;
+    this.renderer.setPixelRatio(pr);
+    this.composer.setPixelRatio(pr);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
   setQuality(name) {
     this.qName = name;
     this.q = QUALITY[name] || QUALITY.high;
+    this.dynScale = 1;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.q.pr));
     this.bloom.strength = this.q.bloom;
     this.composer.dispose();
@@ -299,7 +316,7 @@ export class Renderer {
 
   rebuildInstances(cam, force = false) {
     const now = performance.now();
-    const moved = cam.distanceToSquared(this.lastRebuildPos) > 2.0;
+    const moved = cam.distanceToSquared(this.lastRebuildPos) > 9.0;
     if (!force && !(this.instDirty && now - this.lastRebuild > 30) && !moved) return;
     this.instDirty = false;
     this.lastRebuild = now;

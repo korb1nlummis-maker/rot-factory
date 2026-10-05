@@ -58,7 +58,7 @@ export class Power {
       const r = find(i);
       if (!nets.has(r)) nets.set(r, { nodes: [], supply: 0, demand: 0, sat: 1, cap: 0 });
       const net = nets.get(r); net.nodes.push(n);
-      if (n.type === 'gen') { net.cap += T.genOutput; net.supply += this.genOutput(n); }
+      if (n.type === 'gen') { net.cap += T.genOutput; net.supply += this.outage ? 0 : this.genOutput(n); }
       n[NET] = net;
     });
     const reach2 = T.poleReach * T.poleReach;

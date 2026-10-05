@@ -158,8 +158,7 @@ export class Logistics {
       const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.5, 10), M.steel); chim.position.set(0.18, 0.78, -0.15);
       const win = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.02), M.dark); win.position.set(0, 0.32, 0.3); win.name = 'win';
       const hopper = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.18, 10, 1, true), M.steel); hopper.position.set(-0.1, 0.62, 0.0);
-      const light = new THREE.PointLight(0xff8030, 0, 5, 1.8); light.position.set(0, 0.5, 0.5); light.name = 'glow';
-      g.add(base, body, chim, win, hopper, light);
+      g.add(base, body, chim, win, hopper);
     } else if (ent.type === 'pole') {
       const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 2.0, 8), M.steel); mast.position.y = 1.0;
       const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.05), M.dark); arm.position.y = 1.95;
@@ -304,10 +303,9 @@ export class Logistics {
   updateGen(t, dt, tick) {
     const o = this.objs.get(t.id);
     if (!o) return;
-    const win = o.getObjectByName('win'), glow = o.getObjectByName('glow');
+    const win = o.getObjectByName('win');
     const lit = t.burn > 0;
     if (win) win.material = lit ? M.glowO : M.dark;
-    if (glow) glow.intensity = lit ? 3 + Math.sin(tick * 11) * 0.8 : 0;
     if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18, t.j * C + 1.1, cellZ(t.k) - 0.15);
   }
 

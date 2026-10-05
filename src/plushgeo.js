@@ -296,7 +296,8 @@ export function makeArchGeometry(arch, lod) {
     return g;
   }
   const fn = arch === ARCH_NEEDLE ? NEEDLE_FN : arch >= ARCH_DECOY0 ? DECOYS[arch - ARCH_DECOY0] : ARCHS[arch];
-  const parts = fn(lod).filter(Boolean);
+  let parts = fn(lod).filter(Boolean);
+  if (lod === 0 && arch < ARCH_NEEDLE && parts.length > 3) { for (const p of parts.slice(3)) p.dispose(); parts = parts.slice(0, 3); }
   const g = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   g.computeBoundingSphere();
