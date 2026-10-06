@@ -16,6 +16,7 @@ import { Contracts } from './contracts.js';
 import { Crew } from './crew.js';
 import { Radio } from './radio.js';
 import { Net, RemotePlayer } from './net.js';
+import { Slides } from './slide.js';
 import { recipes, craft, craftGear, gearRecipes, MATERIALS } from './crafting.js';
 import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
@@ -161,7 +162,9 @@ export class Game {
     this.sim.player = { spheres: () => { const a = this.player.spheres(); if (this.remote && this.net.open) a.push(...this.remote.spheres()); return a; }, vel: this.player.vel };
     this.sim.spawnHook = (sp, vr, x, y, z, vx, vy, vz, flag) => this.spawnHook(sp, vr, x, y, z, vx, vy, vz, flag);
     this.netBodies = new Map();
+    this.slide = new Slides(this);
     this.sim.hooks = {
+      onFreeze: (i, j, k, flag) => { if (!this.isGuest()) this.slide.trigger(i, j, k, flag === 2 ? 0.9 : 0.45); },
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
       onKick: (i, j, k, vx, vy, vz, sp) => this.onKick(i, j, k, vx, vy, vz, sp),
@@ -178,7 +181,7 @@ export class Game {
     this.power.clear();
     this.dust.clear();
     this.crew.clear();
-    this.world.onRemove = (i, j, k) => this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006);
+    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest()) this.slide.trigger(i, j, k, 1.1); };
     for (const e of S.entities) this.addEntity(e);
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
@@ -415,7 +418,7 @@ export class Game {
     this.S.up[id] = lvl + 1;
     this.S.stats.upgrades++;
     this.T = this.tune();
-    if (GEAR.includes(id)) this.ui.toast({ icon: '🧰', title: 'Craft it to use it', text: 'This is wearable gear. Take it to the Crafting Table (E) and craft it, then it works.', ms: 7000 });
+
     if (['timber', 'steel', 'concrete', 'rebar', 'titan', 'carbon', 'plasma', 'voidl', 'neutron', 'horizon'].includes(id)) this.frameIdx = this.T.frames.length - 1;
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
@@ -571,6 +574,7 @@ export class Game {
         release: (i, j, k2) => this.releaseCell(i, j, k2),
       });
       this.updateAfters(dt);
+      this.slide.update(dt);
     } else {
       for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
     }
@@ -1033,7 +1037,7 @@ export class Game {
   useTile(t, guestData) {
     const T = this.T, S = this.S;
     if (t.type === 'belt' && t.detector && !this.isGuest()) {
-      if (t.alarm && t.held) { const it = t.held; t.held = null; t.alarm = false; this.logi.setGate(t, false); this.alarmGate = null; this.pickedUp(it, new THREE.Vector3(cellX(t.i), t.j * C + 0.8, cellZ(t.k))); return true; }
+      if (t.alarm && t.held) { const it = t.held; t.held = null; t.alarm = false; this.logi.setGate(t, false); this.logi.recomputeHalt(); this.alarmGate = null; this.pickedUp(it, new THREE.Vector3(cellX(t.i), t.j * C + 0.8, cellZ(t.k))); return true; }
       this.ui.hint('Detector gate: all clear so far.', 2); return true;
     }
     if (this.isGuest()) {
@@ -2363,9 +2367,19 @@ export class Game {
     }
   }
 
+  // feel a slide nearby: rumble, shake, dust. The first one teaches you why not to climb.
+  slideFeel(pd) {
+    const near = 1 - pd / 22;
+    this.shake = Math.max(this.shake, Math.min(0.9, 0.06 * this.slide.recent * near + 0.05) * this.T.shakeMul);
+    if (this.slideSnd === undefined || performance.now() - this.slideSnd > 450) { this.slideSnd = performance.now(); this.sound.rumble(0.25 + 0.5 * near); this.sound.soft(0.1); }
+    if (pd < 12 && !this._slideHint) { this._slideHint = true; this.ui.hint('A slide! The pile is not stable under you or on a steep face. Stay low, brace with frames, or stay off it.', 6); }
+  }
+
   treadOn(strength, stomp) {
     const fc = this.player.footCell, p = this.player;
     if (!fc || p.pos.y < 0.4) return;
+    // climbing is a gamble: the higher you are and the more you carry, the harder you load the face under you
+    if (!this.isGuest()) this.slide.trigger(fc.i, fc.j, fc.k, 0.5 + p.pos.y * 0.09 + this.S.carry.length * 0.02 + strength * 0.25 + (stomp ? 0.5 : 0));
     const w = this.world;
     const cells = stomp ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]];
     let slid = 0;
@@ -2388,6 +2402,7 @@ export class Game {
     this.kickBudget = this.kickBudget ?? 6;
     if (this.kickBudget <= 0 || speed < 3.2) return;
     if (Math.random() > 0.08 * (speed - 2.8)) return;
+    this.slide.trigger(i, j, k, Math.min(1.6, 0.35 + speed * 0.12));
     const s = this.world.slipChance(i, j, k, 1.8);
     if (s && Math.random() < s.p) { this.kickBudget--; this.slipCell(i, j, k, vx * 0.25 + s.dx, 0.3, vz * 0.25 + s.dz); }
   }
@@ -2507,6 +2522,16 @@ export class Game {
     const air = this.airLeft === undefined ? 1 : Math.max(0, this.airLeft / max);
     this.ui.setVitals(this.hp / this.hpMax, air, this.trapOn, this.suffocating, this.dust.lung);
     void p;
+  }
+
+  // a creaking roof sheds plush: the first exposed ceiling cell above this spot lets go
+  dropRoof(i, j, k) {
+    const w = this.world;
+    for (let dj = -1; dj <= 5; dj++) {
+      const jj = j + dj;
+      if (w.get(i, jj, k) && !w.solid(i, jj - 1, k)) { this.releaseCell(i, jj, k); return true; }
+    }
+    return false;
   }
 
   updateAfters(dt) {

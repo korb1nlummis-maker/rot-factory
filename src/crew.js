@@ -8,7 +8,7 @@ import { DX, DZ } from './logistics.js';
 const NAMES = ['Pip', 'Bolt', 'Nub', 'Clank', 'Sprocket', 'Widget', 'Doodle', 'Tinker', 'Gizmo', 'Rivet', 'Dot', 'Fidget', 'Cog', 'Bleep'];
 const COLORS = [0xd9a21c, 0xc9742b, 0x7fa6b8, 0x93b85d, 0xb87aa4, 0xd4c13a];
 const DIRNAME = ['East', 'South', 'West', 'North'];
-export const STATUS = { idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', blocked: 'Blocked', stuck: 'Stuck' };
+export const STATUS = { held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', blocked: 'Blocked', stuck: 'Stuck' };
 
 const M = {
   dark: new THREE.MeshStandardMaterial({ color: 0x1d2024, roughness: 0.7, metalness: 0.6 }),
@@ -226,6 +226,14 @@ export class Crew {
     const h = this.home();
     b.battery = clamp(b.battery, 0, 1);
     switch (b.state) {
+      case 'held': {
+        const gate = g.logi.byId.get(b.heldGate);
+        if (!gate || !gate.alarm) { b.heldGate = null; b.scanned = true; b.state = 'return'; b.path = [[h.x, h.z]]; b.pi = 0; break; }
+        const DXs = [1, 0, -1, 0], DZs = [0, 1, 0, -1];
+        const d = gate.dir || 0;
+        b.tx = cellX(gate.i) + -DZs[d] * 1.7; b.tz = cellZ(gate.k) + DXs[d] * 1.7;
+        break;
+      }
       case 'idle': {
         // loiter around the bin
         b.tx = h.x + Math.sin(time * 0.3 + b.id) * 2.0; b.tz = h.z + Math.cos(time * 0.27 + b.id * 1.7) * 1.6;
@@ -243,7 +251,7 @@ export class Crew {
           if (b.state === 'goto') { b.state = 'farm'; b.timer = this.digTime(b, b.x, b.z); }
           else {
             // robots check in at the nearest detector gate before they unload
-            const gate = !b.scanned ? g.logi.nearestGate(h.x, h.z, 45) : null;
+            const gate = !b.scanned ? g.logi.bestGate(b.x, b.z, h.x, h.z) : null;
             if (gate) { b.scanned = true; b.gatePending = gate.id; b.path = [[cellX(gate.i), cellZ(gate.k)], [h.x, h.z]]; b.pi = 0; break; }
             b.scanned = false; b.state = 'unload';
           }
@@ -306,7 +314,10 @@ export class Crew {
       const it = b.carry.splice(n, 1)[0];
       gate.held = { sp: it.sp, vr: it.vr }; gate.alarm = true;
       g.logi.setGate(gate, true);
+      g.logi.recomputeHalt();
       g.needleAlarm(gate);
+      // pulled aside into the bay beside the lane, flagged, until you come and take it
+      b.state = 'held'; b.heldGate = gate.id; b.path = []; b.pi = 0;
     } else { g.logi.setGate(gate, false); gate.flash = 0.25; g.sound.tone('sine', 1250, 1250, 0.05, 0.03); }
   }
 

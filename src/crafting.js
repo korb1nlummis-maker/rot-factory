@@ -50,6 +50,7 @@ export function recipes(g) {
 
 // wearable gear: one piece per upgrade line, crafted tier by tier once the upgrade is unlocked
 export function gearRecipes(g) {
+  if (!g.GEAR_CRAFTING) return [];
   const S = g.S, out = [];
   for (const id of GEAR) {
     const u = UPGRADES.find((x) => x.id === id);

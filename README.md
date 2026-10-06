@@ -17,7 +17,7 @@ node tools/pace-sim.mjs   # rough pacing model (exit ~250 h, the plush ~500 h fo
 - **Tab** upgrades, **V** crew, **N** plushdex, **L** journal, **J** goals, **T/Y** send crew digging / home, **Esc** pause, **F3** fps, hold **H** to recall.
 
 ## Play with a friend
-Open **Play Together** (title screen or pause menu). One of you hosts and sends a code, the other pastes it and sends a reply code back. No server. The host's game runs everything; the guest sees and controls the same warehouse. Shared: the world, collapses and falling plush, money, upgrades, gear, crafted items, belts, sorters, mechs, generators, crew bots, the cart, contracts, time of day. Personal: your hands, stats and achievements. A guest does not overwrite their own save. Press **Enter** to chat. Works best in Chrome, and both of you need the same version of the file.
+Open **Play Together** (title screen or pause menu). The host gets a 4 digit code, the friend types it in. No account needed. The host's game runs everything; the guest sees and controls the same warehouse. Shared: the world, collapses and falling plush, money, upgrades, gear, crafted items, belts, sorters, mechs, generators, crew bots, the cart, contracts, time of day. Personal: your hands, stats and achievements. A guest does not overwrite their own save. Press **Enter** to chat. Works best in Chrome, and both of you need the same version of the file.
 
 To send the game itself: `npm run build` makes `dist/index.html`, a single file that opens by double-click.
 
@@ -41,3 +41,6 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **Controls**: F, G or left click grab. R or right click punch. O flashlight. Throwing Arm now has six levels.
 - **Building materials**: frames are made from Lumber, then Steel, Concrete, Rebar and so on. Buy stock at the bench (cheaper in bulk), or find it in caches and old workings. Short on stock, the shortfall is bought at full price.
 - **Survival gear**: Reinforced Hard Hat (+25 max health per level), Impact Padding (-10% damage per level), First Aid Station (Medkits on K, Air Canisters that save you when trapped), plus seven new achievements and more notes in the old workings.
+- **Slides**: the pile has an angle of repose. Digging, kicks, landing plush and climbing all trigger slides that feed themselves down a steep face. Climbing is a gamble: the higher you are and the more you carry, the harder you load the slope under you.
+- **Detector gates** are now 2.3 m tall and 1.9 m wide so any robot fits. Crew bots always route through a gate on the way home. A bot carrying the rare plush is pulled into a side bay and held, and the whole belt line the gate sits on stops until you take the item.
+- **Upgrades** (including the wearable ones like Carry Capacity) now work the moment you buy them.

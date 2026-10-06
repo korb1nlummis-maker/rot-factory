@@ -273,7 +273,7 @@ export class UI {
       let extra = '';
       if (u.names) extra = ` <small>${u.names[lvl]}${!maxed ? ' → ' + u.names[lvl + 1] : ''}</small>`;
       const reqU = u.req ? UPGRADES.find((x) => x.id === u.req.id) : null;
-      const gearNote = GEAR.includes(u.id) ? '<p style="color:var(--accent2);font-size:11.5px">Wearable gear: craft each tier at the Crafting Table after unlocking it.</p>' : '';
+      const gearNote = '';
       el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p>${gearNote}<div class="pips">${pips}</div>
         <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : nt ? nt : !unlocked ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : `Buy  ◈ ${fmt(cost)}`}</button>`;
       el.querySelector('button').onclick = () => { if (g.buy(u.id)) this.renderShop(); };

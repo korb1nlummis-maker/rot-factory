@@ -350,6 +350,7 @@ export class Sim {
     if (!best || bd > 0.55 * 0.55) return false;
     if (this.sp[i] === NEEDLE) w.needle = { i: best[0], j: best[1], k: best[2] };
     w.setCell(best[0], best[1], best[2], this.sp[i], this.vr[i]);
+    if (this.hooks && this.hooks.onFreeze) this.hooks.onFreeze(best[0], best[1], best[2], this.flag[i]);
     return true;
   }
 }

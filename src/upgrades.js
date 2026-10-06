@@ -21,7 +21,7 @@ export const UPGRADES = [
   { id: 'reach', cat: 'hands', name: 'Telescoping Grabber', desc: 'Reach further into the pile.', max: 4, cost: [18, 70, 260, 900], effect: (t, l) => { t.reach += 0.5 * l; } },
   { id: 'bag', cat: 'hands', name: 'Carry Capacity', desc: 'Tote, pack, cart, pallet jack. Hold more plush before you have to walk back.', max: 8, cost: [14, 45, 130, 360, 950, 2600, 7200, 19000], effect: (t, l) => { t.carry = [1, 3, 6, 10, 16, 26, 42, 70, 120][l]; }, names: ['Bare Hands', 'Tote Bag', 'Backpack', 'Hiker Pack', 'Wheelbarrow', 'Hand Cart', 'Pallet Jack', 'Forklift Fork', 'Gantry Hopper'] },
   { id: 'cart', cat: 'hands', name: 'Carts', desc: 'Unlocks carts to craft: Wheelbarrow, Hand Cart, Pallet Cart, Trolley, Flatbed. Press U to roll one out. It follows you, and plush you grab ride on it up to its capacity (24 / 60 / 150 / 400 / 1000). Park it near the bin or a sorter and it unloads itself.', max: 5, cost: geo(300, 3.2, 5), req: { id: 'bag', lvl: 1 }, effect: (t, l) => { t.cartTier = l; } },
-  { id: 'scavenge', cat: 'hands', name: 'Scavenger Magnet', desc: 'Loose plush lying on the floor (after a collapse, a throw, a spill) fly to you or your cart when they are close. Wearable: craft each tier.', max: 3, cost: [500, 5000, 50000], effect: (t, l) => { t.scavRange = [0, 3, 6, 10][l]; } },
+  { id: 'scavenge', cat: 'hands', name: 'Scavenger Magnet', desc: 'Loose plush lying on the floor (after a collapse, a throw, a spill) fly to you or your cart when they are close.', max: 3, cost: [500, 5000, 50000], effect: (t, l) => { t.scavRange = [0, 3, 6, 10][l]; } },
   { id: 'repeat', cat: 'hands', name: 'Auto-Grip', desc: 'Hold G and keep grabbing without tapping.', max: 1, cost: [40], effect: (t) => { t.autoRepeat = true; } },
   { id: 'scoop', cat: 'hands', name: 'Scoop Hands', desc: 'Each grab also scoops neighbouring plush. Bigger scoops pull the pile apart faster.', max: 4, cost: [120, 480, 1900, 7800], req: { id: 'bag', lvl: 2 }, effect: (t, l) => { t.scoop = [0, 1, 3, 6, 12][l]; } },
   { id: 'vac', cat: 'hands', name: 'Plush Vacuum', desc: 'Tapping G now inhales plush in a cone for a couple of seconds instead of grabbing one. Upgrades raise suction rate.', max: 5, cost: [650, 1800, 5200, 15000, 42000], req: { id: 'bag', lvl: 3 }, effect: (t, l) => { t.vac = l; t.vacRate = [0, 3, 5, 8, 12, 18][l]; } },
@@ -56,7 +56,7 @@ export const UPGRADES = [
   { id: 'struts', cat: 'mine', name: 'Quick Struts', desc: 'Unlocks Struts: a cheap single prop you can set down anywhere, with a small support reach. Not a frame, but it buys you time.', max: 1, cost: [120], effect: (t) => { t.struts = true; } },
   { id: 'dynamite', cat: 'mine', name: 'Dynamite', desc: 'Unlocks Dynamite: a cheap stick with a 4 second fuse that blasts a small hole. Craft it at the bench, aim at the pile and press B. The blast hurts if you are close, and shaking loosens the roof.', max: 1, cost: [260], effect: (t) => { t.dynamite = true; } },
   { id: 'charges', cat: 'mine', name: 'Blasting Charges', desc: 'Unlocks Charges. Set one against the pile, run, and it blows a hole when the fuse ends (6 s). Bigger levels, bigger holes. Blasting throws dust, loosens everything nearby, and the blast hurts if you are close.', max: 3, cost: [1500, 12000, 100000], req: { id: 'timber', lvl: 1 }, effect: (t, l) => { t.charges = l; } },
-  { id: 'climb', cat: 'move', name: 'Climbing Gear', desc: 'Pitons, rope and grippy soles. Plush slip away under your feet 25% less per tier on steep slopes. Wearable: craft each tier.', max: 3, cost: [200, 1500, 12000], effect: (t, l) => { t.climb = l; } },
+  { id: 'climb', cat: 'move', name: 'Climbing Gear', desc: 'Pitons, rope and grippy soles. Plush slip away under your feet 25% less per tier on steep slopes.', max: 3, cost: [200, 1500, 12000], effect: (t, l) => { t.climb = l; } },
   { id: 'hardhat', cat: 'mine', name: 'Reinforced Hard Hat', desc: 'More health. +25 max health per level.', max: 4, cost: [90, 700, 5200, 42000], effect: (t, l) => { t.hpBonus = 25 * l; } },
   { id: 'padding', cat: 'mine', name: 'Impact Padding', desc: 'Foam and kevlar under your overalls. Falls, blasts and falling plush hurt 10% less per level.', max: 4, cost: [120, 900, 6500, 48000], effect: (t, l) => { t.dmgCut = 0.1 * l; } },
   { id: 'firstaid', cat: 'mine', name: 'First Aid Station', desc: 'Unlocks Medkits (K heals 50) and Air Canisters (kick in on their own when you run out of air while trapped) at the bench.', max: 1, cost: [160], effect: (t) => { t.firstAid = true; } },
@@ -136,12 +136,13 @@ export const FRAME_TYPES = {
   horizon:  { name: 'Event Horizon',    cost: 630000000, bonus: 10, radius: 9.2, color: 0x101018, icon: '⚫' },
 };
 
-// Wearable efficiency upgrades are unlocked in the terminal but only work once you CRAFT them at the bench.
+// Wearable efficiency upgrades (they work as soon as you buy them).
 export const GEAR = ['gloves', 'reach', 'bag', 'boots', 'knees', 'springs', 'lamp', 'resp', 'scoop', 'vac', 'scavenge', 'climb'];
 export function effLevels(S) {
   const e = { ...S.up };
   const g = S.gear || {};
-  for (const id of GEAR) e[id] = Math.min(S.up[id] || 0, g[id] || 0);
+  // wearable upgrades work the moment you buy them (no separate crafting step)
+  void g;
   return e;
 }
 

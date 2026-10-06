@@ -284,7 +284,7 @@ export class Logistics {
       if (t.type === 'belt') {
         const its = t.items;
         if (!its.length) continue;
-        const pw = t.pw ?? 0;
+        const pw = t.halt ? 0 : (t.pw ?? 0);
         if (pw > 0.02) moving++;
         if (t.detector && !this.visualOnly) {
           for (let n = its.length - 1; n >= 0; n--) {
@@ -336,11 +336,16 @@ export class Logistics {
     const g = new THREE.Group();
     g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
     g.rotation.y = YAW[ent.dir || 0];
-    const post = new THREE.BoxGeometry(0.06, 0.95, 0.12);
-    for (const s of [-1, 1]) { const p = new THREE.Mesh(post, M.steel); p.position.set(s * 0.32, 0.5, 0); g.add(p); }
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.14, 0.16), M.yellow); beam.position.y = 1.0; g.add(beam);
-    const led = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), M.glowG); led.position.set(0, 1.09, 0.09); led.name = 'led'; g.add(led);
-    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.015, 6, 20, Math.PI), M.dark); coil.position.y = 0.7; coil.rotation.z = 0; g.add(coil);
+    // sized for a full grown robot or a person to walk straight through: 2.3 m tall, 1.9 m between the posts
+    const post = new THREE.BoxGeometry(0.12, 2.3, 0.2);
+    for (const s of [-1, 1]) { const p = new THREE.Mesh(post, M.steel); p.position.set(s * 0.95, 1.15, 0); g.add(p); }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.26, 0.28), M.yellow); beam.position.y = 2.3; g.add(beam);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), M.glowG); led.position.set(0, 2.47, 0.16); led.name = 'led'; g.add(led);
+    const led2 = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), M.glowG); led2.position.set(0.5, 2.47, 0.16); led2.name = 'led2'; g.add(led2);
+    const led3 = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), M.glowG); led3.position.set(-0.5, 2.47, 0.16); led3.name = 'led3'; g.add(led3);
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.88, 0.03, 6, 24, Math.PI), M.dark); coil.position.y = 1.4; g.add(coil);
+    // the pull-aside bay: a hazard-striped pad beside the lane where a flagged robot is parked
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 1.3), M.yellow); pad.position.set(0, 0.02, 1.7); pad.name = 'bay'; g.add(pad);
     this.root.add(g);
     this.objs.set(ent.id, g);
     ent.beepT = 0;
@@ -348,8 +353,9 @@ export class Logistics {
   }
 
   setGate(ent, red) {
-    const o = this.objs.get(ent.id), led = o && o.getObjectByName('led');
-    if (led) led.material = red ? M.glowR : M.glowG;
+    const o = this.objs.get(ent.id);
+    if (!o) return;
+    for (const n of ['led', 'led2', 'led3']) { const led = o.getObjectByName(n); if (led) led.material = red ? M.glowR : M.glowG; }
   }
 
   // returns true when the item must be pulled off the belt (it is The One)
@@ -360,6 +366,7 @@ export class Logistics {
       t.held = { sp: it.sp, vr: it.vr };
       t.alarm = true;
       this.setGate(t, true);
+      this.recomputeHalt();
       g.needleAlarm(t);
       return true;
     }
@@ -377,6 +384,36 @@ export class Logistics {
         if (t.beepT <= 0) { t.beepT = 0.55; this.setGate(t, (Math.floor(this.game.time * 3) % 2) === 0); const d = Math.hypot(cellX(t.i) - this.game.player.pos.x, cellZ(t.k) - this.game.player.pos.z); if (d < 60) { this.game.sound.tone('square', 880, 880, 0.18, 0.09 * (1 - d / 60)); this.game.sound.tone('square', 660, 660, 0.18, 0.09 * (1 - d / 60), 0.2); } }
       } else if (t.flash > 0) { t.flash -= dt; if (t.flash <= 0) this.setGate(t, false); }
     }
+  }
+
+  // when a gate is in alarm the whole belt line it sits on stops until someone takes the item
+  recomputeHalt() {
+    const rev = new Map();
+    for (const t of this.tiles.values()) { t.halt = false; if (t.type === 'belt') { const nx = this.nextOf(t); if (nx && nx.type === 'belt') { if (!rev.has(nx.id)) rev.set(nx.id, []); rev.get(nx.id).push(t); } } }
+    for (const g of this.tiles.values()) {
+      if (g.type !== 'belt' || !g.detector || !g.alarm) continue;
+      const stack = [g]; let n = 0;
+      while (stack.length && n++ < 800) {
+        const t = stack.pop();
+        if (t.halt) continue;
+        t.halt = true;
+        const nx = this.nextOf(t);
+        if (nx && nx.type === 'belt' && !nx.halt) stack.push(nx);
+        for (const u of rev.get(t.id) || []) if (!u.halt) stack.push(u);
+      }
+    }
+  }
+
+  // the gate that costs a robot the least detour on its way home
+  bestGate(x, z, hx, hz) {
+    let best = null, bd = Infinity;
+    for (const t of this.tiles.values()) {
+      if (t.type !== 'belt' || !t.detector) continue;
+      const gx = cellX(t.i), gz = cellZ(t.k);
+      const d = Math.hypot(gx - x, gz - z) + Math.hypot(gx - hx, gz - hz);
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
   }
 
   nearestGate(x, z, r) {
