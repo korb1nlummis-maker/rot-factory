@@ -109,3 +109,4 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - New-species chime: only for plush you handle yourself, only while you are actually playing (never from the pause menu or title), at most one every half second. Machines, bots and anything found in a menu are counted silently and reported in one quiet batch toast every 30 s.
 
 - F is now the flashlight (O still works). Grab, throw and use-tool are left click only.
+- The pause menu has two tabs, Game and Controls. The Controls tab (and the How to Play controls) are drawn from one table, src/controls.js, and a test checks it against every key the game really handles. Every button is tested to do what its label says.

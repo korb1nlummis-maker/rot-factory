@@ -1,4 +1,5 @@
 import { escHtml } from './util.js';
+import { CONTROLS } from './controls.js';
 import { CATS, UPGRADES, GEAR, isUnlocked, needsText } from './upgrades.js';
 import { STATUS } from './crew.js';
 import { ACHIEVEMENTS } from './achievements.js';
@@ -23,6 +24,8 @@ export class UI {
     this.hotbarKey = '';
     this.ringLen = 113;
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.closeModals());
+    for (const b of document.querySelectorAll('[data-ptab]')) b.addEventListener('click', () => this.pauseTab(b.dataset.ptab));
+    this.renderControls();
     for (const m of document.querySelectorAll('.modal')) m.addEventListener('mousedown', (e) => { if (e.target === m) this.closeModals(); });
   }
 
@@ -264,6 +267,15 @@ export class UI {
     $('biTitle').textContent = d.title; $('biLines').innerHTML = d.lines.map((l) => `<div>${escHtml(l)}</div>`).join('');
     const a = $('biAct'); a.textContent = d.act; a.classList.toggle('bad', !d.ok);
   }
+  // the pause menu has two tabs: the game menu and the full list of controls
+  pauseTab(name) {
+    for (const b of document.querySelectorAll('[data-ptab]')) b.classList.toggle('on', b.dataset.ptab === name);
+    $('pauseGame').classList.toggle('hidden', name !== 'game'); $('pauseControls').classList.toggle('hidden', name !== 'controls');
+  }
+  renderControls() {
+    const html = CONTROLS.map((g) => `<div class="ctlgroup">${escHtml(g.group)}</div>` + g.rows.map((r) => `<div class="ctlrow"><div class="ck">${r.keys.map((k) => (k === '...' ? '<span>to</span>' : `<kbd>${escHtml(k)}</kbd>`)).join(' ')}</div><div class="cw">${escHtml(r.what)}</div></div>`).join('')).join('');
+    const a = document.getElementById('ctlBody'), b = document.getElementById('howKeys'); if (a) a.innerHTML = html; if (b) b.innerHTML = html;
+  }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
     const c = $('compass');
@@ -323,7 +335,7 @@ export class UI {
     if (id === 'shop') this.renderShop();
     if (id === 'dex') this.renderDex();
     if (id === 'ach') this.renderAch();
-    if (id === 'pause') this.renderStats();
+    if (id === 'pause') { this.renderStats(); this.pauseTab('game'); }
     if (id === 'dossier') { this.startDossier(); $('clueList').innerHTML = (this.game.S.clues || []).map((c) => `<div>📎 ${c}</div>`).join('') || '<div>No clues yet. Depot Beacons far from the bay turn up old paperwork.</div>'; }
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();

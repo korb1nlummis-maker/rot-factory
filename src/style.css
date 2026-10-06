@@ -331,3 +331,19 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 #botInfo #biAct { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(232,194,74,0.35); font-size: 13px; font-weight: 800; color: #9fe8b4; }
 #botInfo #biAct.bad { color: #ff9b86; }
 #botInfo.hidden { display: none; }
+
+/* ---------- pause tabs and the controls list ---------- */
+.panel.pausepanel { width: min(640px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+.ptabs { display: flex; gap: 8px; padding: 10px 24px 0; }
+.ptabs button { flex: 0 0 auto; padding: 8px 18px; border-radius: 10px 10px 0 0; border: 1px solid var(--line); border-bottom: 0; background: rgba(255,255,255,0.04); color: var(--dim); font-weight: 800; letter-spacing: 0.14em; font-size: 12px; text-transform: uppercase; cursor: pointer; }
+.ptabs button.on { background: rgba(214,255,100,0.12); color: var(--accent); }
+#pauseControls { padding: 14px 24px 22px; overflow: auto; flex: 1 1 auto; }
+#pauseControls.hidden, #pauseGame.hidden { display: none; }
+.ctlintro { margin: 0 0 8px; color: var(--dim); font-size: 12px; }
+.ctlgroup { margin: 14px 0 6px; font-size: 11px; font-weight: 900; letter-spacing: 0.25em; text-transform: uppercase; color: var(--accent); }
+.ctlrow { display: grid; grid-template-columns: 190px 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; line-height: 1.45; }
+.ctlrow .ck { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+.ctlrow .ck kbd { white-space: nowrap; }
+.ctlrow .cw { color: #dcd8c4; }
+@media (max-width: 560px) { .ctlrow { grid-template-columns: 1fr; gap: 4px; } }
+#howKeys .ctlrow { grid-template-columns: 170px 1fr; font-size: 12.5px; }
