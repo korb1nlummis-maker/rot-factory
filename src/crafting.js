@@ -3,7 +3,7 @@ import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
-  frame: 'Pick it on the hotbar, stand in a tunnel, aim at the floor where it should stand and press B. It anchors the roof around it, so the unsupported length starts again. X takes it back.',
+  frame: 'A 4x4 square (2.4 m) section. Aim at the floor, press B: it carves out its section and anchors the roof around it. Aim next to a frame and it snaps on any side (in line, beside, above, below) to build tunnels, junctions and chambers. Hold B to lay a lining. X takes it back.',
   marker: 'Aim at the floor and press B. It shows on your compass so you can find your way back.',
   glow: 'Aim and press B. A soft green light for 10 minutes, no power needed.',
   flare: 'Aim and press B. A bright light for 4 minutes, no power needed.',
@@ -158,12 +158,12 @@ export function craft(g, id, n) {
   S.items[id] = (S.items[id] || 0) + n;
   g.ui.setMoney(S.money);
   g.sound.place();
-  g.stowed = false;
   g.rebuildTools();
-  const idx = g.tools.findIndex((t) => t.id === id);
+  // like picking something up in Minecraft: it goes into the first free hotbar slot (and becomes the selected slot)
+  let idx = g.assignHotbar(id);
   if (idx >= 0) g.buildIdx = idx;
   g.rebuildTools();
-  if (r.use) g.ui.hint(`<b>${r.name}</b> ready${idx >= 0 ? ` (hotbar ${idx + 1})` : ''}. ${r.use}`, 7);
+  if (r.use) g.ui.hint(`<b>${r.name}</b> crafted${idx >= 0 ? ` and put on hotbar slot <kbd>${idx + 1}</kbd>. Press <kbd>${idx + 1}</kbd> to take it out, <kbd>Q</kbd> to put it away` : '. Your hotbar is full: open the inventory (<kbd>I</kbd>) to choose a slot'}. ${r.use}`, 9);
   return true;
 }
 
@@ -175,13 +175,15 @@ function craftCart(g, r) {
   if (S.money < r.price) { g.sound.error(); return false; }
   S.money -= r.price;
   for (let t = 1; t <= 5; t++) delete S.items['cart:' + t];
+  if (Array.isArray(S.hotbar)) S.hotbar = S.hotbar.map((x) => (x && x.startsWith('cart:') ? 'cart:' + tier : x)); // an old cart slot follows the upgrade
   if (S.cart) {
     S.cart.tier = tier;
     g.cart.sync();
     g.ui.hint(`Cart upgraded to a <b>${CART_NAMES[tier]}</b>: now carries ${CART_CAP[tier]}. Its load stays.`, 6);
   } else {
     S.items['cart:' + tier] = 1;
-    g.ui.hint(`<b>${CART_NAMES[tier]}</b> crafted (${CART_CAP[tier]} plush). ${USE.cart}`, 8);
+    const slot = g.assignHotbar('cart:' + tier);
+    g.ui.hint(`<b>${CART_NAMES[tier]}</b> crafted (${CART_CAP[tier]} plush)${slot >= 0 ? ` and put on hotbar slot <kbd>${slot + 1}</kbd>` : ''}. ${USE.cart}`, 8);
   }
   g.ui.setMoney(S.money); g.sound.place(); g.rebuildTools();
   return true;

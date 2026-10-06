@@ -331,13 +331,99 @@ export function buildHall(scene) {
     hall.colliders.push({ x: px, z: pz, r: s * 0.72, h: s * 0.9 + 0.14 });
   }
 
-  // sign boards
-  const signTex = labelTex('EXIT  →  EAST', 640, 160, { fg: '#c8ffd9', bg: '#08331c', size: 90 });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false }));
-  sign.position.set(2.0, 3.4, -9.4); sign.rotation.y = 0;
-  scene.add(sign);
-  const sign2 = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.85), new THREE.MeshBasicMaterial({ map: labelTex('DO NOT CLIMB THE PILES', 1024, 256, { fg: '#111', bg: '#f0c814', size: 110 }) }));
-  sign2.position.set(-4.5, 2.6, -9.8); scene.add(sign2);
+  // ---- signage: real-looking warehouse signs ----
+  const signFont = 'Helvetica, Arial, sans-serif';
+  // ISO-style emergency EXIT: green field, white border, running man and arrow, lit from inside
+  const exitTex = canvasTex(1024, 384, (g, w, h) => {
+    g.fillStyle = '#0a7d3c'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#eafff1'; g.lineWidth = 12; g.strokeRect(14, 14, w - 28, h - 28);
+    // running man (simple pictogram)
+    const cx = 170, cy = 200; g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineWidth = 22; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.beginPath(); g.arc(cx + 24, cy - 112, 24, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.moveTo(cx + 14, cy - 76); g.lineTo(cx - 6, cy - 6); g.lineTo(cx - 52, cy + 22); g.stroke();
+    g.beginPath(); g.moveTo(cx - 6, cy - 6); g.lineTo(cx + 40, cy + 36); g.lineTo(cx + 34, cy + 100); g.stroke();
+    g.beginPath(); g.moveTo(cx + 12, cy - 66); g.lineTo(cx + 64, cy - 56); g.lineTo(cx + 96, cy - 82); g.stroke();
+    g.beginPath(); g.moveTo(cx + 10, cy - 62); g.lineTo(cx - 46, cy - 38); g.stroke();
+    // arrow east
+    g.lineWidth = 26; g.beginPath(); g.moveTo(820, 192); g.lineTo(990, 192); g.stroke(); g.lineWidth = 22; g.beginPath(); g.moveTo(930, 130); g.lineTo(996, 192); g.lineTo(930, 254); g.stroke();
+    g.fillStyle = '#ffffff'; g.font = `800 190px ${signFont}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('EXIT', 520, 196);
+  });
+  const mkEmerg = (x, y, z, ry) => {
+    const grp = new THREE.Group(); grp.name = 'exitSign'; grp.position.set(x, y, z); grp.rotation.y = ry;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 0.1), new THREE.MeshStandardMaterial({ color: 0x1a1d1f, roughness: 0.5, metalness: 0.8 }));
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTex, toneMapped: false })); face.position.z = 0.056;
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTex, toneMapped: false })); back.position.z = -0.056; back.rotation.y = Math.PI;
+    grp.add(body, face, back);
+    const chain = new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6), cm = new THREE.MeshStandardMaterial({ color: 0x666b70, metalness: 0.9, roughness: 0.4 });
+    for (const sx of [-1, 1]) { const c = new THREE.Mesh(chain, cm); c.position.set(sx * 1.0, 1.0, 0); grp.add(c); }
+    const glow = new THREE.PointLight(0x40ff90, 5, 7, 1.6); glow.position.set(0, -0.1, 0.6); grp.add(glow);
+    scene.add(grp); return grp;
+  };
+  mkEmerg(6.2, 3.0, 1.6, -Math.PI / 2 + 0.25);
+  mkEmerg(2.0, 3.4, -9.4, 0);
+  // ANSI-style DO NOT CLIMB: white plate, red ring and bar over a climbing figure, black text, on a bolted post
+  const climbTex = canvasTex(512, 768, (g, w, h) => {
+    g.fillStyle = '#f4f4f0'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#c81414'; g.fillRect(0, 0, w, 150); g.fillStyle = '#fff'; g.font = `900 108px ${signFont}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('DANGER', w / 2, 84);
+    g.strokeStyle = '#111'; g.lineWidth = 14; g.strokeRect(7, 7, w - 14, h - 14);
+    // climbing figure on a slope
+    g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 16; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(90, 520); g.lineTo(250, 400); g.lineTo(420, 330); g.stroke();
+    g.beginPath(); g.arc(300, 270, 26, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.moveTo(292, 306); g.lineTo(262, 372); g.stroke(); g.beginPath(); g.moveTo(262, 372); g.lineTo(206, 408); g.stroke(); g.beginPath(); g.moveTo(262, 372); g.lineTo(300, 430); g.stroke();
+    g.beginPath(); g.moveTo(288, 318); g.lineTo(346, 296); g.stroke(); g.beginPath(); g.moveTo(286, 322); g.lineTo(236, 348); g.stroke();
+    // prohibition ring + bar
+    g.strokeStyle = '#d01818'; g.lineWidth = 26; g.beginPath(); g.arc(256, 380, 168, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.moveTo(140, 262); g.lineTo(372, 498); g.stroke();
+    g.fillStyle = '#111'; g.font = `900 68px ${signFont}`; g.fillText('DO NOT CLIMB', w / 2, 612);
+    g.font = `700 36px ${signFont}`; g.fillText('PLUSH PILES SLIDE WITHOUT WARNING', w / 2, 672); g.font = `600 30px ${signFont}`; g.fillText('Support tunnels. Stay off the slope.', w / 2, 716);
+  });
+  const mkClimb = (x, z, ry) => {
+    const grp = new THREE.Group(); grp.name = 'climbSign'; grp.position.set(x, 0, z); grp.rotation.y = ry;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.1, 10), new THREE.MeshStandardMaterial({ color: 0x4c5258, metalness: 0.85, roughness: 0.4 })); post.position.y = 1.05;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.27, 0.05, 20), new THREE.MeshStandardMaterial({ color: 0x23272b, metalness: 0.7, roughness: 0.5 })); base.position.y = 0.025;
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.93, 0.025), new THREE.MeshStandardMaterial({ color: 0xe9e9e4, roughness: 0.4, metalness: 0.2 })); plate.position.set(0, 1.55, 0.04);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.88), new THREE.MeshStandardMaterial({ map: climbTex, roughness: 0.35, metalness: 0.1 })); face.position.set(0, 1.55, 0.054);
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.97, 0.012), new THREE.MeshStandardMaterial({ color: 0x777c80, metalness: 0.9, roughness: 0.35 })); rim.position.set(0, 1.55, 0.03);
+    grp.add(post, base, rim, plate, face);
+    scene.add(grp); hall.colliders.push({ x, z, r: 0.2, h: 2.1 }); return grp;
+  };
+  mkClimb(8.0, -2.6, -Math.PI / 2); mkClimb(8.0, 3.4, -Math.PI / 2); mkClimb(5.4, 7.0, Math.PI + 0.7); mkClimb(-5.4, 6.4, Math.PI - 0.7);
+  mkClimb(-7.4, 0.8, Math.PI / 2);
+
+  // ---- chalkboard on an easel: the rules of the game, in chalk ----
+  const chalkTex = canvasTex(1024, 720, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#26342e'); gr.addColorStop(1, '#1b2622'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    for (let n = 0; n < 900; n++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.045})`; g.fillRect(Math.random() * w, Math.random() * h, 30 + Math.random() * 120, 2 + Math.random() * 8); } // old chalk smears
+    const chalk = '#f1eee2'; g.fillStyle = chalk; g.strokeStyle = chalk; g.textBaseline = 'middle';
+    const hand = 'Chalkboard SE, Chalkduster, Bradley Hand, Segoe Print, Comic Sans MS, cursive';
+    g.textAlign = 'center'; g.font = `700 64px ${hand}`; g.fillText('RULES OF THE SHIFT', w / 2, 62); g.lineWidth = 5; g.beginPath(); g.moveTo(230, 104); g.lineTo(790, 100); g.stroke();
+    g.textAlign = 'left'; g.font = `500 41px ${hand}`;
+    const rules = [
+      'Millions of plush. ONE matters: the Rotto.',
+      'F or click = grab. Click again = throw.',
+      'Stand near the bin: it eats what you carry.',
+      'Cash buys bags, tools, crew (desk: E).',
+      'Dig tunnels. Prop the roof or it falls.',
+      'DO NOT CLIMB. Piles slide.',
+      'Cannot find it? Exit is 3 km EAST  →',
+    ];
+    rules.forEach((t, n) => { const y = 168 + n * 74; g.fillText((n + 1) + '.', 52, y); g.fillText(t, 112, y + (n % 2 ? 2 : -2)); });
+    g.lineWidth = 4; g.beginPath(); g.moveTo(112, 168 + 5 * 74 + 26); g.lineTo(420, 168 + 5 * 74 + 24); g.stroke(); // underline the warning
+    // a chalk plush doodle
+    g.beginPath(); g.arc(900, 640, 40, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.arc(880, 630, 5, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(920, 630, 5, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(900, 650, 12, 0.1, Math.PI - 0.1); g.stroke();
+  });
+  const board = new THREE.Group(); board.name = 'chalkboard'; board.position.set(4.4, 0, 2.6); board.rotation.y = Math.atan2(-4.4, -4.0);
+  const boardWood = new THREE.MeshStandardMaterial({ color: 0x8a6238, roughness: 0.85 });
+  const bf = new THREE.Mesh(new THREE.BoxGeometry(1.78, 1.28, 0.07), boardWood); bf.position.set(0, 1.45, 0);
+  const bs = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 1.15), new THREE.MeshStandardMaterial({ map: chalkTex, roughness: 0.95, metalness: 0 })); bs.position.set(0, 1.45, 0.037);
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.12), boardWood); tray.position.set(0, 0.8, 0.07);
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x6e4c2a, roughness: 0.9 });
+  for (const sx of [-0.7, 0.7]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.9, 0.06), legMat); leg.position.set(sx, 0.9, -0.28); leg.rotation.x = 0.14; board.add(leg); }
+  const frontLeg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), legMat); frontLeg.position.set(0, 0.4, 0.02);
+  const chalkMat = new THREE.MeshStandardMaterial({ color: 0xf4f1e4, roughness: 0.9 });
+  for (const [cx, cl] of [[-0.3, 0.09], [-0.1, 0.07], [0.2, 0.11]]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, cl, 8), chalkMat); c.rotation.z = Math.PI / 2; c.position.set(cx, 0.84, 0.08); board.add(c); }
+  board.add(bf, bs, tray, frontLeg); board.scale.setScalar(1.3); scene.add(board);
+  hall.colliders.push({ x: 4.4, z: 2.6, r: 0.75, h: 2.4 });
 
   // EXIT door in +X wall
   const door = new THREE.Group();

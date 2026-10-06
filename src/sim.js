@@ -348,9 +348,9 @@ export class Sim {
         }
       }
       // anything that has been loose for a long time is placed or retired, however it is moving
-      if (this.age[i] > 25 && this.flag[i] !== 99) {
+      if (this.age[i] > 12 && this.flag[i] !== 99) {
         if (this.forceFreeze(i)) { this.remove(i); continue; }
-        if (this.age[i] > 45 && this.sp[i] !== NEEDLE) { if (this.hooks && this.hooks.onStale) this.hooks.onStale(this.sp[i], this.vr[i]); this.remove(i); continue; }
+        if (this.age[i] > 30 && this.sp[i] !== NEEDLE) { if (this.hooks && this.hooks.onStale) this.hooks.onStale(this.sp[i], this.vr[i]); this.remove(i); continue; }
       }
     }
   }
@@ -365,7 +365,7 @@ export class Sim {
       const a = ci + di, b = cj + dj, c = ck + dk;
       if (b < 0 || !w.inside(a, b, c) || w.get(a, b, c) !== 0 || w.reserved.has((b * NZ + c) * NX + a)) continue;
       const sup = w.solid(a, b - 1, c);
-      if (!sup && !(w.solid(a + 1, b, c) || w.solid(a - 1, b, c) || w.solid(a, b, c + 1) || w.solid(a, b, c - 1))) continue;
+      if (!sup) continue; // only ever place it on something: a floating cell would be an unsupported roof that falls again
       const cx = cellX(a), cy = cellY(b), cz = cellZ(c);
       let blocked = false;
       for (const s of ps) { if ((cx - s.x) ** 2 + (cy - s.y) ** 2 + (cz - s.z) ** 2 < (s.r + 0.34) ** 2) { blocked = true; break; } }

@@ -12,6 +12,7 @@ const COLSZ = 256 * NY;
 export const SAFE_LEN = 12;     // cells (7.2 m) of tunnel you can dig unsupported near the surface
 export const OB = 14;           // every 14 cells of plush above the roof costs one cell of safe length
 export const MIN_SAFE = 3;      // never less than 1.8 m
+export const ARCH = 4;          // a collapse can only climb 4 cells (2.4 m) above the original roof before the pile above arches and holds
 
 // The hall is a huge lattice of plush cells (0.6 m). Storage is lazy: 16x16 column chunks are generated from the
 // seed on first touch, and only modified columns are kept forever. Everything else can be evicted and regenerated.
@@ -25,6 +26,7 @@ export class World {
     this.chunkMod = new Uint8Array(CX * CY * CZ);
     this.stabQueue = [];
     this.creaking = new Map();
+    this.chimney = new Map();       // column -> height of the first roof cell that fell (collapses stop climbing after ARCH cells)
     this.supports = [];
     this.reserved = new Set();    // cells occupied by belts/machines (no plush may settle there)
     this.stabBonus = 0;
@@ -207,13 +209,15 @@ export class World {
       this.dirtyChunks.add(id);
       this.chunkMod[id] = 1;
     };
+    // the renderer draws a two-cell shell (and one more layer near the camera), so an edit can change what the NEXT chunk must
+    // draw up to two cells away: re-scan neighbours across a two-cell border, in all directions
     set(ci, cj, ck);
-    if (li === 0) set(ci - 1, cj, ck);
-    if (li === CS - 1) set(ci + 1, cj, ck);
-    if (lk === 0) set(ci, cj, ck - 1);
-    if (lk === CS - 1) set(ci, cj, ck + 1);
-    if (lj >= CS - 1) set(ci, cj + 1, ck);
-    if (lj < 8) set(ci, cj - 1, ck);
+    const sx = li <= 1 ? -1 : li >= CS - 2 ? 1 : 0, sz = lk <= 1 ? -1 : lk >= CS - 2 ? 1 : 0, sy = lj <= 1 ? -1 : lj >= CS - 2 ? 1 : 0;
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      if (!a && !b && !c) continue;
+      if ((a && a !== sx) || (b && b !== sy) || (c && c !== sz)) continue;
+      set(ci + a, cj + b, ck + c);
+    }
   }
 
   setCell(i, j, k, sp, vr = 0) {
@@ -370,6 +374,8 @@ export class World {
 
   stress(i, j, k) {
     if (j === 0) return null;
+    const base = this.chimney.get(k * 16384 + i);
+    if (base !== undefined && j - base >= ARCH) return null; // arched: this part of the pile has already settled over the void
     const s0 = this.get(i, j, k);
     if (!s0 || s0 === BULK || this.solid(i, j - 1, k)) return null;
     const over = Math.max(0, this.topAt(i, k) - j - 1);
@@ -431,11 +437,15 @@ export class World {
       if (c.t <= 0) done.push([id, c]);
     }
     let released = 0;
+    // a collapse runs like dominoes, not all at once: roof cells let go at a limited rate so a long tunnel comes down over a few seconds
+    this._relBudget = Math.min(30, (this._relBudget || 0) + dt * 24);
     for (const [id, c] of done) {
       this.creaking.delete(id);
       const s = this.stress(c.i, c.j, c.k);
       if (s && s.margin < 0) {
-        if (released < 60 && hooks.release(c.i, c.j, c.k)) {
+        if (this._relBudget >= 1 && hooks.release(c.i, c.j, c.k)) {
+          this._relBudget -= 1;
+          const ck2 = c.k * 16384 + c.i; if (!this.chimney.has(ck2)) this.chimney.set(ck2, c.j);
           released++;
           this.stabQueue.push({ i: c.i, j: c.j, k: c.k });
         } else this.creaking.set(id, { ...c, t: 0.25 });

@@ -233,3 +233,18 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 @keyframes vpulse { 50% { box-shadow: 0 0 12px rgba(255,70,50,0.9); } }
 
 #hotbar .slot.more { min-width: 36px; opacity: 0.6; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+
+#hotbarHint { font-size: 11px; color: var(--dim); text-align: center; margin-top: 4px; text-shadow: 0 1px 4px #000; opacity: 0.8; }
+#hotbarHint kbd { font-size: 10px; }
+
+#invGrid { display: grid; grid-template-columns: repeat(9, 54px); gap: 5px; }
+#invBar { display: grid; grid-template-columns: repeat(9, 54px); gap: 5px; }
+.islot { position: relative; width: 54px; height: 54px; border-radius: 9px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; font-size: 26px; cursor: pointer; user-select: none; }
+.islot.empty { opacity: 0.4; cursor: default; }
+.islot.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(215,242,106,0.35); }
+.islot.mat { filter: saturate(0.7); }
+.islot .c { position: absolute; right: 4px; bottom: 2px; font-size: 11px; font-weight: 800; text-shadow: 0 1px 3px #000; }
+.islot .b { position: absolute; left: 4px; top: 2px; font-size: 10px; font-weight: 800; color: var(--accent); }
+.islot.bar .k { position: absolute; left: 4px; top: 2px; font-size: 10px; color: var(--dim); }
+#hotbar .slot.empty { opacity: 0.32; min-width: 44px; }
+#hotbar .slot.spent { opacity: 0.45; }

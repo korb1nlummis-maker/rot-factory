@@ -103,19 +103,61 @@ export class UI {
     box.innerHTML = html;
   }
   setHotbar(items, sel) {
-    const key = items.map((i) => i.id + (i.count ?? '')).join('|') + '#' + sel;
+    const key = items.map((i) => (i ? i.id + (i.count ?? '') + (i.have === 0 ? 'x' : '') : '-')).join('|') + '#' + sel;
     if (key === this.hotbarKey) return;
     this.hotbarKey = key;
-    // at most 9 slots on screen, scrolling with the selection so a long list never runs off the screen
-    const MAXS = 9;
-    let from = 0;
-    if (items.length > MAXS) from = Math.max(0, Math.min(items.length - MAXS, (sel < 0 ? 0 : sel) - Math.floor(MAXS / 2)));
-    const shown = items.slice(from, from + MAXS);
-    const more = (n) => (n > 0 ? `<div class="slot more">+${n}</div>` : '');
-    $('hotbar').innerHTML = more(from) + shown.map((it, q) => {
-      const i = from + q;
-      return `<div class="slot ${i === sel ? 'sel' : ''}"><span class="k">${i + 1}</span>${it.icon}<span class="l">${it.label}</span>${it.count != null ? `<span class="c">${it.count}</span>` : ''}</div>`;
-    }).join('') + more(items.length - from - shown.length);
+    const hh = $('hotbarHint'); if (hh) hh.innerHTML = sel < 0 ? '<kbd>Q</kbd> or a number: take a tool out · <kbd>I</kbd> inventory' : '<kbd>Q</kbd> put away · same number again also puts it away · <kbd>I</kbd> inventory';
+    // nine slots, always shown: an empty slot is a faint number
+    $('hotbar').innerHTML = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => {
+      const it = items[i];
+      if (!it) return `<div class="slot empty ${i === sel ? 'sel' : ''}"><span class="k">${i + 1}</span></div>`;
+      return `<div class="slot ${i === sel ? 'sel' : ''} ${it.have === 0 ? 'spent' : ''}"><span class="k">${i + 1}</span>${it.icon}<span class="l">${it.label}</span>${it.count != null ? `<span class="c">${it.count}</span>` : ''}</div>`;
+    }).join('');
+  }
+
+  // ---------------- inventory ----------------
+  renderInventory() {
+    const g = this.game, S = g.S;
+    const list = g.inventoryList();
+    if (this.invSel && !list.some((x) => x.id === this.invSel)) this.invSel = null;
+    const grid = $('invGrid');
+    const COLS = 9, ROWS = Math.max(4, Math.ceil(list.length / COLS));
+    grid.innerHTML = '';
+    for (let n = 0; n < COLS * ROWS; n++) {
+      const it = list[n]; const el = document.createElement('div');
+      el.className = 'islot' + (it ? '' : ' empty') + (it && it.id === this.invSel ? ' sel' : '') + (it && it.kind === 'mat' ? ' mat' : '');
+      if (it) {
+        el.innerHTML = `${it.icon}${it.count != null ? `<span class="c">${typeof it.count === 'number' ? it.count : it.count}</span>` : ''}${it.slot >= 0 ? `<span class="b">${it.slot + 1}</span>` : ''}`;
+        el.title = it.name;
+        el.onclick = () => { this.invSel = it.id; this.renderInventory(); };
+        if (it.tool) { el.draggable = true; el.ondragstart = (e) => { this.invSel = it.id; e.dataTransfer.setData('text/plain', it.id); }; }
+      }
+      grid.appendChild(el);
+    }
+    // the hotbar row
+    const bar = $('invBar'); bar.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+      const id = S.hotbar[i]; const t = g.tools[i]; const el = document.createElement('div');
+      el.className = 'islot bar' + (id ? '' : ' empty') + (id && id === this.invSel ? ' sel' : '');
+      el.innerHTML = `<span class="k">${i + 1}</span>${t ? t.icon : ''}${t && t.count != null ? `<span class="c">${t.count}</span>` : ''}`;
+      el.title = t ? t.label : 'Empty slot ' + (i + 1);
+      el.onclick = () => { if (this.invSel && !(id && id === this.invSel)) g.assignHotbar(this.invSel, i); else if (id) this.invSel = id; this.renderInventory(); };
+      el.ondragover = (e) => e.preventDefault();
+      el.ondrop = (e) => { e.preventDefault(); const dragged = e.dataTransfer.getData('text/plain'); if (dragged) { g.assignHotbar(dragged, i); this.invSel = dragged; this.renderInventory(); } };
+      bar.appendChild(el);
+    }
+    // detail
+    const it = list.find((x) => x.id === this.invSel);
+    $('invInfo').innerHTML = it
+      ? `<h3>${it.icon} ${it.name}${it.count != null ? ` <small>×${it.count}</small>` : ''}</h3><p>${it.desc || ''}</p>${it.status ? `<p style="color:var(--accent2);font-size:12px">${it.status}</p>` : ''}${it.use ? `<p style="color:var(--dim);font-size:12px"><b>How to use:</b> ${it.use}</p>` : ''}<p style="font-size:12px;color:var(--ink)">${it.tool ? (it.slot >= 0 ? `On hotbar slot <b>${it.slot + 1}</b>. Press another number to move it, <b>X</b> to take it off the bar.` : 'Press a number <b>1-9</b> (or click a hotbar slot, or drag it there) to put it on your hotbar.') : 'Not a hotbar item.'}</p>`
+      : '<p style="color:var(--dim)">Click an item to see what it does. Put tools and building items on the hotbar below, then use the number keys in the world.</p>';
+  }
+  invAssign(slot) { const g = this.game; if (slot < 0 || slot > 8) return; const it = g.inventoryList().find((x) => x.id === this.invSel); if (!it || !it.tool) { this.hint('Pick a tool or building item first.', 1.5); return; } g.assignHotbar(it.id, slot); this.renderInventory(); }
+  invClear() { const g = this.game; const slot = g.S.hotbar.indexOf(this.invSel); if (slot >= 0) { g.clearHotbarSlot(slot); this.renderInventory(); } }
+  invMove(code) {
+    const list = this.game.inventoryList(); if (!list.length) return; let i = list.findIndex((x) => x.id === this.invSel); if (i < 0) i = 0;
+    const d = code === 'ArrowRight' ? 1 : code === 'ArrowLeft' ? -1 : code === 'ArrowDown' ? 9 : -9;
+    i = Math.max(0, Math.min(list.length - 1, i + d)); this.invSel = list[i].id; this.renderInventory();
   }
   setStreak(n, frac) {
     const s = $('streak');
@@ -253,6 +295,7 @@ export class UI {
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();
     if (id === 'craft') this.renderCraft();
+    if (id === 'inv') { this.invSel = this.invSel || null; this.renderInventory(); }
     if (id === 'crew') { this.renderCrew(); clearInterval(this._crewT); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
   }
   closeModalsSilently() { for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden'); this.openModal = null; }

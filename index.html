@@ -36,6 +36,7 @@
   <div id="bottom">
     <div id="carry"><div class="carry-label">CARRYING <b id="carryN">0</b> / <b id="carryMax">1</b></div><div class="carry-label hidden" id="cartLine" style="color:#ffcf8a">CART <b id="cartN">0</b> / <b id="cartMax">0</b> · <span id="cartMode"></span></div><div id="carryChips"></div></div>
     <div id="hotbar"></div>
+    <div id="hotbarHint"></div>
   </div>
   <div id="power" class="hidden"><div class="sig-title" style="color:#7ad7ff">GRID</div><div class="sig-meter"><i id="pwFill"></i></div><div class="sig-row"><span id="pwTxt"></span></div></div>
   <div id="air" class="hidden"><div class="sig-title" style="color:#d8c58a">AIR</div><div class="sig-meter"><i id="airFill"></i></div><div class="sig-meter" style="height:5px"><i id="lungFill"></i></div><div class="sig-row"><span id="airTxt"></span></div></div>
@@ -66,7 +67,7 @@
       <div><kbd>WASD</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Space</kbd> jump &nbsp; <kbd>C</kbd> crouch</div>
       <div><kbd>F</kbd> / left click grab (hold to fill up), tap again to throw &nbsp; <kbd>O</kbd> flashlight &nbsp; <kbd>Z</kbd> throw &nbsp; <kbd>R</kbd> / right click punch &nbsp; <kbd>E</kbd> use &nbsp; <kbd>Tab</kbd> upgrades</div>
       <div><kbd>B</kbd> build (set down the item you hold) &nbsp; <kbd>1-9</kbd> or <kbd>[ ]</kbd> pick item &nbsp; <kbd>Q</kbd> stow &nbsp; <kbd>X</kbd> remove &nbsp; <kbd>U</kbd> cart</div>
-      <div><kbd>V</kbd> crew &nbsp; <kbd>H</kbd> recall &nbsp; <kbd>K</kbd> medkit &nbsp; <kbd>N</kbd> dex &nbsp; <kbd>L</kbd> journal &nbsp; <kbd>J</kbd> goals &nbsp; <kbd>Esc</kbd> pause &nbsp; (the mouse only looks)</div>
+      <div><kbd>I</kbd> inventory &nbsp; <kbd>V</kbd> crew &nbsp; <kbd>H</kbd> recall &nbsp; <kbd>K</kbd> medkit &nbsp; <kbd>N</kbd> dex &nbsp; <kbd>L</kbd> journal &nbsp; <kbd>J</kbd> goals &nbsp; <kbd>Esc</kbd> pause &nbsp; (the mouse only looks)</div>
     </div>
   </div>
 </div>
@@ -90,6 +91,16 @@
       <button class="x" style="width:auto;padding:0 12px" id="crewAllHome">All home</button><button class="x" style="width:auto;padding:0 12px" id="crewAllFollow">All follow</button><button class="x" data-close>✕</button></header>
     <div style="padding:10px 22px 0;color:var(--dim);font-size:12px;line-height:1.5">Orders start from where the bot stands. <b>T</b> in the field sends every bot digging the way you face, from where you stand. Bots grow as they work: more plush per trip, wider tunnels, faster hands.</div>
     <div id="crewList" style="padding:14px 20px 20px;overflow:auto;display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));align-content:start;flex:1"></div>
+  </div>
+</div>
+<div id="inv" class="modal hidden">
+  <div class="panel">
+    <header><h2>INVENTORY</h2><div class="bal" style="font-size:13px">tools and building items &middot; drag or press 1-9 to put them on the hotbar</div><button class="x" data-close>&#10005;</button></header>
+    <div style="display:flex;gap:18px;padding:16px 22px;align-items:flex-start;flex-wrap:wrap">
+      <div><div id="invGrid"></div><div style="margin:14px 0 4px;color:var(--dim);font-size:11px;letter-spacing:0.2em">HOTBAR</div><div id="invBar"></div></div>
+      <div id="invInfo" style="flex:1;min-width:230px;line-height:1.5"></div>
+    </div>
+    <div style="padding:0 22px 16px;color:var(--dim);font-size:12px"><kbd>I</kbd> or <kbd>Esc</kbd> closes &middot; <kbd>1-9</kbd> assigns the selected item &middot; <kbd>X</kbd> removes it from the bar &middot; arrows move</div>
   </div>
 </div>
 <div id="craft" class="modal hidden">

@@ -107,17 +107,78 @@ export class Machines {
     return last ? { last } : null;
   }
 
+  // ---- 4x4 frame modules. Every frame is a square 4 cells wide and 4 cells high (2.4 m) and one cell deep. They snap to each
+  // other on ANY side: next in line (flush), left or right (a wider room), above or below (stacked levels), so a run of
+  // frames builds a tunnel, a junction or a chamber. Placing one carves out its 4x4 section.
+  frameBlock(f) {
+    // block origin of an existing frame: along index m, lateral origin lo, vertical origin j0
+    if (f.gm !== undefined) return { axis: f.axis, m: f.gm, lo: f.glo, j0: f.gj };
+    const lat = f.axis === 'x' ? f.cz : f.cx, along = f.axis === 'x' ? f.cx : f.cz;
+    const base = f.axis === 'x' ? cellZ(0) : cellX(0), abase = f.axis === 'x' ? cellX(0) : cellZ(0);
+    return { axis: f.axis, m: Math.round((along - abase) / C) + (f.axis === 'x' ? toI(0) : toK(0)), lo: Math.round((lat - base) / C - 1.5) + (f.axis === 'x' ? toK(0) : toI(0)), j0: Math.round(f.y0 / C) };
+  }
+  frameEnt(axis, kind, m, lo, j0) {
+    const cx = axis === 'x' ? cellX(m) : cellX(lo) + 1.5 * C, cz = axis === 'x' ? cellZ(lo) + 1.5 * C : cellZ(m);
+    const e = { axis, kind, cx, cz, y0: j0 * C, w: 4 * C - 0.04, h: 4 * C - 0.02, gm: m, glo: lo, gj: j0 };
+    // cells this section occupies (the 4x4 square at index m)
+    e.clear = [];
+    const w = this.game.world;
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+      const i = axis === 'x' ? m : lo + a, k = axis === 'x' ? lo + a : m, j = j0 + b;
+      if (j >= 0 && w.inside(i, j, k) && w.get(i, j, k)) e.clear.push([i, j, k]);
+    }
+    return e;
+  }
   planFrame(eye, dir, yaw, kind) {
     const w = this.game.world;
     const r = this.rayEmpty(eye, dir, 5);
-    if (!r) return { ok: false, why: 'Aim at the tunnel floor' };
+    if (!r) return { ok: false, why: 'Aim at the tunnel floor or at a frame' };
     let { i, j, k } = r.last;
-    let guard = 0;
-    while (j > 0 && !w.solid(i, j - 1, k) && guard++ < 8) j--;
-    if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'No floor here' };
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    const axis = Math.abs(fx) > Math.abs(fz) ? 'x' : 'z';
-    return this.frameFromCell(i, j, k, axis, kind);
+    let axis = Math.abs(fx) > Math.abs(fz) ? 'x' : 'z';
+    let m, lo, j0;
+    // aiming into a frame that is already built: nothing to place
+    if (!r.hitSolid) for (const it of this.items.values()) {
+      const f = it.ent; if (f.type !== 'frame') continue;
+      const b = this.frameBlock(f);
+      const am = b.axis === 'x' ? i : k, al = b.axis === 'x' ? k : i;
+      if (am === b.m && al >= b.lo && al <= b.lo + 3 && j >= b.j0 && j <= b.j0 + 3) return { ok: false, why: 'Frame already here. Aim at its side, top or bottom to add another.' };
+    }
+    // ---- snap to a neighbouring frame on any of its six sides. What you point at decides which side: if the aim ray ends in
+    // (or against) a spot that belongs to one of the sections around a frame, that section is chosen; otherwise the nearest one.
+    const Q = r.hitSolid ? r.hitSolid : { i, j, k };
+    const P = { x: cellX(Q.i), y: cellY(Q.j) + 0.6, z: cellZ(Q.k) };
+    let best = null, bd = C * 7, inside = false;
+    for (const it of this.items.values()) {
+      const f = it.ent;
+      if (f.type !== 'frame') continue;
+      const b = this.frameBlock(f);
+      const cand = [[1, 0, 0], [-1, 0, 0], [0, 4, 0], [0, -4, 0], [0, 0, 4], [0, 0, -4]];
+      for (const [dm, dl, dj] of cand) {
+        const cm = b.m + dm, cl = b.lo + dl, cj = b.j0 + dj;
+        const cx = b.axis === 'x' ? cellX(cm) : cellX(cl) + 1.5 * C, cz = b.axis === 'x' ? cellZ(cl) + 1.5 * C : cellZ(cm), cy = cj * C + 2 * C;
+        const along = b.axis === 'x' ? Q.i : Q.k, lat = b.axis === 'x' ? Q.k : Q.i;
+        const has = along === cm && lat >= cl && lat <= cl + 3 && Q.j >= cj && Q.j <= cj + 3;
+        const d = Math.hypot(cx - P.x, cy - P.y, cz - P.z);
+        if ((has && !inside) || (has === inside && d < bd)) { inside = inside || has; bd = d; best = { b, cm, cl, cj, side: dm ? 'next in line' : dl ? 'beside it' : dj > 0 ? 'above it' : 'below it' }; }
+      }
+    }
+    if (best) { axis = best.b.axis; m = best.cm; lo = best.cl; j0 = best.cj; }
+    else {
+      let guard = 0;
+      while (j > 0 && !w.solid(i, j - 1, k) && guard++ < 8) j--;
+      if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'No floor here: aim at the floor, or next to another frame' };
+      m = axis === 'x' ? i : k; lo = (axis === 'x' ? k : i) - 1; j0 = j;
+    }
+    if (j0 < 0) return { ok: false, why: 'Below the floor' };
+    const e = this.frameEnt(axis, kind, m, lo, j0);
+    for (const it of this.items.values()) {
+      const f = it.ent; if (f.type !== 'frame') continue;
+      const b = this.frameBlock(f);
+      if (b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0) return { ok: false, why: 'Frame already here' };
+    }
+    if (best) e.snap = best.side;
+    return { ok: true, ent: e };
   }
 
   // measure the tunnel cross-section at floor cell (i,j,k) and describe a frame that fits it
@@ -136,9 +197,24 @@ export class Machines {
     const pi = i + dx * ((R - L) / 2), pk = k + dz * ((R - L) / 2);
     const cx = cellX(0) + pi * C, cz = cellZ(0) + pk * C;
     const e = { axis, kind, cx, cz, y0: j * C, w: wc * C - 0.04, h: H * C - 0.02 };
+    // snapping: a frame placed within a few cells of another one along the tunnel takes its profile (same centre line, width
+    // and height) so a run of frames lines up into one tunnel. Right next to it (one cell) it sits flush, forming a lining.
+    let near = null, nd = 1e9;
     for (const it of this.items.values()) {
-      if (it.ent.type !== 'frame') continue;
-      if (Math.abs(it.ent.cx - cx) < 0.35 && Math.abs(it.ent.cz - cz) < 0.35 && Math.abs(it.ent.y0 - e.y0) < 0.3) return { ok: false, why: 'Frame already here' };
+      const f = it.ent;
+      if (f.type !== 'frame' || f.axis !== axis || Math.abs(f.y0 - e.y0) > 0.3) continue;
+      const along = axis === 'x' ? Math.abs(f.cx - cx) : Math.abs(f.cz - cz);
+      const lat = axis === 'x' ? Math.abs(f.cz - cz) : Math.abs(f.cx - cx);
+      if (along < 0.3 && lat < 0.35) return { ok: false, why: 'Frame already here' };
+      if (along <= C * 4.2 && lat <= f.w * 0.6 + 0.4 && along < nd) { nd = along; near = f; }
+    }
+    if (near) {
+      const fits = e.w <= near.w + C * 0.6 && e.w >= near.w - C * 0.6 && Math.abs(e.h - near.h) <= C * 1.2;
+      if (fits) {
+        if (axis === 'x') e.cz = near.cz; else e.cx = near.cx;
+        e.w = near.w; e.h = near.h;
+        e.snap = nd < C * 1.5 ? 'flush' : 'aligned';
+      }
     }
     return { ok: true, ent: e };
   }

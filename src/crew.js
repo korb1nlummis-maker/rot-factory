@@ -316,7 +316,7 @@ export class Crew {
         if (b.timer <= 0) {
           b.timer = 0.12;
           const it = b.carry.shift();
-          if (it) { g.sellAuto(it.sp, it.vr, 1); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.4) g.sound.chirp(1.5 + Math.random() * 0.5); }
+          if (it) { g.sellAuto(it.sp, it.vr, 1); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.3 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(1.5 + Math.random() * 0.5); }
           else { b.state = 'charge'; b.cleared = false; }
         }
         break;
@@ -420,7 +420,7 @@ export class Crew {
       g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
       if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.carry.length >= this.capacity(b)) { this.goHome(b); b.timer = this.digTime(b, b.x, b.z); return; } }
       this.gainXp(b, 1);
-      if (Math.random() < 0.15) g.sound.chirp(0.9 + Math.random() * 0.5);
+      if (Math.random() < 0.15 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(0.9 + Math.random() * 0.5);
       b.timer = this.digTime(b, b.x, b.z);
       return;
     }
