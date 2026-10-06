@@ -919,12 +919,13 @@ export class Game {
   }
 
   // P: punch your way out. Smashes the plush right in front of you (or above you when looking up) and knocks them loose.
-  punch(auto) {
+  punch(auto, up) {
     const p = this.player, w = this.world, t = performance.now();
     if (this.punchT && t - this.punchT < 320) return;
     this.punchT = t;
-    const dir = p.forward(new THREE.Vector3());
+    const dir = up ? new THREE.Vector3(0, 1, 0) : p.forward(new THREE.Vector3());
     const eye = p.eyePos(new THREE.Vector3());
+    if (up) eye.y = p.pos.y + 0.9;
     let n = 0;
     const seen = new Set();
     for (const d of [0.45, 0.75, 1.05, 1.35]) {
@@ -961,7 +962,15 @@ export class Game {
     const t0 = this.curTargetRef;
     const special = t0 && (t0.type === 'body' || t0.type === 'nbody' || t0.sp === BULK || t0.sp === REMAINS || t0.sp === CACHE);
     if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
-    if (this.curTargetRef) { this.grabWant = true; this.grabWantT = 0; this.grab.latch = false; return; }
+    if (this.curTargetRef) {
+      const tg = this.curTargetRef;
+      // starts the moment you press: the bar jumps ahead and the rest still runs on the grab timer
+      this.grabWant = true; this.grabWantT = 0; this.grab.latch = false;
+      this.grab.key = tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : tg.type === 'nbody' ? `n${tg.id}` : `b${tg.idx}`;
+      this.grab.p = Math.max(this.grab.p, 0.3);
+      this.sound.soft(0.05);
+      return;
+    }
     if (this.S.carry.length) this.dropOne();
   }
 
@@ -2272,7 +2281,26 @@ export class Game {
     if (lung >= 1 && this.mode === 'play' && !this.blacking) this.blackout();
   }
 
-  blackout() {
+  updateTrapped(dt) {
+    const p = this.player, T = this.T;
+    const trapped = this.mode === 'play' && !this.blacking && (p.embedded || p.buried > 1.2);
+    const max = 60 + 30 * (T.airTank || 0);
+    if (trapped) {
+      if (!this.trapOn) { this.trapOn = true; if (this.airLeft === undefined || this.airLeft > max) this.airLeft = max; this.ui.hint('Trapped! <kbd>P</kbd> punches what is in front of you, hold <kbd>Space</kbd> to punch up. Get out before the air runs out.', 6); }
+      this.trapFree = 0;
+      this.airLeft = Math.max(0, (this.airLeft ?? max) - dt);
+      this.trapPulse = (this.trapPulse || 0) + dt * (2 + (1 - this.airLeft / max) * 5);
+      const pulse = 0.5 + 0.5 * Math.sin(this.trapPulse * Math.PI);
+      this.ui.setTrap(true, this.airLeft, this.airLeft / max, pulse);
+      if (Math.floor(this.trapPulse) !== this._lastBeat) { this._lastBeat = Math.floor(this.trapPulse); this.sound.thump(0.1 + 0.12 * (1 - this.airLeft / max), 70); }
+      if (this.airLeft <= 0) { this.trapOn = false; this.airLeft = undefined; this.ui.setTrap(false); this.blackout('air'); }
+    } else if (this.trapOn) {
+      this.trapFree = (this.trapFree || 0) + dt;
+      if (this.trapFree > 1.5) { this.trapOn = false; this.airLeft = undefined; this.ui.setTrap(false); }
+    }
+  }
+
+  blackout(why) {
     this.blacking = true;
     this.ui.blackout(true);
     this.sound.thump(0.3, 70);
@@ -2282,7 +2310,7 @@ export class Game {
       this.ui.setCarry(S.carry, this.T.carry);
       this.dust.lung = 0.35;
       this.recall();
-      this.ui.toast({ icon: '😵', title: 'You passed out', text: 'Dust. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.', ms: 7000 });
+      this.ui.toast({ icon: '😵', title: 'You passed out', text: why === 'air' ? 'You ran out of air. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.' : 'Dust. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.', ms: 7000 });
       this.S.stats.passedOut = (this.S.stats.passedOut || 0) + 1;
       setTimeout(() => { this.ui.blackout(false); this.blacking = false; }, 700);
     }, 1100);
@@ -2369,7 +2397,7 @@ export class Game {
       this._inCascade = true;
       const w = this.world;
       const over = Math.max(0, w.topAt(i, k) - j - 1);
-      if (over > 3 && Math.random() < 0.7) {
+      if (over > 2 && Math.random() < 0.9) {
         const H = Math.min(10, 2 + Math.floor(over / 4));
         let n = 0;
         for (let h = 1; h <= H; h++) {
@@ -2402,6 +2430,16 @@ export class Game {
     if (v > 5) { this.shake = Math.max(this.shake, 0.35 * this.T.shakeMul); this.sound.thump(0.2, 130); if (this.T.shakeMul === 1) this.ui.hurt(0.25); }
   }
 
+  // a creaking roof sheds plush: the first exposed ceiling cell above this spot lets go
+  dropRoof(i, j, k) {
+    const w = this.world;
+    for (let dj = -1; dj <= 5; dj++) {
+      const jj = j + dj;
+      if (w.get(i, jj, k) && !w.solid(i, jj - 1, k)) { this.releaseCell(i, jj, k); return true; }
+    }
+    return false;
+  }
+
   updateAfters(dt) {
     if (!this.afters || !this.afters.length) return;
     const w = this.world;
@@ -2414,6 +2452,7 @@ export class Game {
       const sl = w.slipChance(i, j, k, 1.4);
       if (sl && Math.random() < sl.p + 0.15) this.slipCell(i, j, k, sl.dx, 0.3, sl.dz);
       this.onCreak(cellX(i), cellY(j), cellZ(k), 1);
+      this.dropRoof(i, j, k);
       if (f.n <= 0) this.afters.splice(a, 1);
     }
   }
@@ -2462,13 +2501,15 @@ export class Game {
     this.ui.setBuried(buried);
     if (buried && !this.lastBuried) S.stats.buried++;
     this.lastBuried = buried;
+    // trapped: a pulsing countdown to dig out before the air runs out
+    this.updateTrapped(dt);
     // emergency recall: hold U
     if (this.keys.KeyH) {
       this.recallHold += dt;
       if (this.recallHold > 2.5) { this.recallHold = 0; this.recall(); }
       else this.ui.hint(`Recalling… hold <kbd>H</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
     } else this.recallHold = 0;
-    if (this.keys.Space && (p.embedded || p.buried > 0.3 || (!p.onGround && p.vel.y < 0.2 && p.pos.y > 0.6 && p.penetration(p.pos.x, p.pos.y + 0.3, p.pos.z) > 0.05))) this.punch(true);
+    if (this.keys.Space && (p.embedded || p.buried > 0.3)) this.punch(true, true);
     if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>P</kbd> (or hold <kbd>Space</kbd>) to punch your way out.', 8); }
     if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the sorting bay.', 8); }
 

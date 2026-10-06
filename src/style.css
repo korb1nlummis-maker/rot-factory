@@ -210,3 +210,11 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 
 #multi { z-index: 40; }
 #chatIn { position: fixed; left: 24px; bottom: 80px; width: 340px; z-index: 50; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(10,12,8,0.85); color: var(--ink); font: inherit; user-select: text; -webkit-user-select: text; }
+
+#trap { position: fixed; inset: 0; pointer-events: none; z-index: 30; --p: 0; --f: 0; }
+#trap.hidden { display: none; }
+#trapVig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent calc(55% - var(--f) * 25%), rgba(210,20,10,calc(0.25 + var(--p) * 0.45))); }
+#trapBox { position: absolute; left: 50%; top: 22%; transform: translateX(-50%) scale(calc(1 + var(--p) * 0.08)); text-align: center; color: #ffd0c0; text-shadow: 0 0 24px rgba(255,60,30,0.7), 0 2px 8px #000; }
+#trapBox span { display: block; font-size: 14px; letter-spacing: 0.4em; }
+#trapBox b { display: block; font-size: 72px; line-height: 1; font-variant-numeric: tabular-nums; }
+#trapBox i { font-style: normal; font-size: 13px; opacity: 0.85; }

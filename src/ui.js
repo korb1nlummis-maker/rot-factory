@@ -161,6 +161,14 @@ export class UI {
     const st = $('clockState'); st.textContent = open ? 'OPEN' : 'CLOSED'; st.style.color = open ? '#7ef0c4' : '#ff8a7a';
   }
   setDepth(txt) { $('depth').textContent = txt; }
+  setTrap(on, secs, frac, pulse) {
+    const e = $('trap');
+    e.classList.toggle('hidden', !on);
+    if (!on) return;
+    $('trapNum').textContent = Math.ceil(secs);
+    e.style.setProperty('--p', pulse.toFixed(2));
+    e.style.setProperty('--f', (1 - frac).toFixed(2));
+  }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
     const c = $('compass');

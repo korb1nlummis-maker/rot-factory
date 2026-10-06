@@ -32,3 +32,5 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **Detector gates**: build one early and attach it to a belt. Everything passing through is scanned: green beep normally, red alarm and a held item when the rare plush is on board. Crew bots check in at the nearest gate before unloading.
 - **Physics**: loose plush use fixed-step contact physics with friction, spin and air drag, so piles hold shallow slopes and slide on steep ones.
 - **F** toggles your helmet flashlight.
+- **Trapped?** A pulsing 60 second air countdown starts. **P** punches ahead, hold **Space** to punch straight up. Run out and you pass out at a depot. The Emergency Air Tank upgrade adds 30 s per level.
+- Creaking roofs now shed plush, and cave-ins bring down the pile above.
