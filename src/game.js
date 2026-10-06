@@ -23,7 +23,7 @@ import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
 import { UPGRADES, FRAME_TYPES, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
-import { Cart, CART_CAP } from './cart.js';
+import { Cart, CART_CAP, dims as cartDims } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { RARITY, species, pools, NEEDLE, BULK, REMAINS, CACHE, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
 import { makeWorker, noteFor, rewardFor, applyBoost, describeBoosts } from './remains.js';
@@ -164,10 +164,10 @@ export class Game {
     this.netBodies = new Map();
     this.slide = new Slides(this);
     this.sim.hooks = {
-      onFreeze: (i, j, k, flag) => { if (!this.isGuest()) this.slide.trigger(i, j, k, flag === 2 ? 0.9 : 0.45); },
+      onFreeze: (i, j, k, flag, en) => { if (!this.isGuest()) { const e = en > 0 ? en * 0.72 : flag === 2 ? 0.55 : 0.3; if (e > 0.22) this.slide.trigger(i, j, k, e); } },
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
-      onKick: (i, j, k, vx, vy, vz, sp) => this.onKick(i, j, k, vx, vy, vz, sp),
+      onKick: (i, j, k, vx, vy, vz, sp, en) => this.onKick(i, j, k, vx, vy, vz, sp, en),
       onPlayerHit: (v) => this.onPlayerHit(v),
     };
     this.player.events.land = (v) => { if (v > 12) this.hurtPlayer((v - 12) * 5, 'fell too far'); this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
@@ -575,6 +575,7 @@ export class Game {
       });
       this.updateAfters(dt);
       this.slide.update(dt);
+      this.catchInCart();
     } else {
       for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
     }
@@ -1098,6 +1099,32 @@ export class Game {
   // ---------------- carts and storage ----------------
   cartDist() { const c = this.S.cart; return c ? Math.hypot(c.x - this.player.pos.x, c.z - this.player.pos.z) : 1e9; }
   storeRoom() { return this.S.carry.length < this.T.carry || (this.S.cart && this.cartDist() < 9 && this.S.cart.load.length < CART_CAP[this.S.cart.tier]); }
+
+  // throw plush toward the cart: what lands in the tray stays there until the cart is near the bin
+  catchInCart() {
+    const c = this.S.cart, s = this.sim;
+    if (!c || c.load.length >= CART_CAP[c.tier]) return;
+    const d = cartDims(c.tier), cs = Math.cos(c.yaw), sn = Math.sin(c.yaw);
+    const hx = d.w / 2 + 0.3, hz = d.l / 2 + 0.3;
+    for (let i = s.n - 1; i >= 0; i--) {
+      if (s.flag[i] !== 1) continue;
+      const dy = s.y[i] - c.y;
+      if (dy < 0.25 || dy > 0.3 + d.h + 1.0) continue;
+      const dx = s.x[i] - c.x, dz = s.z[i] - c.z;
+      if (Math.abs(dx) > 2 || Math.abs(dz) > 2) continue;
+      const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+      if (Math.abs(lx) > hx || Math.abs(lz) > hz) continue;
+      if (s.vy[i] > 2) continue;
+      const item = { sp: s.sp[i], vr: s.vr[i] };
+      s.remove(i);
+      c.load.push(item);
+      this.fx.sparkle(c.x, c.y + 0.7, c.z, 4, 0.9, 0.9, 1);
+      this.sound.soft(0.08);
+      this.S.stats.cartCatch = (this.S.stats.cartCatch || 0) + 1;
+      if (this.S.stats.cartCatch === 1) this.ui.hint('Nice shot! Plush that land in the cart stay there until the cart is near the SORT bin.', 5);
+      if (c.load.length >= CART_CAP[c.tier]) break;
+    }
+  }
 
   // plush you grab ride on your cart when it is close, until it is full
   routeToCart(item, pos) {
@@ -2398,11 +2425,11 @@ export class Game {
     }
   }
 
-  onKick(i, j, k, vx, vy, vz, speed) {
+  onKick(i, j, k, vx, vy, vz, speed, en) {
     this.kickBudget = this.kickBudget ?? 6;
     if (this.kickBudget <= 0 || speed < 3.2) return;
     if (Math.random() > 0.08 * (speed - 2.8)) return;
-    this.slide.trigger(i, j, k, Math.min(1.6, 0.35 + speed * 0.12));
+    { const e = en > 0 ? en * 0.5 : Math.min(1.1, 0.12 + speed * 0.06); if (e > 0.22 && !this.isGuest()) this.slide.trigger(i, j, k, e); }
     const s = this.world.slipChance(i, j, k, 1.8);
     if (s && Math.random() < s.p) { this.kickBudget--; this.slipCell(i, j, k, vx * 0.25 + s.dx, 0.3, vz * 0.25 + s.dz); }
   }

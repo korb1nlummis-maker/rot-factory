@@ -4,11 +4,12 @@ import { resolveSphere } from './sim.js';
 import { compaction, clamp } from './util.js';
 import { NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { DX, DZ } from './logistics.js';
+import { CART_CAP } from './cart.js';
 
 const NAMES = ['Pip', 'Bolt', 'Nub', 'Clank', 'Sprocket', 'Widget', 'Doodle', 'Tinker', 'Gizmo', 'Rivet', 'Dot', 'Fidget', 'Cog', 'Bleep'];
 const COLORS = [0xd9a21c, 0xc9742b, 0x7fa6b8, 0x93b85d, 0xb87aa4, 0xd4c13a];
 const DIRNAME = ['East', 'South', 'West', 'North'];
-export const STATUS = { held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', blocked: 'Blocked', stuck: 'Stuck' };
+export const STATUS = { haulgo: 'Fetching your cart load', held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', blocked: 'Blocked', stuck: 'Stuck' };
 
 const M = {
   dark: new THREE.MeshStandardMaterial({ color: 0x1d2024, roughness: 0.7, metalness: 0.6 }),
@@ -211,8 +212,34 @@ export class Crew {
     }
   }
 
+  // a full cart gets emptied by a free bot: it takes a load, walks it through the detector gate and sells it at the bin
+  assignHaul(dt) {
+    const g = this.game, c = g.S.cart;
+    this._haulT = (this._haulT || 0) - dt;
+    if (this._haulT > 0 || !c || !c.load.length) return;
+    this._haulT = 1.5;
+    const cap = CART_CAP[c.tier];
+    if (!c.load.length) { c.hauling = false; return; }
+    if (!c.hauling && c.load.length < cap * 0.9) return; // a full cart starts a haul, bots then keep hauling until it is empty
+    c.hauling = true;
+    const h = this.home();
+    if (Math.hypot(c.x - h.x, c.z - h.z) < 14) return; // near the bin the cart dumps itself
+    const busy = this.bots.some((b) => b.state === 'haulgo');
+    if (busy) return;
+    let best = null, bd = 60;
+    for (const b of this.bots) {
+      if (!['idle', 'follow'].includes(b.state) || b.carry.length > 0 || b.battery < 0.3) continue;
+      const d = Math.hypot(b.x - c.x, b.z - c.z);
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (!best) return;
+    best.state = 'haulgo'; best.origin = null; best.trail = [];
+    g.ui.hint(`<b>${best.name}</b> is coming to haul your full cart to the bin.`, 4);
+  }
+
   update(dt, time) {
     const g = this.game, T = g.T;
+    this.assignHaul(dt);
     for (const b of this.bots) {
       const o = this.objs.get(b.id) || (this.build(b), this.objs.get(b.id));
       this.think(b, dt, time, o);
@@ -226,6 +253,19 @@ export class Crew {
     const h = this.home();
     b.battery = clamp(b.battery, 0, 1);
     switch (b.state) {
+      case 'haulgo': {
+        const c = g.S.cart;
+        if (!c || !c.load.length) { this.stand(b); break; }
+        b.tx = c.x; b.tz = c.z;
+        if (Math.hypot(c.x - b.x, c.z - b.z) < 1.7) {
+          const take = Math.min(this.capacity(b), c.load.length);
+          for (let n = 0; n < take; n++) b.carry.push(c.load.pop());
+          g.sound.chirp(1.4);
+          b.scanned = false;
+          this.goHome(b);
+        }
+        break;
+      }
       case 'held': {
         const gate = g.logi.byId.get(b.heldGate);
         if (!gate || !gate.alarm) { b.heldGate = null; b.scanned = true; b.state = 'return'; b.path = [[h.x, h.z]]; b.pi = 0; break; }

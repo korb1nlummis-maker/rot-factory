@@ -69,6 +69,7 @@ export class Sim {
     this.flag = new Uint8Array(CAP); // 1 thrown, 2 from collapse
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
     this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
+    this.en = new Float32Array(CAP); // slide energy this body carries (decays as the slide spreads)
     this.wx = new Float32Array(CAP); this.wy = new Float32Array(CAP); this.wz = new Float32Array(CAP); // spin
     this.bid = new Uint32Array(CAP); this.own = new Uint8Array(CAP); this.idc = 1; // stable ids for syncing, and who threw it (0 host, 1 guest)
     this.spawnHook = null;
@@ -95,6 +96,7 @@ export class Sim {
     this.sp[i] = sp; this.vr[i] = vr; this.rest[i] = 0; this.age[i] = 0; this.flag[i] = flag;
     this.ox[i] = x; this.oz[i] = z; this.sq[i] = 0;
     this.bid[i] = this.idc++; this.own[i] = own;
+    this.en[i] = 0;
     const spin = flag === 1 ? 5 : 2.2;
     this.wx[i] = (Math.random() - 0.5) * spin; this.wy[i] = (Math.random() - 0.5) * spin; this.wz[i] = (Math.random() - 0.5) * spin;
     return i;
@@ -106,7 +108,7 @@ export class Sim {
       this.x[i] = this.x[l]; this.y[i] = this.y[l]; this.z[i] = this.z[l];
       this.vx[i] = this.vx[l]; this.vy[i] = this.vy[l]; this.vz[i] = this.vz[l];
       for (let t = 0; t < 4; t++) this.q[i * 4 + t] = this.q[l * 4 + t];
-      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l];
+      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l]; this.en[i] = this.en[l];
     }
   }
 
@@ -170,7 +172,7 @@ export class Sim {
           vx += nx * jn; vy += ny * jn; vz += nz * jn;
           if (vn < -1.5) this.sq[i] = Math.max(this.sq[i], Math.min(0.32, -vn * 0.045));
           if (vn < -4 && this.hooks.onImpact) this.hooks.onImpact(pos.x, pos.y, pos.z, -vn);
-          if (vn < -3 && this.hooks.onKick) this.hooks.onKick(cont.ci, cont.cj, cont.ck, vx, vy, vz, -vn);
+          if (vn < -3 && this.hooks.onKick) this.hooks.onKick(cont.ci, cont.cj, cont.ck, vx, vy, vz, -vn, this.en[i]);
         }
         // tangential: friction limited by the normal load (impact impulse plus the weight resting on it)
         const vd = vx * nx + vy * ny + vz * nz;
@@ -350,7 +352,7 @@ export class Sim {
     if (!best || bd > 0.55 * 0.55) return false;
     if (this.sp[i] === NEEDLE) w.needle = { i: best[0], j: best[1], k: best[2] };
     w.setCell(best[0], best[1], best[2], this.sp[i], this.vr[i]);
-    if (this.hooks && this.hooks.onFreeze) this.hooks.onFreeze(best[0], best[1], best[2], this.flag[i]);
+    if (this.hooks && this.hooks.onFreeze) this.hooks.onFreeze(best[0], best[1], best[2], this.flag[i], this.en[i]);
     return true;
   }
 }

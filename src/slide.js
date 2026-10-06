@@ -80,7 +80,7 @@ export class Slides {
     g.S.stats.slides = (g.S.stats.slides || 0) + 1;
     const x = cellX(i), y = cellY(j), z = cellZ(k);
     const sp = 1.4 + 1.1 * e + 0.5 * drop;
-    if (g.sim.n < 1700) g.sim.spawn(it.sp, it.vr, x + a * 0.15, y, z + b * 0.15, a * sp + (Math.random() - 0.5) * 0.6, 0.4, b * sp + (Math.random() - 0.5) * 0.6, 2);
+    if (g.sim.n < 1700) { const bi = g.sim.spawn(it.sp, it.vr, x + a * 0.15, y, z + b * 0.15, a * sp + (Math.random() - 0.5) * 0.6, 0.4, b * sp + (Math.random() - 0.5) * 0.6, 2); if (bi >= 0) g.sim.en[bi] = e * 0.85; }
     else {
       // too many loose bodies: drop it straight to where it would land so the slide keeps going without the cost
       let ni = i + a, nk = k + b, nj = j;
@@ -90,7 +90,7 @@ export class Slides {
     }
     if (Math.random() < 0.18) g.fx.dust(x, y, z, 2, 0.5, 0.6);
     // the gap it leaves: the plush above and beside it are now on a steeper face
-    const next = e * (0.82 + 0.05 * drop);
+    const next = e * (0.7 + 0.04 * drop);
     this.trigger(i, j, k, next);
     this.add(i + a, j, k + b, e * 0.5);
     // feel it

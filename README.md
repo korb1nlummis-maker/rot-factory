@@ -44,3 +44,6 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **Slides**: the pile has an angle of repose. Digging, kicks, landing plush and climbing all trigger slides that feed themselves down a steep face. Climbing is a gamble: the higher you are and the more you carry, the harder you load the slope under you.
 - **Detector gates** are now 2.3 m tall and 1.9 m wide so any robot fits. Crew bots always route through a gate on the way home. A bot carrying the rare plush is pulled into a side bay and held, and the whole belt line the gate sits on stops until you take the item.
 - **Upgrades** (including the wearable ones like Carry Capacity) now work the moment you buy them.
+- **Carts**: throw plush toward your cart and they stay in the tray until the cart is near the bin. A full cart is hauled to the bin by a free crew bot, through a detector gate, and it keeps hauling until the cart is empty.
+- **Slides now settle**: each slide carries energy that fades as it spreads, so a slide spreads and then stops on its own.
+- **Winner screen**: taking the One shows "YOU WIN. THE SEARCH IS OVER" a few seconds later.

@@ -443,7 +443,7 @@ export class UI {
   showEnding(kind, S) {
     const e = $('ending');
     const win = kind === 'plush';
-    $('endEyebrow').textContent = win ? 'THE SEARCH IS OVER' : 'FRESH AIR';
+    $('endEyebrow').textContent = win ? 'YOU WIN. THE SEARCH IS OVER' : 'FRESH AIR';
     $('endTitle').innerHTML = win ? 'IL ROTTO<br><span>SUPREMO</span>' : 'YOU<br><span>ESCAPED</span>';
     $('endText').innerHTML = win
       ? 'Out of millions, you held the one. It squeaks once. The warehouse lights flicker, and every plush in the building seems to exhale.'

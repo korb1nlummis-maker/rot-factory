@@ -16,7 +16,7 @@ const M = {
   lamp: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 3, 1.8) }),
 };
 
-function dims(t) { return { w: 0.6 + 0.13 * t, l: 0.8 + 0.2 * t, h: 0.26 + 0.03 * t }; }
+export function dims(t) { return { w: 0.6 + 0.13 * t, l: 0.8 + 0.2 * t, h: 0.26 + 0.03 * t }; }
 
 function buildMesh(t) {
   const g = new THREE.Group();
