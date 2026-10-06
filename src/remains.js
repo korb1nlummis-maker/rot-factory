@@ -83,18 +83,22 @@ const NOTES = {
     '"Day 3. They told me to just look for the shiny one. I have been pulling plush out for hours and every one squeaks at me like it knows."',
     '"If you find this, tell Mum I did not run away. The tunnel just got longer than the map said."',
     '"My lamp is dying. The foreman said hum when you are scared. I am humming."',
+    '"Punched my way out of a pocket today. Nobody told me you could. Everybody should be told."',
+    '"The medkit was empty. The note inside said good luck."',
   ],
   sorter: [
     '"I started naming them. Gnocchi Gatto is Dave now. Dave has been in my pocket since Tuesday."',
     '"Sorting by rarity is easy. Sorting by how they look at you is not. The frog ones are watching."',
     '"Quota is 4,000 a shift. I did 4,012 and the bin was full anyway. Where do they all go?"',
     '"Found a Mythic Fantasma today and the whole crew cheered. Management asked if it was the one. It was not the one."',
+    '"Every gate beeps green. Every gate. I am starting to miss the red one."',
   ],
   forklift: [
     '"Lost the pallet jack in a slide. Slides are not supposed to go uphill."',
     '"Backed the truck into the east aisle and the wall was warm. Warm. There is no sun in here."',
     '"I counted the pallet rows. The pile is not where it was last week. It moves when we sleep."',
     '"Cargo hold full. Nothing to unload it onto. Nowhere to go but further."',
+    '"Ran out of lumber at 400 m. Used the pallets. Used the pallets I was standing on."',
   ],
   surveyor: [
     '"%d m. I measured twice. The tape measure was longer the second time."',

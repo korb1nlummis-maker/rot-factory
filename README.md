@@ -40,3 +40,4 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **Avalanches are real**: cave-in debris can land on you and bury you. Punch out (R, right click, P, or hold Space).
 - **Controls**: F, G or left click grab. R or right click punch. O flashlight. Throwing Arm now has six levels.
 - **Building materials**: frames are made from Lumber, then Steel, Concrete, Rebar and so on. Buy stock at the bench (cheaper in bulk), or find it in caches and old workings. Short on stock, the shortfall is bought at full price.
+- **Survival gear**: Reinforced Hard Hat (+25 max health per level), Impact Padding (-10% damage per level), First Aid Station (Medkits on K, Air Canisters that save you when trapped), plus seven new achievements and more notes in the old workings.

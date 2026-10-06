@@ -347,6 +347,7 @@ export class Game {
     else if (e.code === 'KeyE') this.useKey();
     else if (e.code === 'KeyO') this.toggleLamp();
     else if (e.code === 'KeyZ') this.throwOne();
+    else if (e.code === 'KeyK') this.useMedkit();
     else if (e.code === 'KeyP') this.punch();
     else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); this.ui.hint(this.stowed ? 'Build item stowed. <kbd>Q</kbd> brings it back.' : 'Build item ready. <kbd>B</kbd> places it.', 2); }
     else if (e.code === 'KeyX') this.deconstruct();
@@ -371,7 +372,7 @@ export class Game {
   rebuildTools() {
     const S = this.S;
     S.items = S.items || {};
-    const list = recipes(this).filter((r) => r.kind !== 'cart' && r.kind !== 'mat' && (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
+    const list = recipes(this).filter((r) => r.kind !== 'cart' && r.kind !== 'mat' && r.kind !== 'supply' && (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
     // items whose recipe is no longer listed (should not happen) still count
     this.tools = list;
     if (this.buildIdx == null || this.buildIdx >= list.length) this.buildIdx = 0;
@@ -1620,7 +1621,7 @@ export class Game {
     const rng = Math.random;
     const roll = rng();
     let text;
-    const list = recipes(this).filter((r) => r.kind !== 'cart' && r.kind !== 'mat');
+    const list = recipes(this).filter((r) => r.kind !== 'cart' && r.kind !== 'mat' && r.kind !== 'supply');
     if (roll < 0.22) {
       const ks = this.T.frames.slice(-3), mk = ks[(rng() * ks.length) | 0] || 'timber';
       const n = Math.max(8, Math.round((20 + tier * 14) * (0.6 + rng() * 0.8)));
@@ -2324,6 +2325,11 @@ export class Game {
       const pulse = 0.5 + 0.5 * Math.sin(this.trapPulse * Math.PI);
       this.ui.setTrap(true, this.airLeft, this.airLeft / max, pulse, this.suffocating);
       if (Math.floor(this.trapPulse) !== this._lastBeat) { this._lastBeat = Math.floor(this.trapPulse); this.sound.thump(0.1 + 0.12 * (1 - this.airLeft / max), 70); }
+      if (this.airLeft <= 0 && (this.S.items.canister || 0) > 0) {
+        this.S.items.canister--; if (this.S.items.canister <= 0) delete this.S.items.canister;
+        this.airLeft = 40;
+        this.ui.toast({ icon: '🫧', title: 'Air canister', text: '40 more seconds. Dig!', ms: 3500 }); this.sound.ach();
+      }
       this.suffocating = this.airLeft <= 0;
       if (this.suffocating) this.hurtPlayer(14 * dt, 'suffocated under the pile');
     } else if (this.trapOn) {
@@ -2466,8 +2472,19 @@ export class Game {
   }
 
   // ---- health. Death is not the end: you wake up on the floor of the sorting bay, the plush you carried spilled.
+  useMedkit() {
+    const S = this.S;
+    if (!(S.items.medkit > 0)) { this.ui.hint('No medkits. Unlock First Aid in the terminal and craft some.', 2.5); return; }
+    if (this.hp >= this.hpMax - 1) { this.ui.hint('You are fine.', 1.5); return; }
+    S.items.medkit--; if (S.items.medkit <= 0) delete S.items.medkit;
+    this.hp = Math.min(this.hpMax, this.hp + 50);
+    S.stats.medkits = (S.stats.medkits || 0) + 1;
+    this.sound.ach(); this.ui.hint(`Patched up. ${S.items.medkit || 0} medkit${(S.items.medkit || 0) === 1 ? '' : 's'} left.`, 2);
+  }
+
   hurtPlayer(n, why) {
     if (this.mode !== 'play' || this.dead) return;
+    n *= 1 - Math.min(0.6, this.T.dmgCut || 0);
     this.hp = Math.max(0, this.hp - n);
     this.hurtT = 0;
     this.ui.hurt(Math.min(0.6, 0.2 + n * 0.02));
@@ -2496,6 +2513,8 @@ export class Game {
   updateVitals(dt) {
     const p = this.player;
     this.dmgCd -= dt; this.hurtT += dt;
+    const hm = 100 + (this.T.hpBonus || 0);
+    if (hm !== this.hpMax) { this.hp += hm - this.hpMax; this.hpMax = hm; }
     if (this.mode === 'play' && !this.dead && this.hp < this.hpMax && this.hurtT > 7 && !this.suffocating) this.hp = Math.min(this.hpMax, this.hp + 2.2 * dt);
     const max = 60 + 30 * (this.T.airTank || 0);
     const air = this.airLeft === undefined ? 1 : Math.max(0, this.airLeft / max);
