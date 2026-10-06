@@ -16,11 +16,20 @@ export class Slides {
     this.g = game;
     this.q = new Map(); // key -> { i, j, k, e }
     this.recent = 0;    // topples in the last moments, drives the rumble
+    this.quiet = false;
+    this.hot = new Map(); // cells that toppled lately rest for a moment so one spot cannot feed itself
     this.cool = 0;
     this.active = 0;
   }
 
-  clear() { this.q.clear(); this.recent = 0; }
+  // is there a drop beside this cell that would let it topple?
+  unstableAt(i, j, k) {
+    const w = this.g.world;
+    for (const [a, b] of DIRS) if (!w.solid(i + a, j, k + b) && !w.solid(i + a, j - 1, k + b)) return true;
+    return false;
+  }
+
+  clear() { this.q.clear(); this.hot.clear(); this.recent = 0; }
 
   trigger(i, j, k, e = 1) {
     if (this.q.size > 5000) return;
@@ -34,6 +43,7 @@ export class Slides {
 
   update(dt) {
     this.recent = Math.max(0, this.recent - dt * 3);
+    if (this.hot.size > 600) { const now = this.g.time; for (const [k2, t] of this.hot) if (t < now) this.hot.delete(k2); }
     if (!this.q.size) { this.active = Math.max(0, this.active - dt); return; }
     const g = this.g, w = g.world;
     let budget = 36;
@@ -44,6 +54,8 @@ export class Slides {
       const { i, j, k } = c;
       const sp = w.get(i, j, k);
       if (!sp || isSpecialCell(sp) || j <= 0) continue;
+      const rest = this.hot.get(key(i, j, k));
+      if (rest && rest > this.g.time) continue;
       if (w.reserved && w.reserved.has((j * NZ + k) * NX + i)) continue;
       // buried plush are held by the weight on them; only a violent slide frees them
       const over = Math.max(0, w.topAt(i, k) - j - 1);
@@ -73,11 +85,15 @@ export class Slides {
 
   topple(i, j, k, a, b, e, drop) {
     const g = this.g, w = g.world;
+    // a topple must not re-seed the slide as if someone dug here: its energy only ever fades
+    this.quiet = true;
     const it = w.removeCell(i, j, k, true);
+    this.quiet = false;
     if (!it) return;
     this.recent += 1;
     this.active = 2;
     g.S.stats.slides = (g.S.stats.slides || 0) + 1;
+    this.hot.set(key(i + a, j, k + b), g.time + 1.2);
     const x = cellX(i), y = cellY(j), z = cellZ(k);
     const sp = 1.4 + 1.1 * e + 0.5 * drop;
     if (g.sim.n < 1700) { const bi = g.sim.spawn(it.sp, it.vr, x + a * 0.15, y, z + b * 0.15, a * sp + (Math.random() - 0.5) * 0.6, 0.4, b * sp + (Math.random() - 0.5) * 0.6, 2); if (bi >= 0) g.sim.en[bi] = e * 0.85; }

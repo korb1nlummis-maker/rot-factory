@@ -47,3 +47,6 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **Carts**: throw plush toward your cart and they stay in the tray until the cart is near the bin. A full cart is hauled to the bin by a free crew bot, through a detector gate, and it keeps hauling until the cart is empty.
 - **Slides now settle**: each slide carries energy that fades as it spreads, so a slide spreads and then stops on its own.
 - **Winner screen**: taking the One shows "YOU WIN. THE SEARCH IS OVER" a few seconds later.
+- **Slides stop for good**: a topple can no longer re-seed itself, and a plush that cannot find a place to rest is nudged twice, then set into the nearest supported gap (or sold if it has been loose for 45 s). A 500-cell collapse test ran for 20 s of play, then everything was still.
+- **Hold F or left click** to keep grabbing until your hands or cart are full.
+- **New**: Bin Magnet (pull range), Slope Probe (UNSTABLE SLOPE warning), six achievements, eight radio lines.

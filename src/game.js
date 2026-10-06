@@ -164,6 +164,7 @@ export class Game {
     this.netBodies = new Map();
     this.slide = new Slides(this);
     this.sim.hooks = {
+      onStale: (sp, vr) => { this.sellAuto(sp, vr, 0.5); },
       onFreeze: (i, j, k, flag, en) => { if (!this.isGuest()) { const e = en > 0 ? en * 0.72 : flag === 2 ? 0.55 : 0.3; if (e > 0.22) this.slide.trigger(i, j, k, e); } },
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
@@ -181,7 +182,7 @@ export class Game {
     this.power.clear();
     this.dust.clear();
     this.crew.clear();
-    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest()) this.slide.trigger(i, j, k, 1.1); };
+    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest() && !this.slide.quiet) this.slide.trigger(i, j, k, 1.1); };
     for (const e of S.entities) this.addEntity(e);
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
@@ -740,9 +741,9 @@ export class Game {
       if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
       this.ui.setGrab(0, false);
     } else {
-      // grabbing is instant (see gPress); holding the key only repeats it once the auto-repeat upgrade is owned
+      // grabbing is instant (see gPress); hold the key to keep grabbing until your hands (or cart) are full
       this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
-      if (T.autoRepeat && this.keys.KeyG && tg && this.storeRoom() && this.grabCd <= 0) this.instantGrab(tg);
+      if (this.keys.KeyG && tg && this.storeRoom() && this.grabCd <= 0 && !this.vacT) this.instantGrab(tg);
       G.p = 0; this.ui.setGrab(0, false);
     }
     if (building) this.updateBuild(tool, eye, dir);
@@ -2430,6 +2431,7 @@ export class Game {
     if (this.kickBudget <= 0 || speed < 3.2) return;
     if (Math.random() > 0.08 * (speed - 2.8)) return;
     { const e = en > 0 ? en * 0.5 : Math.min(1.1, 0.12 + speed * 0.06); if (e > 0.22 && !this.isGuest()) this.slide.trigger(i, j, k, e); }
+    if (en > 0) return; // bodies that are part of a slide only feed the slide engine, which fades
     const s = this.world.slipChance(i, j, k, 1.8);
     if (s && Math.random() < s.p) { this.kickBudget--; this.slipCell(i, j, k, vx * 0.25 + s.dx, 0.3, vz * 0.25 + s.dz); }
   }
@@ -2616,6 +2618,8 @@ export class Game {
       this.ui.setWarn(near < 16 ? 'ROOF CREAKING' : '');
       this.ui.setDanger(Math.max(0, 1 - near / 18));
       if (near < 14) this.shake = Math.max(this.shake, 0.08 * (1 - near / 14));
+    } else if (this.T.slopeProbe && p.footCell && p.onGround && p.pos.y > 0.6 && this.slide.unstableAt(p.footCell.i, p.footCell.j + 1, p.footCell.k)) {
+      this.ui.setWarn('UNSTABLE SLOPE'); this.ui.setDanger(0);
     } else { this.ui.setWarn(''); this.ui.setDanger(0); }
     // buried
     const buried = p.buried > 0.8;

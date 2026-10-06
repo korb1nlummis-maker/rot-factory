@@ -69,6 +69,7 @@ export class Sim {
     this.flag = new Uint8Array(CAP); // 1 thrown, 2 from collapse
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
     this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
+    this.nud = new Uint8Array(CAP); // how many times a body that could not settle has been nudged
     this.en = new Float32Array(CAP); // slide energy this body carries (decays as the slide spreads)
     this.wx = new Float32Array(CAP); this.wy = new Float32Array(CAP); this.wz = new Float32Array(CAP); // spin
     this.bid = new Uint32Array(CAP); this.own = new Uint8Array(CAP); this.idc = 1; // stable ids for syncing, and who threw it (0 host, 1 guest)
@@ -96,7 +97,7 @@ export class Sim {
     this.sp[i] = sp; this.vr[i] = vr; this.rest[i] = 0; this.age[i] = 0; this.flag[i] = flag;
     this.ox[i] = x; this.oz[i] = z; this.sq[i] = 0;
     this.bid[i] = this.idc++; this.own[i] = own;
-    this.en[i] = 0;
+    this.en[i] = 0; this.nud[i] = 0;
     const spin = flag === 1 ? 5 : 2.2;
     this.wx[i] = (Math.random() - 0.5) * spin; this.wy[i] = (Math.random() - 0.5) * spin; this.wz[i] = (Math.random() - 0.5) * spin;
     return i;
@@ -108,7 +109,7 @@ export class Sim {
       this.x[i] = this.x[l]; this.y[i] = this.y[l]; this.z[i] = this.z[l];
       this.vx[i] = this.vx[l]; this.vy[i] = this.vy[l]; this.vz[i] = this.vz[l];
       for (let t = 0; t < 4; t++) this.q[i * 4 + t] = this.q[l * 4 + t];
-      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l]; this.en[i] = this.en[l];
+      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l]; this.en[i] = this.en[l]; this.nud[i] = this.nud[l];
     }
   }
 
@@ -324,10 +325,44 @@ export class Sim {
       const sp2 = this.vx[i] ** 2 + this.vy[i] ** 2 + this.vz[i] ** 2 + 0.05 * (this.wx[i] ** 2 + this.wy[i] ** 2 + this.wz[i] ** 2);
       if (sp2 < 0.2) this.rest[i] += dt; else this.rest[i] = 0;
       if (this.rest[i] > 0.7 || (this.age[i] > 6 && this.rest[i] > 0.2)) {
-        if (this.tryFreeze(i)) this.remove(i);
-        else if (this.rest[i] > 1.8) { this.vx[i] += (Math.random() - 0.5) * 2; this.vy[i] += 2.2; this.vz[i] += (Math.random() - 0.5) * 2; this.rest[i] = 0.3; }
+        if (this.tryFreeze(i)) { this.remove(i); continue; }
+        else if (this.rest[i] > 1.8) {
+          // could not settle: nudge it twice, then place it in the nearest supported gap so nothing hops forever
+          if (++this.nud[i] >= 2 && this.forceFreeze(i)) { this.remove(i); continue; }
+          this.vx[i] += (Math.random() - 0.5) * 2; this.vy[i] += 2.2; this.vz[i] += (Math.random() - 0.5) * 2; this.rest[i] = 0.3;
+        }
+      }
+      // anything that has been loose for a long time is placed or retired, however it is moving
+      if (this.age[i] > 25 && this.flag[i] !== 99) {
+        if (this.forceFreeze(i)) { this.remove(i); continue; }
+        if (this.age[i] > 45 && this.sp[i] !== NEEDLE) { if (this.hooks && this.hooks.onStale) this.hooks.onStale(this.sp[i], this.vr[i]); this.remove(i); continue; }
       }
     }
+  }
+
+  // last resort: put the body into the nearest empty cell within two cells that has something under or beside it
+  forceFreeze(i) {
+    const w = this.world;
+    const ci = toI(this.x[i]), cj = toJ(this.y[i]), ck = toK(this.z[i]);
+    const ps = this.player ? this.player.spheres() : [];
+    let best = null, bd = 1e9;
+    for (let dk = -2; dk <= 2; dk++) for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const a = ci + di, b = cj + dj, c = ck + dk;
+      if (b < 0 || !w.inside(a, b, c) || w.get(a, b, c) !== 0 || w.reserved.has((b * NZ + c) * NX + a)) continue;
+      const sup = w.solid(a, b - 1, c);
+      if (!sup && !(w.solid(a + 1, b, c) || w.solid(a - 1, b, c) || w.solid(a, b, c + 1) || w.solid(a, b, c - 1))) continue;
+      const cx = cellX(a), cy = cellY(b), cz = cellZ(c);
+      let blocked = false;
+      for (const s of ps) { if ((cx - s.x) ** 2 + (cy - s.y) ** 2 + (cz - s.z) ** 2 < (s.r + 0.34) ** 2) { blocked = true; break; } }
+      if (blocked) continue;
+      const d = (cx - this.x[i]) ** 2 + (cy - this.y[i]) ** 2 + (cz - this.z[i]) ** 2 + (sup ? 0 : 0.8);
+      if (d < bd) { bd = d; best = [a, b, c]; }
+    }
+    if (!best) return false;
+    if (this.sp[i] === NEEDLE) w.needle = { i: best[0], j: best[1], k: best[2] };
+    w.setCell(best[0], best[1], best[2], this.sp[i], this.vr[i]);
+    if (this.hooks && this.hooks.onFreeze) this.hooks.onFreeze(best[0], best[1], best[2], this.flag[i], 0);
+    return true;
   }
 
   tryFreeze(i) {

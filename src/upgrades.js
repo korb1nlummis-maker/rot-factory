@@ -30,6 +30,7 @@ export const UPGRADES = [
   // ---------------- SORTING ----------------
   { id: 'contracts', cat: 'sort', name: 'Contract Board', desc: 'Buyers post standing orders (rarity, species, shape, shiny). Sell matching plush anywhere and the contract pays out a bonus, sometimes with a permanent boost. Find them under the Contracts tab.', max: 1, cost: [700], effect: (t) => { t.contractSlots += 3; } },
   { id: 'contractSlots', cat: 'sort', name: 'More Contracts', desc: 'One more contract slot per level.', max: 3, cost: [4000, 40000, 400000], req: { id: 'contracts', lvl: 1 }, effect: (t, l) => { t.contractSlots += l; } },
+  { id: 'binmag', cat: 'sort', name: 'Bin Magnet', desc: 'The SORT bin, sorters and depots pull your plush in from further away (+1.2 m per level).', max: 4, cost: [60, 420, 3000, 22000], effect: (t, l) => { t.autoDump += 1.2 * l; } },
   { id: 'haggle', cat: 'sort', name: 'Haggling', desc: '+20% sell price per level.', max: 10, cost: geo(25, 2.0, 10), effect: (t, l) => { t.sellMult *= 1 + 0.2 * l; } },
   { id: 'streak', cat: 'sort', name: 'Hot Hands', desc: 'Sell plush in quick succession for a combo bonus. More levels raise the combo cap.', max: 5, cost: [30, 140, 700, 3500, 16000], effect: (t, l) => { t.streakCap = 6 + l * 8; } },
   { id: 'magnet', cat: 'sort', name: 'Bin Magnet', desc: 'The bin catches throws from further away.', max: 3, cost: [60, 320, 1500], effect: (t, l) => { t.binCatch = 0.0 + l * 0.45; } },
@@ -60,6 +61,7 @@ export const UPGRADES = [
   { id: 'hardhat', cat: 'mine', name: 'Reinforced Hard Hat', desc: 'More health. +25 max health per level.', max: 4, cost: [90, 700, 5200, 42000], effect: (t, l) => { t.hpBonus = 25 * l; } },
   { id: 'padding', cat: 'mine', name: 'Impact Padding', desc: 'Foam and kevlar under your overalls. Falls, blasts and falling plush hurt 10% less per level.', max: 4, cost: [120, 900, 6500, 48000], effect: (t, l) => { t.dmgCut = 0.1 * l; } },
   { id: 'firstaid', cat: 'mine', name: 'First Aid Station', desc: 'Unlocks Medkits (K heals 50) and Air Canisters (kick in on their own when you run out of air while trapped) at the bench.', max: 1, cost: [160], effect: (t) => { t.firstAid = true; } },
+  { id: 'slopeprobe', cat: 'mine', name: 'Slope Probe', desc: 'A clinometer on your wrist. Warns UNSTABLE SLOPE when the plush under or beside you can slide.', max: 1, cost: [380], effect: (t) => { t.slopeProbe = true; } },
   { id: 'airtank', cat: 'mine', name: 'Emergency Air Tank', desc: 'Buried or trapped, you have 60 seconds of air to dig out. Each level adds 30 more.', max: 5, cost: [150, 800, 4500, 30000, 220000], effect: (t, l) => { t.airTank = l; } },
   { id: 'resp', cat: 'mine', name: 'Respirator', desc: 'Dust gets into your lungs in enclosed tunnels. Each level filters 20% more.', max: 4, cost: [120, 900, 7000, 60000], effect: (t, l) => { t.resp = l; } },
   { id: 'hardhat', cat: 'mine', name: 'Hard Hat', desc: 'Falling plush bonk you less. Reduces collapse screen shake.', max: 1, cost: [45], effect: (t) => { t.shakeMul = 0.45; } },
@@ -155,7 +157,7 @@ export function defaultTuning() {
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,
     crewMax: 0, crewHaul: 1, crewSpeed: 1, crewBattery: 1, crewBelt: false, crewBolt: false,
-    markers: false, dynamite: false, hpBonus: 0, dmgCut: 0, firstAid: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
+    markers: false, dynamite: false, hpBonus: 0, slopeProbe: false, dmgCut: 0, firstAid: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
     beltSpeed: 1.6, sorterTiers: 0, mechMax: 0, mechRate: 2.4, mechBuffer: 6, mechLayer: false, mechBolt: false, bulkhead: false,
     machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 12.2, borerW: 2, borerH: 3,
   };

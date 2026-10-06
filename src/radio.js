@@ -18,6 +18,14 @@ const GENERAL = [
   'The real one has a halo. I counted the points on the crown, five. Five. Remember that.',
   'We tried digging up. The ceiling is not the ceiling. We stopped digging up.',
   'Maintenance: the fans do not clear the dust, they only move it somewhere sadder.',
+  'Safety bulletin 12: climbing the pile is not a hobby. The pile is not a hill. The pile is a mood.',
+  'If the slope under you starts to slide, do not run uphill. Nobody has ever run uphill successfully.',
+  'First aid reminder: medkits are on K. Not on K for kitchen. We checked.',
+  'Whoever keeps throwing plush at the cart: nice arm. Please stop. Nice arm.',
+  'Remember to take a gate scan on the way home. The gate is not judging you. The gate is also not blinking.',
+  'Reminder: air canisters are not a snack.',
+  'Dynamite is a tool, not a personality. Fuse is four seconds. Count to five anyway.',
+  'Your pay stub says lumber. We do not know what that means either.',
 ];
 const DEEP = [
   'Unit calling from the far corner... static ...it is warm here. It knows you are coming.',
