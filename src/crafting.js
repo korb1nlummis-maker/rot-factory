@@ -1,23 +1,31 @@
 import { FRAME_TYPES, GEAR, UPGRADES } from './upgrades.js';
 import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 
+// Building material: every frame is made from a material. Start with lumber, upgrade to safer ones.
+// Stock is found (caches, old workings) or bought here in bulk (cheaper than the shortfall price while crafting).
+export const MATERIALS = {};
+const MATNAMES = { timber: 'Lumber', steel: 'Steel Beams', concrete: 'Concrete Mix', rebar: 'Rebar', titan: 'Titanium Billets', carbon: 'Carbon Cloth', plasma: 'Plasma Stock', voidl: 'Void Lattice Stock', neutron: 'Neutron Plate', horizon: 'Horizon Alloy' };
+const MATFRAME = 4; // units per frame
+for (const k of Object.keys(FRAME_TYPES)) MATERIALS[k] = { name: MATNAMES[k], icon: FRAME_TYPES[k].icon, unit: Math.max(1, Math.round(FRAME_TYPES[k].cost / MATFRAME)) };
+
 // Everything you build is crafted first at the Crafting Table, then carried and set down with B.
 export function recipes(g) {
   const T = g.T;
   const list = [];
   const out = [];
   const K = 3; // crafting is not cheap either
-  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Props a tunnel roof. +${FRAME_TYPES[k].bonus} strength within ${FRAME_TYPES[k].radius} m.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10] });
+  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Props a tunnel roof. +${FRAME_TYPES[k].bonus} strength within ${FRAME_TYPES[k].radius} m.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
+  for (const k of T.frames) list.push({ id: 'mat:' + k, kind: 'mat', mk: k, icon: MATERIALS[k].icon, name: MATERIALS[k].name, short: MATERIALS[k].name, desc: 'Building material. Frames use ' + MATFRAME + ' each. Stock up here at a discount, or find it in caches and old workings.', price: Math.max(1, Math.round(MATERIALS[k].unit * 0.7)), batch: [10, 50, 250] });
   for (let t = 1; t <= T.cartTier; t++) list.push({ id: 'cart:' + t, kind: 'cart', icon: '🛒', name: CART_NAMES[t], short: CART_NAMES[t], desc: `Press U to roll it out. Follows you, carries ${CART_CAP[t]} plush and unloads near the bin.`, price: CART_PRICE[t], batch: [1, 1, 1] });
   if (T.markers) {
     list.push({ id: 'marker', kind: 'marker', icon: '🚩', name: 'Survey Marker', short: 'Marker', desc: 'Shows on your compass. Plant them to mark junctions and the way home.', price: 6, batch: [1, 5, 10] });
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
-  if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. +1 roof strength within about 2 m. Goes anywhere.', price: 8, batch: [1, 5, 25] });
+  if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. +1 roof strength within about 2 m. Goes anywhere.', price: 8, batch: [1, 5, 25], mat: 'timber', matN: 1 });
   if (T.dynamite) list.push({ id: 'dynamite', kind: 'dynamite', icon: '🧨', name: 'Dynamite', short: 'Dynamite', desc: 'A stick with a 4 second fuse. Blows a small hole about 1.3 m across. Cheap, fast, and loud. Run.', price: 14, batch: [1, 5, 10] });
   if (T.charges) list.push({ id: 'charge', kind: 'charge', icon: '🧨', name: 'Blasting Charge', short: 'Charge', desc: `Blows a hole about ${[0, 1.8, 2.4, 3.0][T.charges]} m across after 6 seconds. Run.`, price: 40 * T.charges, batch: [1, 3, 5] });
   if (T.lantern) list.push({ id: 'lantern', kind: 'lantern', icon: '🏮', name: 'Work Lantern', short: 'Lantern', desc: 'Hang it up to light a tunnel.', price: 6, batch: [1, 5, 10] });
-  if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', name: 'Bulkhead Panel', short: 'Bulkhead', desc: 'A solid plank wall cell. Never falls. Hold the pile back.', price: 10, batch: [1, 10, 50] });
+  if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', name: 'Bulkhead Panel', short: 'Bulkhead', desc: 'A solid plank wall cell. Never falls. Hold the pile back.', price: 10, batch: [1, 10, 50], mat: 'timber', matN: 2 });
   if (T.machines.includes('belt')) {
     list.push({ id: 'belt', kind: 'belt', icon: '🛤️', name: 'Conveyor Belt', short: 'Belt', desc: 'Carries plush. Needs power. Place a line by holding B.', price: 3, batch: [10, 50, 100] });
     list.push({ id: 'ramp', kind: 'belt', ramp: true, icon: '📐', name: 'Belt Ramp', short: 'Ramp', desc: 'A belt that climbs or drops one step. R flips up/down.', price: 5, batch: [1, 5, 10] });
@@ -68,9 +76,25 @@ export function craft(g, id, n) {
   const S = g.S;
   const r = recipes(g).find((x) => x.id === id);
   if (!r) return false;
-  const cost = r.price * n;
+  S.mats = S.mats || {};
+  if (r.kind === 'mat') {
+    const c = r.price * n;
+    if (S.money < c) { g.sound.error(); return false; }
+    S.money -= c; S.mats[r.mk] = (S.mats[r.mk] || 0) + n;
+    g.ui.setMoney(S.money); g.sound.place();
+    return true;
+  }
+  let cost = r.price * n;
+  let use = 0;
+  if (r.mat) {
+    // stock first; any shortfall is bought on the spot at the full unit price
+    const need = r.matN * n, have = S.mats[r.mat] || 0;
+    use = Math.min(need, have);
+    cost = Math.round((need - use) * (r.price / r.matN));
+  }
   if (S.money < cost) { g.sound.error(); return false; }
   S.money -= cost;
+  if (use) { S.mats[r.mat] -= use; if (S.mats[r.mat] <= 0) delete S.mats[r.mat]; }
   S.items[id] = (S.items[id] || 0) + n;
   g.ui.setMoney(S.money);
   g.sound.place();

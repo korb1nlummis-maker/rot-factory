@@ -24,6 +24,7 @@ export function newState(seed) {
     notes: [],
     contracts: [],
     items: {},
+    mats: {},
     gear: { helmet: 1 },
     gameMin: 0,
     cart: null,

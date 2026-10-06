@@ -47,7 +47,8 @@
   <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Tap G on the plush around you.</span></div>
   <div id="vig"></div>
   <div id="blackout"></div>
-  <div id="trap" class="hidden"><div id="trapVig"></div><div id="trapBox"><span>AIR</span><b id="trapNum">60</b><i>punch out: P, or hold Space</i></div></div>
+  <div id="trap" class="hidden"><div id="trapVig"></div><div id="trapBox"><span id="trapLabel">AIR</span><b id="trapNum">60</b><i>punch: R or right click, hold Space to punch up</i></div></div>
+  <div id="vitals"><div id="hpBar" class="vbar"><label>HEALTH</label><div><i id="hpFill"></i></div></div><div id="airBar" class="vbar hidden"><label>AIR</label><div><i id="airFill2"></i></div></div><i id="lungBar" style="display:none"></i></div>
   <div id="hurt"></div>
 </div>
 
@@ -63,7 +64,7 @@
     </div>
     <div class="how">
       <div><kbd>WASD</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Space</kbd> jump &nbsp; <kbd>C</kbd> crouch</div>
-      <div><kbd>G</kbd> grab (tap) / drop &nbsp; <kbd>F</kbd> flashlight &nbsp; <kbd>Z</kbd> throw &nbsp; <kbd>P</kbd> punch out &nbsp; <kbd>E</kbd> use &nbsp; <kbd>Tab</kbd> upgrades</div>
+      <div><kbd>F</kbd> / <kbd>G</kbd> / left click grab (tap) &nbsp; <kbd>O</kbd> flashlight &nbsp; <kbd>Z</kbd> throw &nbsp; <kbd>R</kbd> / right click punch &nbsp; <kbd>E</kbd> use &nbsp; <kbd>Tab</kbd> upgrades</div>
       <div><kbd>B</kbd> build (set down the item you hold) &nbsp; <kbd>1-9</kbd> or <kbd>[ ]</kbd> pick item &nbsp; <kbd>Q</kbd> stow &nbsp; <kbd>X</kbd> remove &nbsp; <kbd>U</kbd> cart</div>
       <div><kbd>V</kbd> crew &nbsp; <kbd>H</kbd> recall &nbsp; <kbd>N</kbd> dex &nbsp; <kbd>L</kbd> journal &nbsp; <kbd>J</kbd> goals &nbsp; <kbd>Esc</kbd> pause &nbsp; (the mouse only looks)</div>
     </div>
@@ -173,9 +174,9 @@
       <label>Mouse sensitivity <input id="rngSens" type="range" min="0.3" max="2.5" step="0.05" value="1"></label>
       <details open class="how" style="font-size:12px;line-height:1.9;color:var(--dim)"><summary style="cursor:pointer;color:var(--ink)">Controls</summary>
         <div><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>C</kbd> crouch · mouse looks</div>
-        <div><kbd>G</kbd> grab / drop · <kbd>Z</kbd> throw · <kbd>E</kbd> use · <kbd>F</kbd> flashlight · <kbd>Tab</kbd> upgrades</div>
-        <div><b style="color:var(--ink)"><kbd>P</kbd> punch out</b> of a hole (knocks loose a bunch of plush ahead) · hold <kbd>Space</kbd> when trapped to punch up</div>
-        <div><kbd>B</kbd> build / place (dynamite, charges, belts…, hold for lines) · <kbd>1-9</kbd> <kbd>[</kbd><kbd>]</kbd> pick item · <kbd>Q</kbd> stow · <kbd>R</kbd> flip ramp · <kbd>X</kbd> remove</div>
+        <div><kbd>F</kbd> / <kbd>G</kbd> / left click grab (tap with nothing in reach to drop) · <kbd>Z</kbd> throw · <kbd>E</kbd> use · <kbd>O</kbd> flashlight · <kbd>Tab</kbd> upgrades</div>
+        <div><b style="color:var(--ink)"><kbd>R</kbd>, <kbd>P</kbd> or right click: punch out</b> of a hole (knocks loose a bunch of plush ahead) · hold <kbd>Space</kbd> when trapped to punch up</div>
+        <div><kbd>B</kbd> build / place (dynamite, charges, belts…, hold for lines) · <kbd>1-9</kbd> <kbd>[</kbd><kbd>]</kbd> pick item · <kbd>Q</kbd> stow · <kbd>R</kbd> flip ramp (when holding one) · <kbd>X</kbd> remove</div>
         <div><kbd>U</kbd> cart · <kbd>V</kbd> crew · <kbd>T</kbd>/<kbd>Y</kbd> crew farm ahead / home · <kbd>H</kbd> hold to recall</div>
         <div><kbd>N</kbd> dex · <kbd>L</kbd> journal · <kbd>J</kbd> goals · <kbd>Enter</kbd> chat · <kbd>F3</kbd> fps · <kbd>Esc</kbd> pause</div>
       </details>

@@ -218,3 +218,16 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 #trapBox span { display: block; font-size: 14px; letter-spacing: 0.4em; }
 #trapBox b { display: block; font-size: 72px; line-height: 1; font-variant-numeric: tabular-nums; }
 #trapBox i { font-style: normal; font-size: 13px; opacity: 0.85; }
+
+#vitals { position: fixed; left: 18px; bottom: 18px; width: 210px; z-index: 12; pointer-events: none; display: grid; gap: 6px; }
+.vbar.hidden { display: none; }
+.vbar label { display: block; font-size: 10px; letter-spacing: 0.25em; color: var(--dim); margin-bottom: 2px; text-shadow: 0 1px 4px #000; }
+.vbar > div { height: 10px; border-radius: 6px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.18); overflow: hidden; }
+.vbar i { display: block; height: 100%; width: 100%; transition: width 0.15s; }
+#hpFill { background: linear-gradient(90deg, #e0453a, #ff8a5c); }
+#hpBar.full { opacity: 0.45; }
+#hpBar.low > div { animation: vpulse 0.6s infinite; }
+#airFill2 { background: linear-gradient(90deg, #4aa8ff, #9be3ff); }
+#airBar.dying > div { border-color: #ff5a4a; animation: vpulse 0.5s infinite; }
+#airBar.dying label { color: #ff8a7a; }
+@keyframes vpulse { 50% { box-shadow: 0 0 12px rgba(255,70,50,0.9); } }

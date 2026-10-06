@@ -16,7 +16,7 @@ import { Contracts } from './contracts.js';
 import { Crew } from './crew.js';
 import { Radio } from './radio.js';
 import { Net, RemotePlayer } from './net.js';
-import { recipes, craft, craftGear, gearRecipes } from './crafting.js';
+import { recipes, craft, craftGear, gearRecipes, MATERIALS } from './crafting.js';
 import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
@@ -66,6 +66,7 @@ export class Game {
     this.dustCd = 0;
     this.impactCd = 0;
     this.unstuckHint = false;
+    this.hp = 100; this.hpMax = 100; this.hurtT = 0; this.dmgCd = 0; this.suffocating = false;
     this.endTimer = 0;
     this.freeLook = { yaw: 0, pitch: 0 };
     this.titleT = 0;
@@ -166,7 +167,7 @@ export class Game {
       onKick: (i, j, k, vx, vy, vz, sp) => this.onKick(i, j, k, vx, vy, vz, sp),
       onPlayerHit: (v) => this.onPlayerHit(v),
     };
-    this.player.events.land = (v) => { this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
+    this.player.events.land = (v) => { if (v > 12) this.hurtPlayer((v - 12) * 5, 'fell too far'); this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
     this.player.events.step = (sp) => {
       this.treadOn(1.0 + (sp > 5 ? 0.5 : 0), false);
       if (this.player.pos.y > 0.45) { this.sound.step(0.06 + Math.min(0.06, sp * 0.01)); if (Math.random() < 0.35) this.sound.squeak(0.7 + Math.random() * 0.5, 0.05); }
@@ -185,7 +186,7 @@ export class Game {
     if (!S.gear) { S.gear = {}; for (const id of GEAR) S.gear[id] = S.up[id] || 0; }
     if (S.gear.helmet === undefined) S.gear.helmet = 1; // every worker starts with a hard hat, a lamp and a clock
     if (S.gameMin === undefined) S.gameMin = 0;
-    S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
+    S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.mats = S.mats || {}; S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
     this.T = this.tune();
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
@@ -298,7 +299,7 @@ export class Game {
       this.requestLock();
       this.sound.resume();
       if (after) after();
-      if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>G</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
+      if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>F</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
       else this.ui.hint('Welcome back to Warehouse 07.', 4);
       if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('You wear a hard hat with a lamp and a clock. At 19:00 the warehouse closes, a chime sounds, and the lights go out until 07:00.', 11), 14000);
     }, 60);
@@ -324,6 +325,7 @@ export class Game {
     if (e.repeat && down) { if (e.code === 'Tab') e.preventDefault(); return; }
     if (e.code === 'Tab') e.preventDefault();
     this.keys[e.code] = down;
+    if (e.code === 'KeyF') this.keys.KeyG = down; // F grabs like G
     if (!down) return;
     if (this.mode !== 'play') return;
     if (this.ui.isModalOpen()) {
@@ -336,33 +338,40 @@ export class Game {
     else if (e.code === 'KeyV') this.openModal('crew');
     else if (e.code === 'KeyT') this.crewFarmAhead();
     else if (e.code === 'KeyY') this.crewHomeAll();
-    else if (e.code === 'KeyG') this.gPress();
+    else if (e.code === 'KeyG' || e.code === 'KeyF') this.gPress();
     else if (e.code === 'KeyJ') this.openModal('ach');
     else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < this.tools.length) this.selectTool(n); }
     else if (e.code === 'KeyB') this.bPress();
     else if (e.code === 'BracketRight' || e.code === 'ArrowRight') this.selectTool(this.buildIdx + 1);
     else if (e.code === 'BracketLeft' || e.code === 'ArrowLeft') this.selectTool(this.buildIdx - 1);
     else if (e.code === 'KeyE') this.useKey();
-    else if (e.code === 'KeyF') this.toggleLamp();
+    else if (e.code === 'KeyO') this.toggleLamp();
     else if (e.code === 'KeyZ') this.throwOne();
     else if (e.code === 'KeyP') this.punch();
     else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); this.ui.hint(this.stowed ? 'Build item stowed. <kbd>Q</kbd> brings it back.' : 'Build item ready. <kbd>B</kbd> places it.', 2); }
     else if (e.code === 'KeyX') this.deconstruct();
     else if (e.code === 'KeyU') this.useCart();
     else if (e.code === 'KeyR') {
-      this.rampMode = (this.rampMode + 1) % 2;
-      this.machines.setGhost(null);
+      // R punches (laptop friendly); with a ramp in hand it flips the ramp instead
+      const t = this.curTool();
+      if (t.kind === 'belt' && t.ramp) { this.rampMode = (this.rampMode + 1) % 2; this.machines.setGhost(null); }
+      else this.punch();
     }
   }
 
-  onMouse() { /* the mouse only looks around; everything is on the keyboard */ }
+  onMouse(e, down) {
+    // the mouse looks around; left click grabs, right click punches
+    if (!e || this.mode !== 'play' || this.ui.isModalOpen() || !document.pointerLockElement) { if (!down && e && e.button === 0) this.keys.KeyG = false; return; }
+    if (down && e.button === 2) this.punch();
+    else if (e.button === 0) { this.keys.KeyG = down; if (down) this.gPress(); }
+  }
 
   // ======================= tools =======================
   // inventory of crafted build items. With an item in hand a green outline shows where it will go; B sets it down.
   rebuildTools() {
     const S = this.S;
     S.items = S.items || {};
-    const list = recipes(this).filter((r) => r.kind !== 'cart' && (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
+    const list = recipes(this).filter((r) => r.kind !== 'cart' && r.kind !== 'mat' && (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
     // items whose recipe is no longer listed (should not happen) still count
     this.tools = list;
     if (this.buildIdx == null || this.buildIdx >= list.length) this.buildIdx = 0;
@@ -944,7 +953,7 @@ export class Game {
         if (n >= 14 || this.sim.n > 2300) continue;
         const it = w.removeCell(i, j, k, false);
         if (!it) continue;
-        this.sim.spawn(it.sp, it.vr, cx, cy, cz, dir.x * 3.2 + (Math.random() - 0.5) * 1.2, dir.y * 3.2 + 0.8, dir.z * 3.2 + (Math.random() - 0.5) * 1.2, 2);
+        this.sim.spawn(it.sp, it.vr, cx, cy, cz, dir.x * 3.2 + (Math.random() - 0.5) * 1.2, dir.y * 3.2 + 0.8, dir.z * 3.2 + (Math.random() - 0.5) * 1.2, 0);
         this.loosen(i, j, k, 0.8);
         n++;
       }
@@ -952,7 +961,7 @@ export class Game {
     this.sound.thump(0.35, 110);
     this.shake = Math.max(this.shake, 0.12);
     if (n) { this.fx.dust(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 6, 0.6, 0.6); this.dust && this.dust.add(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 0.04 * n); }
-    else if (!auto) this.ui.hint('Nothing in reach to punch. Face the plush wall (or look up) and tap <kbd>P</kbd>.', 2);
+    else if (!auto) this.ui.hint('Nothing in reach to punch. Face the plush wall (or look up) and tap <kbd>R</kbd> or right click.', 2);
   }
 
   holdGrab() { return this.grabWant || !!this.keys.KeyG; }
@@ -1388,14 +1397,14 @@ export class Game {
   sendShared() {
     const S = this.S;
     this.netSend({
-      t: 'shared', money: S.money, te: S.totalEarned, up: S.up, gear: S.gear, items: S.items, boosts: S.boosts, contracts: S.contracts,
+      t: 'shared', money: S.money, te: S.totalEarned, up: S.up, gear: S.gear, items: S.items, mats: S.mats, boosts: S.boosts, contracts: S.contracts,
       gameMin: S.gameMin, golden: this.golden || 0, outage: this.outage || 0, ending: S.ending || null,
     });
   }
 
   applyShared(m) {
     const S = this.S;
-    const key = JSON.stringify([m.up, m.gear, m.items, m.boosts]);
+    const key = JSON.stringify([m.up, m.gear, m.items, m.boosts, m.mats]);
     if (m.money > S.money + 0.5 && S.money > 0) this.ui.gain(m.money - S.money);
     S.money = m.money; S.totalEarned = m.te; S.contracts = m.contracts || [];
     this.golden = m.golden; this.outage = m.outage;
@@ -1403,7 +1412,7 @@ export class Game {
     if (Math.abs((S.gameMin || 0) - m.gameMin) > 3) S.gameMin = m.gameMin;
     if (key !== this._sharedKey) {
       this._sharedKey = key;
-      S.up = m.up; S.gear = m.gear; S.items = m.items; S.boosts = m.boosts;
+      S.up = m.up; S.gear = m.gear; S.items = m.items; S.boosts = m.boosts; S.mats = m.mats || {};
       this.T = this.tune();
       this.world.stabBonus = this.T.stabBonus;
       this.rebuildTools();
@@ -1611,8 +1620,13 @@ export class Game {
     const rng = Math.random;
     const roll = rng();
     let text;
-    const list = recipes(this).filter((r) => r.kind !== 'cart');
-    if (roll < 0.5 && list.length) {
+    const list = recipes(this).filter((r) => r.kind !== 'cart' && r.kind !== 'mat');
+    if (roll < 0.22) {
+      const ks = this.T.frames.slice(-3), mk = ks[(rng() * ks.length) | 0] || 'timber';
+      const n = Math.max(8, Math.round((20 + tier * 14) * (0.6 + rng() * 0.8)));
+      S.mats[mk] = (S.mats[mk] || 0) + n;
+      text = `${n} x ${MATERIALS[mk].name} of building material`;
+    } else if (roll < 0.5 && list.length) {
       const r = list[(rng() * list.length) | 0];
       const n = Math.max(1, Math.min(12, Math.round((3 + tier) * (r.price < 50 ? 2 : r.price < 500 ? 1 : 0.4) * (0.6 + rng() * 0.8))));
       S.items[r.id] = (S.items[r.id] || 0) + n;
@@ -2194,6 +2208,7 @@ export class Game {
       const dx = this.player.pos.x - ent.x, dz = this.player.pos.z - ent.z, l = Math.hypot(dx, dz) || 1;
       this.player.vel.x += dx / l * 7; this.player.vel.z += dz / l * 7; this.player.vel.y += 4;
       this.ui.hurt(0.55); this.dust.lung = Math.min(1.05, this.dust.lung + 0.25);
+      this.hurtPlayer(Math.max(15, 55 - pd * 12), 'got too close to the blast');
       this.ui.hint('That was too close.', 3);
     }
     S.stats.blasts = (S.stats.blasts || 0) + 1;
@@ -2205,7 +2220,7 @@ export class Game {
   lightFuse(item) {
     this.fuses = this.fuses || [];
     this.fuses.push({ item, t: 2.4 });
-    this.ui.toast({ icon: '🧨', title: 'Fuse lit!', text: 'A Razzo plush is ticking. Throw it (F) or drop it (G) now.', ms: 2600 });
+    this.ui.toast({ icon: '🧨', title: 'Fuse lit!', text: 'A Razzo plush is ticking. Throw it (Z) or drop it (F) now.', ms: 2600 });
     this.sound.tone('square', 900, 900, 0.05, 0.08);
   }
 
@@ -2302,15 +2317,17 @@ export class Game {
     const trapped = this.mode === 'play' && !this.blacking && (p.embedded || p.buried > 1.2);
     const max = 60 + 30 * (T.airTank || 0);
     if (trapped) {
-      if (!this.trapOn) { this.trapOn = true; if (this.airLeft === undefined || this.airLeft > max) this.airLeft = max; this.ui.hint('Trapped! <kbd>P</kbd> punches what is in front of you, hold <kbd>Space</kbd> to punch up. Get out before the air runs out.', 6); }
+      if (!this.trapOn) { this.trapOn = true; if (this.airLeft === undefined || this.airLeft > max) this.airLeft = max; this.ui.hint('Trapped! <kbd>R</kbd> or right click punches what is in front of you, hold <kbd>Space</kbd> to punch up. Get out before the air runs out.', 6); }
       this.trapFree = 0;
       this.airLeft = Math.max(0, (this.airLeft ?? max) - dt);
       this.trapPulse = (this.trapPulse || 0) + dt * (2 + (1 - this.airLeft / max) * 5);
       const pulse = 0.5 + 0.5 * Math.sin(this.trapPulse * Math.PI);
-      this.ui.setTrap(true, this.airLeft, this.airLeft / max, pulse);
+      this.ui.setTrap(true, this.airLeft, this.airLeft / max, pulse, this.suffocating);
       if (Math.floor(this.trapPulse) !== this._lastBeat) { this._lastBeat = Math.floor(this.trapPulse); this.sound.thump(0.1 + 0.12 * (1 - this.airLeft / max), 70); }
-      if (this.airLeft <= 0) { this.trapOn = false; this.airLeft = undefined; this.ui.setTrap(false); this.blackout('air'); }
+      this.suffocating = this.airLeft <= 0;
+      if (this.suffocating) this.hurtPlayer(14 * dt, 'suffocated under the pile');
     } else if (this.trapOn) {
+      this.suffocating = false;
       this.trapFree = (this.trapFree || 0) + dt;
       if (this.trapFree > 1.5) { this.trapOn = false; this.airLeft = undefined; this.ui.setTrap(false); }
     }
@@ -2444,16 +2461,46 @@ export class Game {
   }
   onPlayerHit(v) {
     if (v > 5) { this.shake = Math.max(this.shake, 0.35 * this.T.shakeMul); this.sound.thump(0.2, 130); if (this.T.shakeMul === 1) this.ui.hurt(0.25); }
+    // falling plush hurt: a trickle is harmless, an avalanche is not
+    if (v > 4.5 && this.dmgCd <= 0) { this.dmgCd = 0.22; this.hurtPlayer((v - 4) * 4.5, 'were crushed under falling plush'); }
   }
 
-  // a creaking roof sheds plush: the first exposed ceiling cell above this spot lets go
-  dropRoof(i, j, k) {
-    const w = this.world;
-    for (let dj = -1; dj <= 5; dj++) {
-      const jj = j + dj;
-      if (w.get(i, jj, k) && !w.solid(i, jj - 1, k)) { this.releaseCell(i, jj, k); return true; }
-    }
-    return false;
+  // ---- health. Death is not the end: you wake up on the floor of the sorting bay, the plush you carried spilled.
+  hurtPlayer(n, why) {
+    if (this.mode !== 'play' || this.dead) return;
+    this.hp = Math.max(0, this.hp - n);
+    this.hurtT = 0;
+    this.ui.hurt(Math.min(0.6, 0.2 + n * 0.02));
+    if (this.hp <= 0) this.die(why);
+  }
+
+  die(why) {
+    if (this.dead) return;
+    this.dead = true; this.blacking = true;
+    this.ui.blackout(true);
+    this.ui.setTrap(false);
+    this.sound.thump(0.4, 60);
+    setTimeout(() => {
+      const S = this.S;
+      for (const it of S.carry.splice(0, S.carry.length)) this.sim.spawn(it.sp, it.vr, this.player.pos.x + (Math.random() - 0.5), this.player.pos.y + 1, this.player.pos.z + (Math.random() - 0.5), 0, 2, 0, 0);
+      this.ui.setCarry(S.carry, this.T.carry);
+      this.hp = this.hpMax; this.airLeft = undefined; this.trapOn = false; this.suffocating = false; this.dust.lung = 0.2;
+      this.player.buried = 0;
+      this.recall();
+      S.stats.deaths = (S.stats.deaths || 0) + 1;
+      this.ui.toast({ icon: '💀', title: 'You died', text: `You ${why}. You woke up on the floor of the sorting bay. Whatever you carried spilled where it happened.`, ms: 8000 });
+      setTimeout(() => { this.ui.blackout(false); this.blacking = false; this.dead = false; }, 800);
+    }, 1400);
+  }
+
+  updateVitals(dt) {
+    const p = this.player;
+    this.dmgCd -= dt; this.hurtT += dt;
+    if (this.mode === 'play' && !this.dead && this.hp < this.hpMax && this.hurtT > 7 && !this.suffocating) this.hp = Math.min(this.hpMax, this.hp + 2.2 * dt);
+    const max = 60 + 30 * (this.T.airTank || 0);
+    const air = this.airLeft === undefined ? 1 : Math.max(0, this.airLeft / max);
+    this.ui.setVitals(this.hp / this.hpMax, air, this.trapOn, this.suffocating, this.dust.lung);
+    void p;
   }
 
   updateAfters(dt) {
@@ -2519,6 +2566,7 @@ export class Game {
     this.lastBuried = buried;
     // trapped: a pulsing countdown to dig out before the air runs out
     this.updateTrapped(dt);
+    this.updateVitals(dt);
     // emergency recall: hold U
     if (this.keys.KeyH) {
       this.recallHold += dt;
@@ -2526,7 +2574,7 @@ export class Game {
       else this.ui.hint(`Recalling… hold <kbd>H</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
     } else this.recallHold = 0;
     if (this.keys.Space && (p.embedded || p.buried > 0.3)) this.punch(true, true);
-    if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>P</kbd> (or hold <kbd>Space</kbd>) to punch your way out.', 8); }
+    if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>R</kbd> (or hold <kbd>Space</kbd>) to punch your way out.', 8); }
     if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the sorting bay.', 8); }
 
     if (this.S.stats && this.T.scan > 0) this.sound.geiger(dt, this.sigLevel > 0 ? Math.pow(this.sigLevel, 0.7) : 0);

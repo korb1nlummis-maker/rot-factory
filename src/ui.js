@@ -5,6 +5,7 @@ import { RARITY, species, speciesCount, NEEDLE, DECOYS } from './plushdata.js';
 import { speciesIcon, needleFrames } from './icons.js';
 import { fmt } from './util.js';
 import { describeBoosts } from './remains.js';
+import { MATERIALS } from './crafting.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -161,13 +162,24 @@ export class UI {
     const st = $('clockState'); st.textContent = open ? 'OPEN' : 'CLOSED'; st.style.color = open ? '#7ef0c4' : '#ff8a7a';
   }
   setDepth(txt) { $('depth').textContent = txt; }
-  setTrap(on, secs, frac, pulse) {
+  setTrap(on, secs, frac, pulse, dying) {
     const e = $('trap');
     e.classList.toggle('hidden', !on);
     if (!on) return;
-    $('trapNum').textContent = Math.ceil(secs);
+    $('trapNum').textContent = dying ? '!' : Math.ceil(secs);
+    $('trapLabel').textContent = dying ? 'SUFFOCATING' : 'AIR';
     e.style.setProperty('--p', pulse.toFixed(2));
     e.style.setProperty('--f', (1 - frac).toFixed(2));
+  }
+  setVitals(hp, air, showAir, dying, lung) {
+    $('hpFill').style.width = (hp * 100).toFixed(0) + '%';
+    $('hpBar').classList.toggle('low', hp < 0.35);
+    $('hpBar').classList.toggle('full', hp > 0.995);
+    const a = $('airBar');
+    a.classList.toggle('hidden', !(showAir || air < 0.999));
+    $('airFill2').style.width = (air * 100).toFixed(0) + '%';
+    a.classList.toggle('dying', !!dying || air < 0.25);
+    $('lungBar').style.width = Math.min(100, lung * 100).toFixed(0) + '%';
   }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
@@ -285,10 +297,15 @@ export class UI {
     const list = g.recipeList();
     if (!list.length && !grid.children.length) { grid.innerHTML = '<div class="jcard">Nothing to craft yet. Unlock Timber Frames, Work Lanterns, belts and more in the terminal.</div>'; return; }
     for (const r of list) {
-      const have = g.S.items[r.id] || 0;
+      const isMat = r.kind === 'mat';
+      const have = isMat ? ((g.S.mats || {})[r.mk] || 0) : (g.S.items[r.id] || 0);
+      const stock = r.mat ? (g.S.mats || {})[r.mat] || 0 : 0;
+      const price = (n) => (r.mat ? Math.round(Math.max(0, r.matN * n - stock) * (r.price / r.matN)) : r.price * n);
+      const matLine = r.mat ? `<p style="color:var(--accent2);font-size:11.5px">Uses ${r.matN} ${MATERIALS[r.mat].name} each (you have ${stock}). Shortfall is bought at the full price.</p>` : '';
       const el = document.createElement('div');
       el.className = 'card';
-      el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? 'have ' + have : ''}</small></h3><p>${r.desc}</p><div style="display:flex;gap:6px">${r.batch.map((n) => `<button data-n="${n}" ${g.S.money >= r.price * n ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(r.price * n)}</button>`).join('')}</div>`;
+      if (isMat) el.style.borderColor = 'rgba(154,107,58,0.6)';
+      el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? 'have ' + have : ''}</small></h3><p>${r.desc}</p>${matLine}<div style="display:flex;gap:6px">${r.batch.map((n) => `<button data-n="${n}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('')}</div>`;
       for (const b of el.querySelectorAll('button')) b.onclick = () => { if (g.craftItem(r.id, +b.dataset.n)) this.renderCraft(); };
       grid.appendChild(el);
     }

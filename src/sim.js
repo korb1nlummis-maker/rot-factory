@@ -334,13 +334,15 @@ export class Sim {
     const ci = toI(this.x[i]), cj = toJ(this.y[i]), ck = toK(this.z[i]);
     let best = null, bd = 1e9;
     const ps = this.player ? this.player.spheres() : [];
+    // a real avalanche can come to rest on you: debris freezes through a player who is standing still
+    const bury = this.flag[i] === 2 && this.age[i] > 1.6 && this.player && Math.hypot(this.player.vel.x, this.player.vel.z) < 1.2;
     for (let dk = -1; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
       const a = ci + di, b = cj + dj, c = ck + dk;
       if (!w.inside(a, b, c) || w.get(a, b, c) !== 0 || w.reserved.has((b * NZ + c) * NX + a)) continue;
       if (!w.solid(a, b - 1, c)) continue;
       const cx = cellX(a), cy = cellY(b), cz = cellZ(c);
       let blocked = false;
-      for (const s of ps) { if ((cx - s.x) ** 2 + (cy - s.y) ** 2 + (cz - s.z) ** 2 < (s.r + 0.34) ** 2) { blocked = true; break; } }
+      for (let q = bury ? 1 : 0; q < ps.length; q++) { const s = ps[q]; if ((cx - s.x) ** 2 + (cy - s.y) ** 2 + (cz - s.z) ** 2 < (s.r + 0.34) ** 2) { blocked = true; break; } }
       if (blocked) continue;
       const d = (cx - this.x[i]) ** 2 + (cy - this.y[i]) ** 2 + (cz - this.z[i]) ** 2;
       if (d < bd) { bd = d; best = [a, b, c]; }

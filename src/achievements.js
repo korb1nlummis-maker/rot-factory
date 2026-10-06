@@ -89,6 +89,7 @@ export const ACHIEVEMENTS = [
   A('botlv', 'Growing Up', 'Level a bot up ten times.', (S) => (S.stats.botLevels || 0) >= 10, '📈'),
   A('contract1', 'Fulfilled', 'Complete a contract.', (S) => (S.stats.contracts || 0) >= 1, '📋'),
   A('contract20', 'Reliable Supplier', 'Complete 20 contracts.', (S) => (S.stats.contracts || 0) >= 20, '📋'),
+  A('died', 'Back From the Pile', 'Die in the warehouse and wake up on the floor.', (S) => (S.stats.deaths || 0) >= 1, '💀'),
   A('passout', 'Dust Lungs', 'Pass out from dust.', (S) => (S.stats.passedOut || 0) >= 1, '😵'),
   A('blast1', 'Fire in the Hole', 'Set off a blasting charge.', (S) => (S.stats.blasts || 0) >= 1, '🧨'),
   A('blast20', 'Quarryman', 'Set off 20 charges.', (S) => (S.stats.blasts || 0) >= 20, '🧨'),

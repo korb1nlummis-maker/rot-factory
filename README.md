@@ -36,3 +36,7 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - Creaking roofs now shed plush, and cave-ins bring down the pile above.
 - **Dynamite**: cheap early upgrade. Craft at the bench, aim and press B. 4 second fuse, small blast (bigger than nothing, smaller than a Charge).
 - **Joining**: host gets a 4 digit code, the friend types it under Join a friend (uses the free PeerJS broker to meet, then a direct connection). Long copy/paste codes remain under the details drop-down as a fallback. If the two builds differ, both players get a warning to hard refresh (Ctrl/Cmd+Shift+R).
+- **Health and death**: a health bar (bottom left) and an air bar that appears when you are buried. Falling plush, long falls and close blasts hurt. Run out of air and you suffocate. Dying is not the end: you wake up on the sorting bay floor and what you carried spills where it happened.
+- **Avalanches are real**: cave-in debris can land on you and bury you. Punch out (R, right click, P, or hold Space).
+- **Controls**: F, G or left click grab. R or right click punch. O flashlight. Throwing Arm now has six levels.
+- **Building materials**: frames are made from Lumber, then Steel, Concrete, Rebar and so on. Buy stock at the bench (cheaper in bulk), or find it in caches and old workings. Short on stock, the shortfall is bought at full price.

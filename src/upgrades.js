@@ -25,7 +25,7 @@ export const UPGRADES = [
   { id: 'repeat', cat: 'hands', name: 'Auto-Grip', desc: 'Hold G and keep grabbing without tapping.', max: 1, cost: [40], effect: (t) => { t.autoRepeat = true; } },
   { id: 'scoop', cat: 'hands', name: 'Scoop Hands', desc: 'Each grab also scoops neighbouring plush. Bigger scoops pull the pile apart faster.', max: 4, cost: [120, 480, 1900, 7800], req: { id: 'bag', lvl: 2 }, effect: (t, l) => { t.scoop = [0, 1, 3, 6, 12][l]; } },
   { id: 'vac', cat: 'hands', name: 'Plush Vacuum', desc: 'Tapping G now inhales plush in a cone for a couple of seconds instead of grabbing one. Upgrades raise suction rate.', max: 5, cost: [650, 1800, 5200, 15000, 42000], req: { id: 'bag', lvl: 3 }, effect: (t, l) => { t.vac = l; t.vacRate = [0, 3, 5, 8, 12, 18][l]; } },
-  { id: 'throw', cat: 'hands', name: 'Throwing Arm', desc: 'Hurl plush further and straighter toward the bin.', max: 3, cost: [25, 120, 600], effect: (t, l) => { t.throwPower = 11 + l * 4; } },
+  { id: 'throw', cat: 'hands', name: 'Throwing Arm', desc: 'Hurl plush much further and straighter. Six levels: from a toss to a cannon shot across the hall.', max: 6, cost: [25, 120, 600, 3200, 18000, 100000], effect: (t, l) => { t.throwPower = 11 + l * 4; } },
 
   // ---------------- SORTING ----------------
   { id: 'contracts', cat: 'sort', name: 'Contract Board', desc: 'Buyers post standing orders (rarity, species, shape, shiny). Sell matching plush anywhere and the contract pays out a bonus, sometimes with a permanent boost. Find them under the Contracts tab.', max: 1, cost: [700], effect: (t) => { t.contractSlots += 3; } },
