@@ -285,7 +285,7 @@ export class Logistics {
     if (n.type === 'vault') {
       if (n.stored.length >= this.vaultCap()) return false;
       n.stored.push({ sp: item.sp, vr: item.vr });
-      this.game.registerDex(item.sp);
+      this.game.registerDex(item.sp, true);
       return true;
     }
     return false;
@@ -518,7 +518,7 @@ export class Logistics {
       t.q.shift();
     } else if (t.kept.length < 60 && !front) {
       t.kept.push(t.q.shift());
-      g.registerDex(head.sp);
+      g.registerDex(head.sp, true);
     } else this.setLamp(t, M.glowR);
   }
 

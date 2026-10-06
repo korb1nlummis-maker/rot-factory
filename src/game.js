@@ -983,14 +983,21 @@ export class Game {
     }
   }
 
-  registerDex(spId) {
+  // The first time any plush of a species shows up it goes in the Plushdex. What you handle yourself gets the chime and the toast (only while you are
+  // actually playing, never while a menu is open and never more than one chime every half second). What machines and bots dig up counts silently
+  // and is reported in one batch, because with 1,600+ species a busy mine would otherwise chime all day, even from the pause menu.
+  registerDex(spId, auto = false) {
     const S = this.S;
     if (!S.dex[spId]) {
       S.dex[spId] = 0;
       if (spId !== NEEDLE) {
-        const s = species[spId];
-        this.ui.toast({ img: speciesIcon(spId), title: 'New species', text: `${s.name} · ${RARITY[s.rarity].name}`, ms: 3000 });
-        this.sound.tone('triangle', 800, 1200, 0.15, 0.06, 0.1);
+        if (auto) this._autoNewDex = (this._autoNewDex || 0) + 1;
+        else if (this.mode === 'play' && !this.ui.isModalOpen() && !(this._dexSndT > this.time)) {
+          const s = species[spId];
+          this._dexSndT = this.time + 0.5;
+          this.ui.toast({ img: speciesIcon(spId), title: 'New species', text: `${s.name} · ${RARITY[s.rarity].name}`, ms: 3000 });
+          this.sound.tone('triangle', 800, 1200, 0.15, 0.06, 0.1);
+        } else this._autoNewDex = (this._autoNewDex || 0) + 1;
       }
     }
     S.dex[spId]++;
@@ -1366,7 +1373,7 @@ export class Game {
     const S = this.S;
     S.stats.plush++; S.stats.rar[species[it.sp].rarity]++; S.stats.cells++;
     if (it.vr & 128) S.stats.shiny++;
-    this.registerDex(it.sp);
+    this.registerDex(it.sp, true);
     if (Math.random() < 0.5) this.fx.dust(x, y, z, 2, 0.5, 0.5);
   }
 
@@ -2223,7 +2230,7 @@ export class Game {
     const S = this.S;
     S.stats.plush++; S.stats.rar[species[taken.sp].rarity]++; S.stats.cells++;
     if (taken.vr & 128) S.stats.shiny++;
-    this.registerDex(taken.sp);
+    this.registerDex(taken.sp, true);
     const bp = this.hall.binPos;
     this.sellAuto(taken.sp, taken.vr, 1);
     this.fliers.push({ sp: taken.sp, vr: taken.vr, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(bp.x, 1.0, bp.z), t: 0, dur: 0.9 + Math.hypot(x - bp.x, z - bp.z) * 0.03, arc: 3 + Math.hypot(x - bp.x, z - bp.z) * 0.12 });
@@ -2235,7 +2242,7 @@ export class Game {
     const S = this.S;
     S.stats.plush++; S.stats.rar[species[taken.sp].rarity]++; S.stats.cells++;
     if (taken.vr & 128) S.stats.shiny++;
-    this.registerDex(taken.sp);
+    this.registerDex(taken.sp, true);
     this.sellAuto(taken.sp, taken.vr, 1);
   }
 
@@ -2382,6 +2389,13 @@ export class Game {
   }
 
   // walking through any gate scans your bag (and cart)
+  // new species found by machines, bots and while you were in a menu: one quiet note every so often
+  flushAutoDex(dt) {
+    this._autoDexT = (this._autoDexT || 0) + dt; if (this._autoDexT < 30 || !this._autoNewDex || this.ui.isModalOpen()) return;
+    this._autoDexT = 0; const n = this._autoNewDex; this._autoNewDex = 0;
+    this.ui.toast({ icon: '📖', title: n === 1 ? '1 new species logged' : `${n} new species logged`, text: 'Your machines and crew found them. See the Plushdex (N).', ms: 4000 });
+  }
+
   // plush thrown at a generator drop into its hopper
   feedGensFromThrows() {
     const sim = this.sim; if (!sim || !sim.n) return;
@@ -2904,7 +2918,7 @@ export class Game {
         this.sim.spawn(it.sp, it.vr, cellX(i), cellY(j), cellZ(k), di / l * 6, dj / l * 5 + 2, dk / l * 6, 2);
         n++;
       } else {
-        this.registerDex(it.sp); this.sellAuto(it.sp, it.vr, 0.5);
+        this.registerDex(it.sp, true); this.sellAuto(it.sp, it.vr, 0.5);
       }
     }
     this.fx.burst(ent.x, ent.y + 0.6, ent.z, 70, 1, 0.6, 0.2, 6, 0.14, 1.4);
