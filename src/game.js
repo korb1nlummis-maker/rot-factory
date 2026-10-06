@@ -184,6 +184,7 @@ export class Game {
     this.crew.clear();
     this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest() && !this.slide.quiet) this.slide.trigger(i, j, k, 1.1); };
     for (const e of S.entities) this.addEntity(e);
+    this.ensureFreeGate();
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
     if (!Array.isArray(S.stats.rar) || S.stats.rar.length < 7) S.stats.rar = [0, 0, 0, 0, 0, 0, 0];
@@ -580,6 +581,7 @@ export class Game {
     } else {
       for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
     }
+    this.playerGateScan(dt);
     this.settleT = (this.settleT ?? 10) - dt;
     if (this.settleT <= 0) {
       this.settleT = 9 + Math.random() * 20;
@@ -1928,14 +1930,86 @@ export class Game {
     }
     if (kind === 'gate') {
       const bt = this.logi.pick(eye, dir, 4.5);
-      if (bt && bt.type === 'belt' && !bt.detector) return { plan: { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } }, cost: 0 };
-      const pl = this.logi.plan('belt', eye, dir, yaw, 0);
+      let pl;
+      if (bt && bt.type === 'belt' && !bt.detector) pl = { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } };
+      else pl = this.logi.plan('belt', eye, dir, yaw, 0);
+      // a gate has to scan before anything reaches a bin: keep it out of every bin's pull
+      if (pl && pl.ok && pl.ent) {
+        const r = this.gateClearance();
+        if (this.sinkInRange(cellX(pl.ent.i), cellZ(pl.ent.k), r)) { pl.ok = false; pl.why = `Too close to a bin or sorter: it would suck plush in before the scan. Keep gates ${Math.ceil(r)} m away.`; }
+      }
       return { plan: pl, cost: 0 };
     }
     const plan = this.logi.plan(kind, eye, dir, yaw, rise);
+    if (plan.ok && plan.ent && kind === 'sorter' && this.gateInRange(cellX(plan.ent.i), cellZ(plan.ent.k), this.gateClearance())) { plan.ok = false; plan.why = `Too close to a detector gate: it would suck plush in before they are scanned. Keep sorters ${Math.ceil(this.gateClearance())} m from gates.`; }
     let cost = 0; const _unused = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
     if (plan.ok && kind === 'mech' && this.logi.count('mech') >= T.mechMax) { plan.ok = false; plan.why = `Mech limit reached (${T.mechMax})`; }
     return { plan, cost };
+  }
+
+  gateClearance() { return this.T.autoDump + 1.5; }
+
+  // any place plush get pulled in: the bin, depots, sorting boxes
+  sinkInRange(x, z, r) {
+    const bp = this.hall.binPos;
+    if (Math.hypot(x - bp.x, z - bp.z) < r) return true;
+    for (const it of this.machines.items.values()) if (it.ent.type === 'beacon' && Math.hypot(x - it.ent.x, z - it.ent.z) < r) return true;
+    for (const t of this.logi.tiles.values()) if (t.type === 'sorter' && Math.hypot(x - cellX(t.i), z - cellZ(t.k)) < r) return true;
+    return false;
+  }
+
+  gateInRange(x, z, r) {
+    for (const t of this.logi.tiles.values()) if (t.type === 'belt' && t.detector && Math.hypot(x - cellX(t.i), z - cellZ(t.k)) < r) return true;
+    return false;
+  }
+
+  // the free Welcome Gate: set on the floor of the bay, well outside the bin's pull, so you can walk through it with a full bag
+  ensureFreeGate() {
+    const S = this.S, w = this.world;
+    if (this.isGuest()) return;
+    if (S.entities.some((e) => e.free)) return;
+    if (S.freeGate === 'gone') return;
+    const r = this.gateClearance() + 3;
+    const bp = this.hall.binPos;
+    let spot = null;
+    for (const [x, z] of [[0, 10], [0, 11], [-3, 10], [3, 10], [-5, 8], [5, 8], [0, 9], [-7, 6]]) {
+      const i = toI(x), k = toK(z);
+      if (w.solid(i, 0, k) || w.solid(i, 1, k) || w.solid(i, 2, k) || w.solid(i + 1, 0, k) || w.solid(i - 1, 0, k)) continue;
+      if (Math.hypot(x - bp.x, z - bp.z) < r) continue;
+      spot = [i, k]; break;
+    }
+    if (!spot) return;
+    const e = { id: this.nextId(), type: 'belt', i: spot[0], j: 0, k: spot[1], dir: 1, rise: 0, items: [], detector: true, free: true, fixed: true };
+    S.entities.push(e); this.addEntity(e);
+    S.freeGate = 'placed';
+  }
+
+  // walking through any gate scans your bag (and cart)
+  playerGateScan(dt) {
+    const p = this.player.pos, S = this.S;
+    this._gateCd = (this._gateCd || 0) - dt;
+    for (const t of this.logi.tiles.values()) {
+      if (t.type !== 'belt' || !t.detector) continue;
+      const dx = p.x - cellX(t.i), dz = p.z - cellZ(t.k);
+      if (Math.abs(dx) > 3 || Math.abs(dz) > 3) { if (t._pIn) t._pIn = false; continue; }
+      const d = t.dir || 0;
+      const ax = [1, 0, -1, 0][d], az = [0, 1, 0, -1][d];
+      const along = dx * ax + dz * az, lat = dx * -az + dz * ax;
+      const inside = Math.abs(along) < 0.45 && Math.abs(lat) < 0.95 && p.y < t.j * C + 2.2;
+      if (inside && !t._pIn && this._gateCd <= 0) {
+        this._gateCd = 0.6;
+        const cartN = S.cart && Math.hypot(S.cart.x - cellX(t.i), S.cart.z - cellZ(t.k)) < 4 ? S.cart.load.length : 0;
+        const all = [...S.carry, ...(cartN ? S.cart.load : [])];
+        if (all.some((x) => x.sp === NEEDLE)) { this.logi.setGate(t, true); this.foundNeedle('the gate'); }
+        else {
+          this.logi.setGate(t, false); t.flash = 0.35;
+          this.sound.tone('sine', 1250, 1250, 0.07, 0.05);
+          S.stats.scans = (S.stats.scans || 0) + all.length;
+          this.ui.hint(`<b>SCAN CLEAR</b> ${all.length} plush${cartN ? ' (with cart)' : ''}. The One is not in your bag.`, 2.5);
+        }
+      }
+      t._pIn = inside;
+    }
   }
 
   showCellGhost(tool, plan) {
@@ -2060,12 +2134,13 @@ export class Game {
     if (ref.kind === 'tile') {
       const tile = this.logi.byId.get(ref.id);
       if (!tile) return;
+      if (tile.fixed) { this.ui.hint('The Welcome Gate is bolted to the floor. It is yours for free, and it stays.', 3); return; }
       this.logi.remove(tile);
       this.S.entities = this.S.entities.filter((x) => x.id !== tile.id);
       this.netSend({ t: 'ent-', id: tile.id });
       const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
       for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
-      this.giveItem(tile.type === 'belt' ? (tile.rise ? 'ramp' : 'belt') : tile.type);
+      this.giveItem(tile.type === 'belt' ? (tile.detector ? 'gate' : tile.rise ? 'ramp' : 'belt') : tile.type);
       this.ui.setCarry(this.S.carry, this.T.carry);
       this.sound.thump(0.15, 140);
       if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
