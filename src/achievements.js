@@ -95,6 +95,7 @@ export const ACHIEVEMENTS = [
   A('cartshot50', 'Three Pointer', 'Land 50 plush in your cart.', (S) => (S.stats.cartCatch || 0) >= 50, '🏀'),
   A('binmag', 'Magnetic', 'Buy the Bin Magnet.', (S) => (S.up.binmag || 0) >= 1, '🧲'),
   A('probe', 'Careful Climber', 'Buy the Slope Probe.', (S) => (S.up.slopeprobe || 0) >= 1, '📐'),
+  A('jack1', 'Jacked Up', 'Buy Hydraulic Jacks.', (S) => (S.up.jacks || 0) >= 1, '🛠️'),
   A('die5', 'Slow Learner', 'Die five times.', (S) => (S.stats.deaths || 0) >= 5, '💀'),
   A('medic', 'Patched Up', 'Use a medkit.', (S) => (S.stats.medkits || 0) >= 1, '🩹'),
   A('tank', 'Deep Breath', 'Buy the Emergency Air Tank.', (S) => (S.up.airtank || 0) >= 1, '🫧'),

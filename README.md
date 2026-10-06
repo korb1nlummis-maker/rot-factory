@@ -50,3 +50,6 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **Slides stop for good**: a topple can no longer re-seed itself, and a plush that cannot find a place to rest is nudged twice, then set into the nearest supported gap (or sold if it has been loose for 45 s). A 500-cell collapse test ran for 20 s of play, then everything was still.
 - **Hold F or left click** to keep grabbing until your hands or cart are full.
 - **New**: Bin Magnet (pull range), Slope Probe (UNSTABLE SLOPE warning), six achievements, eight radio lines.
+- **Tunnels are calm until they are not**: digging a supported tunnel no longer causes slides or screen shake. Plush with a roof over them (tunnel walls and floors) are held by the pile and only the open surface slides, and tunnel roofs are governed by the stability system alone. In tests a 40-cell tunnel stayed still at 6 and 14 cells of overburden, collapsed at 30 with no support, and held at 30 with support.
+- **Hydraulic Jacks**: a stronger prop than a strut (+2 roof strength, 2.7 m reach), made from Steel Beams.
+- **Grab/throw**: one press of F or left click does it. Aim at a plush with room in your hands to grab, otherwise the press throws what you hold.

@@ -228,7 +228,7 @@ export class Machines {
       if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
-      else if (['marker', 'flare', 'charge', 'dynamite', 'strut'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
+      else if (['marker', 'flare', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
@@ -236,7 +236,7 @@ export class Machines {
     const e = plan.ent;
     if (tool.kind === 'frame') this.ghost.position.set(e.cx, e.y0, e.cz);
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
-    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'charge', 'dynamite', 'strut'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
+    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
   }
 
@@ -276,6 +276,13 @@ export class Machines {
       for (const x of [-0.045, 0, 0.045]) { const s = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 8), red); s.position.set(x, 0.13, 0); g.add(s); }
       const tape = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 12), MATS.dark); tape.position.y = 0.13; g.add(tape);
       const led = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 5), MATS.glowO); led.position.set(0, 0.28, 0); led.name = 'led'; g.add(led);
+    } else if (kind === 'jack') {
+      const orange = new THREE.MeshStandardMaterial({ color: 0xe0762a, roughness: 0.5, metalness: 0.5 });
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.3), MATS.dark); base.position.y = 0.025;
+      const ram = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1, 12), orange); ram.position.y = 0.6;
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 10), MATS.steel); rod.position.y = 1.2;
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.34), MATS.dark); plate.position.y = 1.37;
+      g.add(base, ram, rod, plate);
     } else if (kind === 'strut') {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.08), MATS.timber); post.position.y = 0.55;
       const cap = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 0.14), MATS.timber); cap.position.y = 1.1;
@@ -380,9 +387,9 @@ export class Machines {
       it.obj.position.set(ent.x, ent.y, ent.z);
       w.reserved.add((ent.j * NZ + ent.k) * NX + ent.i);
     } else if (['marker', 'flare', 'charge', 'strut'].includes(ent.type)) {
-      it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.type, ent);
+      it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.jack ? 'jack' : ent.type, ent);
       it.obj.position.set(ent.x, ent.y, ent.z);
-      if (ent.type === 'strut') w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: 1.9, b: 1, id: ent.id });
+      if (ent.type === 'strut') w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: ent.jack ? 2.7 : 1.9, b: ent.jack ? 2 : 1, id: ent.id });
       if (ent.type === 'flare') ent.born = ent.born ?? game.S.stats.playSecs;
     } else if (ent.type === 'lantern') {
       it.obj = this.makeLantern();

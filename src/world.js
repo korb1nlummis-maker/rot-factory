@@ -350,6 +350,8 @@ export class World {
   slipChance(i, j, k, strength) {
     const s0 = this.get(i, j, k);
     if (!s0 || s0 === BULK) return null;
+    // a tunnel floor or wall has a roof over it and is held by the pile: only open slopes slide
+    if (this.solid(i, j + 2, k) || this.solid(i, j + 3, k) || this.solid(i, j + 4, k)) return null;
     let free = 0, dx = 0, dz = 0;
     for (let n = 0; n < 4; n++) {
       const a = n === 0 ? 1 : n === 1 ? -1 : 0, b = n === 2 ? 1 : n === 3 ? -1 : 0;

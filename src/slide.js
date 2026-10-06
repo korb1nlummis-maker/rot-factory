@@ -59,7 +59,10 @@ export class Slides {
       if (w.reserved && w.reserved.has((j * NZ + k) * NX + i)) continue;
       // buried plush are held by the weight on them; only a violent slide frees them
       const over = Math.max(0, w.topAt(i, k) - j - 1);
-      const hold = over * 0.09;
+      // roofed plush (walls of a tunnel, anything with plush above it) are held in place by the pile; only the open surface slides.
+      // Tunnel roofs are the stability system's job, not the slide engine's.
+      const covered = w.solid(i, j + 1, k);
+      const hold = over * 0.2 + (covered ? 1.6 : 0);
       const e = c.e - hold;
       if (e < 0.2) continue;
       // find the way down: a free side whose floor is also missing

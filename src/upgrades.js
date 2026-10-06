@@ -62,6 +62,7 @@ export const UPGRADES = [
   { id: 'padding', cat: 'mine', name: 'Impact Padding', desc: 'Foam and kevlar under your overalls. Falls, blasts and falling plush hurt 10% less per level.', max: 4, cost: [120, 900, 6500, 48000], effect: (t, l) => { t.dmgCut = 0.1 * l; } },
   { id: 'firstaid', cat: 'mine', name: 'First Aid Station', desc: 'Unlocks Medkits (K heals 50) and Air Canisters (kick in on their own when you run out of air while trapped) at the bench.', max: 1, cost: [160], effect: (t) => { t.firstAid = true; } },
   { id: 'slopeprobe', cat: 'mine', name: 'Slope Probe', desc: 'A clinometer on your wrist. Warns UNSTABLE SLOPE when the plush under or beside you can slide.', max: 1, cost: [380], effect: (t) => { t.slopeProbe = true; } },
+  { id: 'jacks', cat: 'mine', name: 'Hydraulic Jacks', desc: 'Unlocks Hydraulic Jacks: a single prop twice as strong as a strut with a wider reach. Made from Steel Beams. Place with B anywhere on the floor.', max: 1, cost: [1400], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.jacks = true; } },
   { id: 'airtank', cat: 'mine', name: 'Emergency Air Tank', desc: 'Buried or trapped, you have 60 seconds of air to dig out. Each level adds 30 more.', max: 5, cost: [150, 800, 4500, 30000, 220000], effect: (t, l) => { t.airTank = l; } },
   { id: 'resp', cat: 'mine', name: 'Respirator', desc: 'Dust gets into your lungs in enclosed tunnels. Each level filters 20% more.', max: 4, cost: [120, 900, 7000, 60000], effect: (t, l) => { t.resp = l; } },
   { id: 'hardhat', cat: 'mine', name: 'Hard Hat', desc: 'Falling plush bonk you less. Reduces collapse screen shake.', max: 1, cost: [45], effect: (t) => { t.shakeMul = 0.45; } },
@@ -157,7 +158,7 @@ export function defaultTuning() {
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,
     crewMax: 0, crewHaul: 1, crewSpeed: 1, crewBattery: 1, crewBelt: false, crewBolt: false,
-    markers: false, dynamite: false, hpBonus: 0, slopeProbe: false, dmgCut: 0, firstAid: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
+    markers: false, dynamite: false, hpBonus: 0, jacks: false, slopeProbe: false, dmgCut: 0, firstAid: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
     beltSpeed: 1.6, sorterTiers: 0, mechMax: 0, mechRate: 2.4, mechBuffer: 6, mechLayer: false, mechBolt: false, bulkhead: false,
     machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 12.2, borerW: 2, borerH: 3,
   };

@@ -960,7 +960,7 @@ export class Game {
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
     const full = !this.storeRoom();
     if (tg && !full) {
-      if ((this.grabCd || 0) > 0) return;
+      if (performance.now() - (this._lastGrabAt || 0) < 90) return; // only guards against a double-registered key; a real second click always counts
       if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
       this.instantGrab(tg);
       return;
@@ -972,6 +972,7 @@ export class Game {
   instantGrab(tg) {
     // the small timer left is a short cooldown between grabs; gloves shorten it
     this.grabCd = 0.12 + 0.28 * (this.T.grabTime / 1.5);
+    this._lastGrabAt = performance.now();
     this.collect(tg);
     this.sound.soft(0.05);
     this.grab.p = 0;
@@ -1879,7 +1880,7 @@ export class Game {
     const yaw = this.player.yaw;
     if (tool.kind === 'frame') { plan = this.machines.planFrame(eye, dir, yaw, tool.fk); cost = FRAME_TYPES[tool.fk].cost; }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
-    else if (['marker', 'flare', 'charge', 'dynamite', 'strut'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
+    else if (['marker', 'flare', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
     else if (tool.kind === 'claw') {
       plan = this.machines.planRig(eye, dir); cost = this.rigCost();
@@ -2006,6 +2007,7 @@ export class Game {
     else if (tool.kind === 'marker') { ent = { id, type: 'marker', x: e.x, y: e.y, z: e.z }; }
     else if (tool.kind === 'flare') { ent = { id, type: 'flare', x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'strut') { ent = { id, type: 'strut', x: e.x, y: e.y, z: e.z }; S.stats.props++; }
+    else if (tool.kind === 'jack') { ent = { id, type: 'strut', jack: true, x: e.x, y: e.y, z: e.z }; S.stats.props++; }
     else if (tool.kind === 'charge') { ent = { id, type: 'charge', x: e.x, y: e.y, z: e.z, fuse: 6, tier: this.T.charges }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 900, 900, 0.05, 0.08); }
     else if (tool.kind === 'dynamite') { ent = { id, type: 'charge', dyn: true, x: e.x, y: e.y, z: e.z, fuse: 4, tier: 0 }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 1100, 1100, 0.05, 0.08); }
     else if (tool.kind === 'beacon') { ent = { id, type: 'beacon', x: e.x, y: e.y, z: e.z, i: e.i, j: e.j, k: e.k }; this.onBeaconPlaced(ent); }
@@ -2017,7 +2019,7 @@ export class Game {
     void left;
     this.machines.add(ent);
     this.sound.place();
-    this.shake = Math.max(this.shake, 0.15);
+    this.shake = Math.max(this.shake, 0.05);
     this.fx.dust(e.cx ?? e.x, (e.y0 ?? e.y) + 0.3, e.cz ?? e.z, 8, 0.7, 0.8);
     if (tool.kind === 'frame') {
       // re-evaluate nearby roof: creaking cells may now be safe
@@ -2073,7 +2075,7 @@ export class Game {
     const best = this.machines.items.get(ref.id);
     if (!best) return;
     const e = best.ent;
-    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.type);
+    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.jack ? 'jack' : e.type);
     if (e.type === 'beacon') this.world.reserved.delete((e.j * NZ + e.k) * NX + e.i);
     this.machines.disposeObj(best.obj);
     this.machines.root.remove(best.obj);
@@ -2398,7 +2400,9 @@ export class Game {
   // feel a slide nearby: rumble, shake, dust. The first one teaches you why not to climb.
   slideFeel(pd) {
     const near = 1 - pd / 22;
-    this.shake = Math.max(this.shake, Math.min(0.9, 0.06 * this.slide.recent * near + 0.05) * this.T.shakeMul);
+    // only a real slide (several topples at once) shakes the screen; a stray plush rolling does not
+    if (this.slide.recent < 3) return;
+    this.shake = Math.max(this.shake, Math.min(0.8, 0.05 * this.slide.recent * near) * this.T.shakeMul);
     if (this.slideSnd === undefined || performance.now() - this.slideSnd > 450) { this.slideSnd = performance.now(); this.sound.rumble(0.25 + 0.5 * near); this.sound.soft(0.1); }
     if (pd < 12 && !this._slideHint) { this._slideHint = true; this.ui.hint('A slide! The pile is not stable under you or on a steep face. Stay low, brace with frames, or stay off it.', 6); }
   }

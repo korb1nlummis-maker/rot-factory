@@ -21,6 +21,7 @@ export function recipes(g) {
     list.push({ id: 'marker', kind: 'marker', icon: '🚩', name: 'Survey Marker', short: 'Marker', desc: 'Shows on your compass. Plant them to mark junctions and the way home.', price: 6, batch: [1, 5, 10] });
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
+  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. +2 roof strength within about 2.7 m. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
   if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. +1 roof strength within about 2 m. Goes anywhere.', price: 8, batch: [1, 5, 25], mat: 'timber', matN: 1 });
   if (T.firstAid) {
     list.push({ id: 'medkit', kind: 'supply', icon: '🩹', name: 'Medkit', short: 'Medkit', desc: 'Press K to heal 50 health.', price: 30, batch: [1, 5, 10] });
