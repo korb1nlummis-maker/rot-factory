@@ -106,8 +106,16 @@ export class UI {
     const key = items.map((i) => i.id + (i.count ?? '')).join('|') + '#' + sel;
     if (key === this.hotbarKey) return;
     this.hotbarKey = key;
-    $('hotbar').innerHTML = items.map((it, i) =>
-      `<div class="slot ${i === sel ? 'sel' : ''}"><span class="k">${i + 1}</span>${it.icon}<span class="l">${it.label}</span>${it.count != null ? `<span class="c">${it.count}</span>` : ''}</div>`).join('');
+    // at most 9 slots on screen, scrolling with the selection so a long list never runs off the screen
+    const MAXS = 9;
+    let from = 0;
+    if (items.length > MAXS) from = Math.max(0, Math.min(items.length - MAXS, (sel < 0 ? 0 : sel) - Math.floor(MAXS / 2)));
+    const shown = items.slice(from, from + MAXS);
+    const more = (n) => (n > 0 ? `<div class="slot more">+${n}</div>` : '');
+    $('hotbar').innerHTML = more(from) + shown.map((it, q) => {
+      const i = from + q;
+      return `<div class="slot ${i === sel ? 'sel' : ''}"><span class="k">${i + 1}</span>${it.icon}<span class="l">${it.label}</span>${it.count != null ? `<span class="c">${it.count}</span>` : ''}</div>`;
+    }).join('') + more(items.length - from - shown.length);
   }
   setStreak(n, frac) {
     const s = $('streak');

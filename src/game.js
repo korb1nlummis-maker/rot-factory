@@ -445,7 +445,7 @@ export class Game {
     try {
       if (this.mode === 'title') this.updateTitle(dt);
       else if (this.mode === 'play' || this.mode === 'ended') this.updatePlay(dt);
-    } catch (err) { console.error(err); this.errCount = (this.errCount || 0) + 1; this.lastErr = String(err && err.stack || err).slice(0, 600); }
+    } catch (err) { console.error(err); this.errCount = (this.errCount || 0) + 1; this.lastErr = String(err && err.stack || err).slice(0, 600); (this.errLog = this.errLog || []).push(this.lastErr.split('\n').slice(0, 3).join(' | ')); if (this.errLog.length > 30) this.errLog.shift(); }
     this.renderer.render(dt, this.time);
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -1006,7 +1006,7 @@ export class Game {
 
   instantGrab(tg, fast) {
     // the small timer left is a short cooldown between grabs; gloves shorten it
-    this.grabCd = fast ? 0.05 + 0.1 * (this.T.grabTime / 1.5) : 0.12 + 0.28 * (this.T.grabTime / 1.5);
+    this.grabCd = fast ? (0.05 + 0.1 * (this.T.grabTime / 1.5)) * (this.T.autoRepeat ? 0.5 : 1) : 0.12 + 0.28 * (this.T.grabTime / 1.5);
     this._lastGrabAt = performance.now();
     this.collect(tg);
     this.sound.soft(0.05);
@@ -1432,6 +1432,7 @@ export class Game {
       case 'sell': this.sell(d.sp, d.vr, { dist: d.dist, streak: d.streak }); break;
       case 'reroll': this.contracts.reroll(d.i); break;
       case 'cart': this.useCart(d); break;
+      case 'spend': if ((S.items[d.id] || 0) > 0) { S.items[d.id]--; if (S.items[d.id] <= 0) delete S.items[d.id]; } break;
       case 'cartload': if (S.cart && S.cart.load.length < CART_CAP[S.cart.tier]) S.cart.load.push({ sp: d.sp, vr: d.vr }); break;
       case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); } break; }
       case 'open': {
@@ -2320,7 +2321,8 @@ export class Game {
     const R = ent.dyn ? 2.2 : [0, 3, 4, 5][tier];
     const ci = toI(ent.x), cj = toJ(ent.y + 0.3), ck = toK(ent.z);
     let n = 0;
-    for (let dk = -R; dk <= R; dk++) for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) {
+    const RI = Math.ceil(R);
+    for (let dk = -RI; dk <= RI; dk++) for (let dj = -RI; dj <= RI; dj++) for (let di = -RI; di <= RI; di++) {
       const dd = di * di + dj * dj + dk * dk;
       if (dd > R * R) continue;
       const i = ci + di, j = cj + dj, k = ck + dk;
@@ -2463,6 +2465,7 @@ export class Game {
       this.ui.setTrap(true, this.airLeft, this.airLeft / max, pulse, this.suffocating);
       if (Math.floor(this.trapPulse) !== this._lastBeat) { this._lastBeat = Math.floor(this.trapPulse); this.sound.thump(0.1 + 0.12 * (1 - this.airLeft / max), 70); }
       if (this.airLeft <= 0 && (this.S.items.canister || 0) > 0) {
+        if (this.isGuest()) this.cmd('spend', { id: 'canister' });
         this.S.items.canister--; if (this.S.items.canister <= 0) delete this.S.items.canister;
         this.airLeft = 40;
         this.ui.toast({ icon: '🫧', title: 'Air canister', text: '40 more seconds. Dig!', ms: 3500 }); this.sound.ach();
@@ -2627,6 +2630,7 @@ export class Game {
     const S = this.S;
     if (!(S.items.medkit > 0)) { this.ui.hint('No medkits. Unlock First Aid in the terminal and craft some.', 2.5); return; }
     if (this.hp >= this.hpMax - 1) { this.ui.hint('You are fine.', 1.5); return; }
+    if (this.isGuest()) this.cmd('spend', { id: 'medkit' });
     S.items.medkit--; if (S.items.medkit <= 0) delete S.items.medkit;
     this.hp = Math.min(this.hpMax, this.hp + 50);
     S.stats.medkits = (S.stats.medkits || 0) + 1;
