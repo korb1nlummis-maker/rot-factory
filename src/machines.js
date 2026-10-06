@@ -79,6 +79,7 @@ export class Machines {
     this.items = new Map(); // id -> {ent, obj, ...runtime}
     this.ghost = null;
     this.ghostKey = '';
+    this.expire = [];
     this.tmpV = new THREE.Vector3();
   }
 
@@ -227,6 +228,7 @@ export class Machines {
       if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
+      else if (['marker', 'flare', 'charge', 'strut'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
@@ -234,7 +236,7 @@ export class Machines {
     const e = plan.ent;
     if (tool.kind === 'frame') this.ghost.position.set(e.cx, e.y0, e.cz);
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
-    else if (tool.kind === 'claw' || tool.kind === 'beacon') this.ghost.position.set(e.x, e.y, e.z);
+    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'charge', 'strut'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
   }
 
@@ -249,6 +251,43 @@ export class Machines {
     hook.position.y = 0.22;
     g.add(cage, bulb, cap, hook);
     return g;
+  }
+
+  makeSimple(kind, ent) {
+    const g = new THREE.Group();
+    if (kind === 'marker') {
+      const hues = [0xff6a9b, 0x6aa9ff, 0xffd34a, 0x7ef0a8, 0xc58bff];
+      const col = hues[(ent && ent.id ? ent.id : 0) % hues.length];
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 1.3, 6), MATS.dark); pole.position.y = 0.65;
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.01), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(2) })); flag.position.set(0.15, 1.15, 0);
+      g.add(pole, flag);
+    } else if (kind === 'flare') {
+      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), new THREE.MeshStandardMaterial({ color: 0xaa2218, roughness: 0.8 })); stick.position.y = 0.17; stick.rotation.z = 0.5;
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.2, 1.2, 0.5) })); tip.position.set(-0.09, 0.32, 0); tip.name = 'tip';
+      g.add(stick, tip);
+    } else if (kind === 'charge') {
+      const red = new THREE.MeshStandardMaterial({ color: 0xb02a1e, roughness: 0.7 });
+      for (const x of [-0.045, 0, 0.045]) { const s = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 8), red); s.position.set(x, 0.13, 0); g.add(s); }
+      const tape = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 12), MATS.dark); tape.position.y = 0.13; g.add(tape);
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 5), MATS.glowO); led.position.set(0, 0.28, 0); led.name = 'led'; g.add(led);
+    } else if (kind === 'strut') {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.08), MATS.timber); post.position.y = 0.55;
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 0.14), MATS.timber); cap.position.y = 1.1;
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.22), MATS.timber); foot.position.y = 0.02;
+      g.add(post, cap, foot);
+    }
+    return g;
+  }
+
+  planSimple(kind, eye, dir) {
+    const r = this.rayEmpty(eye, dir, 5);
+    if (!r) return { ok: false, why: 'Aim at the floor or the pile' };
+    const w = this.game.world;
+    let { i, j, k } = r.last;
+    let g = 0;
+    while (j > 0 && !w.solid(i, j - 1, k) && g++ < 4) j--;
+    if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'Needs a floor' };
+    return { ok: true, ent: { x: cellX(i), y: j * C, z: cellZ(k), i, j, k } };
   }
 
   makeBeacon() {
@@ -334,6 +373,11 @@ export class Machines {
       it.obj = this.makeBeacon();
       it.obj.position.set(ent.x, ent.y, ent.z);
       w.reserved.add((ent.j * NZ + ent.k) * NX + ent.i);
+    } else if (['marker', 'flare', 'charge', 'strut'].includes(ent.type)) {
+      it.obj = this.makeSimple(ent.type, ent);
+      it.obj.position.set(ent.x, ent.y, ent.z);
+      if (ent.type === 'strut') w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: 1.9, b: 1, id: ent.id });
+      if (ent.type === 'flare') ent.born = ent.born ?? game.S.stats.playSecs;
     } else if (ent.type === 'lantern') {
       it.obj = this.makeLantern();
       it.obj.position.set(ent.x, ent.y, ent.z);
@@ -362,7 +406,7 @@ export class Machines {
     // nearest lanterns
     const arr = [];
     for (const it of this.items.values()) {
-      if (it.ent.type !== 'lantern') continue;
+      if (it.ent.type !== 'lantern' && it.ent.type !== 'flare') continue;
       const d = (it.ent.x - camPos.x) ** 2 + (it.ent.y - camPos.y) ** 2 + (it.ent.z - camPos.z) ** 2;
       if (d < 40 * 40) arr.push([d, it.ent]);
     }
@@ -381,8 +425,22 @@ export class Machines {
       else if (e.type === 'borer') this.updateBorer(it, dt, time);
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
       else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
+      else if (e.type === 'flare') { if (game.S.stats.playSecs - e.born > 240) this.expire.push(e); else { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); } }
+      else if (e.type === 'charge') {
+        e.fuse -= dt;
+        const led = it.obj.getObjectByName('led'); if (led) led.visible = Math.sin(e.fuse * (e.fuse < 2 ? 22 : 9)) > 0;
+        if (e.fuse <= 0) this.expire.push(e);
+      }
     }
     void w; void T;
+    if (this.expire.length) {
+      for (const e of this.expire.splice(0)) {
+        const it = this.items.get(e.id);
+        if (it) { this.disposeObj(it.obj); this.root.remove(it.obj); this.items.delete(e.id); }
+        game.S.entities = game.S.entities.filter((x) => x.id !== e.id);
+        if (e.type === 'charge') game.detonate(e);
+      }
+    }
   }
 
   updateRig(it, dt, time) {

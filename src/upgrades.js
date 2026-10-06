@@ -52,6 +52,10 @@ export const UPGRADES = [
   { id: 'creak', cat: 'mine', name: 'Creak Sensor', desc: 'More warning before a roof lets go.', max: 3, cost: [70, 340, 1600], effect: (t, l) => { t.warn += 0.55 * l; } },
   { id: 'stress', cat: 'mine', name: 'Stress Lens', desc: 'Highlights plush that are about to fall (amber) or will fall (red).', max: 1, cost: [520], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.stressLens = true; } },
   { id: 'bulkhead', cat: 'mine', name: 'Bulkhead Panels', desc: 'Plank panels you build into empty cells. They never fall and loose plush stack against them. Wall off a collapse, seal a bad tunnel, build pillars. G on a panel removes it.', max: 1, cost: [140], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.bulkhead = true; } },
+  { id: 'markers', cat: 'mine', name: 'Markers & Flares', desc: 'Unlocks Survey Markers (show on your compass, so you can find your way back) and Road Flares (a bright light that burns for four minutes, no power needed).', max: 1, cost: [90], effect: (t) => { t.markers = true; } },
+  { id: 'struts', cat: 'mine', name: 'Quick Struts', desc: 'Unlocks Struts: a cheap single prop you can set down anywhere, with a small support reach. Not a frame, but it buys you time.', max: 1, cost: [120], effect: (t) => { t.struts = true; } },
+  { id: 'charges', cat: 'mine', name: 'Blasting Charges', desc: 'Unlocks Charges. Set one against the pile, run, and it blows a hole when the fuse ends (6 s). Bigger levels, bigger holes. Blasting throws dust, loosens everything nearby, and the blast hurts if you are close.', max: 3, cost: [1500, 12000, 100000], req: { id: 'timber', lvl: 1 }, effect: (t, l) => { t.charges = l; } },
+  { id: 'climb', cat: 'move', name: 'Climbing Gear', desc: 'Pitons, rope and grippy soles. Plush slip away under your feet 25% less per tier on steep slopes. Wearable: craft each tier.', max: 3, cost: [200, 1500, 12000], effect: (t, l) => { t.climb = l; } },
   { id: 'resp', cat: 'mine', name: 'Respirator', desc: 'Dust gets into your lungs in enclosed tunnels. Each level filters 20% more.', max: 4, cost: [120, 900, 7000, 60000], effect: (t, l) => { t.resp = l; } },
   { id: 'hardhat', cat: 'mine', name: 'Hard Hat', desc: 'Falling plush bonk you less. Reduces collapse screen shake.', max: 1, cost: [45], effect: (t) => { t.shakeMul = 0.45; } },
   { id: 'airmon', cat: 'sense', name: 'Air Monitor', desc: 'A gauge for the dust in the air around you and the load in your lungs.', max: 1, cost: [150], effect: (t) => { t.airmon = true; } },
@@ -109,21 +113,25 @@ export const UPGRADES = [
   { id: 'borerSize', cat: 'machine', name: 'Wide Bore', desc: 'Bigger tunnel cross-section: 3x3, 4x4, 5x4.', max: 2, cost: [22000, 90000], req: { id: 'borer', lvl: 1 }, effect: (t, l) => { t.borerW = [3, 4, 5][l]; t.borerH = [3, 4, 4][l]; } },
 ];
 
+// Everything is expensive on purpose: the early game is slow hand work, and the numbers only open up with machines.
+export const COST_SCALE = 5;
+for (const u of UPGRADES) u.cost = u.cost.map((c) => Math.round(c * COST_SCALE));
+
 export const FRAME_TYPES = {
-  timber:   { name: 'Timber Frame',     cost: 12,      bonus: 1, radius: 2.5, color: 0x9a6b3a, icon: '🪵' },
-  steel:    { name: 'Steel Frame',      cost: 70,      bonus: 2, radius: 3.4, color: 0x77879a, icon: '🔩' },
-  concrete: { name: 'Concrete Lining',  cost: 260,     bonus: 3, radius: 4.4, color: 0xb9b7ac, icon: '🏛️' },
-  rebar:    { name: 'Rebar Cage',       cost: 1500,    bonus: 4, radius: 5.0, color: 0x8a6a58, icon: '⛓️' },
-  titan:    { name: 'Titanium Rib',     cost: 9000,    bonus: 5, radius: 5.6, color: 0xb7c3d0, icon: '🔷' },
-  carbon:   { name: 'Carbon Weave',     cost: 52000,   bonus: 6, radius: 6.2, color: 0x2b2f36, icon: '⬛' },
-  plasma:   { name: 'Plasma Arch',      cost: 300000,  bonus: 7, radius: 6.8, color: 0x7ad7ff, icon: '🌀' },
-  voidl:    { name: 'Void Lattice',     cost: 1800000, bonus: 8, radius: 7.6, color: 0xb078ff, icon: '🕳️' },
-  neutron:  { name: 'Neutron Shell',    cost: 11000000, bonus: 9, radius: 8.4, color: 0xfff0b0, icon: '⚛️' },
-  horizon:  { name: 'Event Horizon',    cost: 70000000, bonus: 10, radius: 9.2, color: 0x101018, icon: '⚫' },
+  timber:   { name: 'Timber Frame',     cost: 36,      bonus: 1, radius: 2.5, color: 0x9a6b3a, icon: '🪵' },
+  steel:    { name: 'Steel Frame',      cost: 210,      bonus: 2, radius: 3.4, color: 0x77879a, icon: '🔩' },
+  concrete: { name: 'Concrete Lining',  cost: 780,     bonus: 3, radius: 4.4, color: 0xb9b7ac, icon: '🏛️' },
+  rebar:    { name: 'Rebar Cage',       cost: 4500,    bonus: 4, radius: 5.0, color: 0x8a6a58, icon: '⛓️' },
+  titan:    { name: 'Titanium Rib',     cost: 27000,    bonus: 5, radius: 5.6, color: 0xb7c3d0, icon: '🔷' },
+  carbon:   { name: 'Carbon Weave',     cost: 156000,   bonus: 6, radius: 6.2, color: 0x2b2f36, icon: '⬛' },
+  plasma:   { name: 'Plasma Arch',      cost: 900000,  bonus: 7, radius: 6.8, color: 0x7ad7ff, icon: '🌀' },
+  voidl:    { name: 'Void Lattice',     cost: 16200000, bonus: 8, radius: 7.6, color: 0xb078ff, icon: '🕳️' },
+  neutron:  { name: 'Neutron Shell',    cost: 99000000, bonus: 9, radius: 8.4, color: 0xfff0b0, icon: '⚛️' },
+  horizon:  { name: 'Event Horizon',    cost: 630000000, bonus: 10, radius: 9.2, color: 0x101018, icon: '⚫' },
 };
 
 // Wearable efficiency upgrades are unlocked in the terminal but only work once you CRAFT them at the bench.
-export const GEAR = ['gloves', 'reach', 'bag', 'boots', 'knees', 'springs', 'lamp', 'resp', 'scoop', 'vac', 'scavenge'];
+export const GEAR = ['gloves', 'reach', 'bag', 'boots', 'knees', 'springs', 'lamp', 'resp', 'scoop', 'vac', 'scavenge', 'climb'];
 export function effLevels(S) {
   const e = { ...S.up };
   const g = S.gear || {};
@@ -133,16 +141,16 @@ export function effLevels(S) {
 
 export function defaultTuning() {
   return {
-    grabTime: 0.72, reach: 2.4, carry: 1, autoRepeat: false, locator: 0, locatorRange: 0, exitMarker: false, assay: false, depots: false, scoop: 0, vac: 0, vacRate: 0, throwPower: 11,
+    grabTime: 1.5, reach: 2.4, carry: 1, autoRepeat: false, locator: 0, locatorRange: 0, exitMarker: false, assay: false, depots: false, scoop: 0, vac: 0, vacRate: 0, throwPower: 11,
     sellMult: 1, streakCap: 6, binCatch: 0, autoDump: 3.8, dexBonus: 0, shinyMult: 5,
     frames: [], stabBonus: 0, warn: 1.1, stressLens: false, shakeMul: 1, compass: false,
     lampRange: 9, lampPower: 1, lantern: false,
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,
     crewMax: 0, crewHaul: 1, crewSpeed: 1, crewBattery: 1, crewBelt: false, crewBolt: false,
-    scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airmon: false,
+    markers: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airmon: false,
     beltSpeed: 1.6, sorterTiers: 0, mechMax: 0, mechRate: 2.4, mechBuffer: 6, mechLayer: false, mechBolt: false, bulkhead: false,
-    machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 14.5, borerW: 2, borerH: 3,
+    machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 12.2, borerW: 2, borerH: 3,
   };
 }
 

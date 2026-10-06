@@ -2,7 +2,7 @@ import { RARITY, species, speciesCount, ARCH_NAMES, pools } from './plushdata.js
 import { mulberry32, fmt } from './util.js';
 
 // P(rarity >= r) in the pile
-const P_GE = [1, 0.38, 0.16, 0.06, 0.015, 0.003];
+const P_GE = [1, 0.355, 0.135, 0.045, 0.011, 0.0025];
 
 export class Contracts {
   constructor(game) { this.game = game; }

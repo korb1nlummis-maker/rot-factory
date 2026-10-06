@@ -27,12 +27,12 @@ export const PALETTES = [
 ];
 
 export const RARITY = [
-  { id: 0, name: 'Common',    color: '#c9d1d9', css: 'common',    value: 1,    weight: 0.62 },
-  { id: 1, name: 'Uncommon',  color: '#5fe08a', css: 'uncommon',  value: 4,    weight: 0.22 },
-  { id: 2, name: 'Rare',      color: '#4ba3ff', css: 'rare',      value: 16,   weight: 0.10 },
-  { id: 3, name: 'Epic',      color: '#b86bff', css: 'epic',      value: 80,   weight: 0.045 },
-  { id: 4, name: 'Legendary', color: '#ffb02e', css: 'legendary', value: 500,  weight: 0.012 },
-  { id: 5, name: 'Mythic',    color: '#ff4d8d', css: 'mythic',    value: 4000, weight: 0.003 },
+  { id: 0, name: 'Common',    color: '#c9d1d9', css: 'common',    value: 1,   weight: 0.645 },
+  { id: 1, name: 'Uncommon',  color: '#5fe08a', css: 'uncommon',  value: 2,   weight: 0.22 },
+  { id: 2, name: 'Rare',      color: '#4ba3ff', css: 'rare',      value: 5,   weight: 0.09 },
+  { id: 3, name: 'Epic',      color: '#b86bff', css: 'epic',      value: 18,  weight: 0.034 },
+  { id: 4, name: 'Legendary', color: '#ffb02e', css: 'legendary', value: 80,  weight: 0.0085 },
+  { id: 5, name: 'Mythic',    color: '#ff4d8d', css: 'mythic',    value: 500, weight: 0.0025 },
   { id: 6, name: 'THE ONE',   color: '#fff3a0', css: 'theone',    value: 0,    weight: 0 },
 ];
 

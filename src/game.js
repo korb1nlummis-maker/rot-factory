@@ -365,7 +365,7 @@ export class Game {
   }
   giveItem(id, n = 1) { this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }
 
-  tune() { return computeTuning(effLevels(this.S), this.S.boosts); }
+  tune() { const T = computeTuning(effLevels(this.S), this.S.boosts); if (this.world) this.world.slipMul = 1 - 0.25 * T.climb; return T; }
   recipeList() { return recipes(this); }
   gearList() { return gearRecipes(this); }
   craftGearItem(id) { return craftGear(this, id); }
@@ -1287,6 +1287,7 @@ export class Game {
     const yaw = this.player.yaw;
     if (tool.kind === 'frame') { plan = this.machines.planFrame(eye, dir, yaw, tool.fk); cost = FRAME_TYPES[tool.fk].cost; }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
+    else if (['marker', 'flare', 'charge', 'strut'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
     else if (tool.kind === 'claw') {
       plan = this.machines.planRig(eye, dir); cost = this.rigCost();
@@ -1393,6 +1394,10 @@ export class Game {
     }
     if (tool.kind === 'frame') { ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h }; S.stats.props++; }
     else if (tool.kind === 'lantern') { ent = { id, type: 'lantern', x: e.x, y: e.y, z: e.z }; S.stats.lanterns++; }
+    else if (tool.kind === 'marker') { ent = { id, type: 'marker', x: e.x, y: e.y, z: e.z }; }
+    else if (tool.kind === 'flare') { ent = { id, type: 'flare', x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
+    else if (tool.kind === 'strut') { ent = { id, type: 'strut', x: e.x, y: e.y, z: e.z }; S.stats.props++; }
+    else if (tool.kind === 'charge') { ent = { id, type: 'charge', x: e.x, y: e.y, z: e.z, fuse: 6, tier: this.T.charges }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 900, 900, 0.05, 0.08); }
     else if (tool.kind === 'beacon') { ent = { id, type: 'beacon', x: e.x, y: e.y, z: e.z, i: e.i, j: e.j, k: e.k }; this.onBeaconPlaced(ent); }
     else if (tool.kind === 'claw') { ent = { id, type: 'claw', x: e.x, y: e.y, z: e.z, ry: Math.random() * 6.28 }; S.stats.rigs++; this.rebuildTools(); }
     else if (tool.kind === 'borer') { ent = { id, type: 'borer', i: e.i, j: e.j, k: e.k, dx: e.dx, dz: e.dz, w: e.w, h: e.h, x: e.x, y: e.y, z: e.z }; S.stats.borers++; this.rebuildTools(); }
@@ -1555,6 +1560,46 @@ export class Game {
     this.sound.whoosh(0.2);
     this.fx.sparkle(b.x, b.y + 1, b.z, 30, 0.5, 1, 0.8);
     this.shake = 0.2;
+  }
+
+  // ======================= blasting =======================
+  detonate(ent) {
+    const w = this.world, S = this.S;
+    const tier = ent.tier || 1;
+    const R = [0, 3, 4, 5][tier];
+    const ci = toI(ent.x), cj = toJ(ent.y + 0.3), ck = toK(ent.z);
+    let n = 0;
+    for (let dk = -R; dk <= R; dk++) for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) {
+      const dd = di * di + dj * dj + dk * dk;
+      if (dd > R * R) continue;
+      const i = ci + di, j = cj + dj, k = ck + dk;
+      if (j < 0) continue;
+      const it = w.removeCell(i, j, k, true);
+      if (!it) continue;
+      S.stats.cells++;
+      if (n < 140 && this.sim.n < 2200) {
+        const l = Math.sqrt(dd) || 1;
+        this.sim.spawn(it.sp, it.vr, cellX(i), cellY(j), cellZ(k), di / l * 6, dj / l * 5 + 2, dk / l * 6, 2);
+        n++;
+      } else {
+        this.registerDex(it.sp); this.sellAuto(it.sp, it.vr, 0.5);
+      }
+    }
+    this.fx.burst(ent.x, ent.y + 0.6, ent.z, 70, 1, 0.6, 0.2, 6, 0.14, 1.4);
+    this.fx.dust(ent.x, ent.y + 0.6, ent.z, 40, 2.2, 3);
+    this.dust.add(ent.x, ent.y + 0.8, ent.z, 1.2);
+    const pd = Math.hypot(ent.x - this.player.pos.x, ent.y - this.player.pos.y, ent.z - this.player.pos.z);
+    this.sound.rumble(1.6);
+    if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.6, 24 / (pd + 4)) * this.T.shakeMul);
+    if (pd < R * 0.6 + 2.2) {
+      const dx = this.player.pos.x - ent.x, dz = this.player.pos.z - ent.z, l = Math.hypot(dx, dz) || 1;
+      this.player.vel.x += dx / l * 7; this.player.vel.z += dz / l * 7; this.player.vel.y += 4;
+      this.ui.hurt(0.55); this.dust.lung = Math.min(1.05, this.dust.lung + 0.25);
+      this.ui.hint('That was too close.', 3);
+    }
+    S.stats.blasts = (S.stats.blasts || 0) + 1;
+    // loosen everything around the hole
+    for (let q = 0; q < 12; q++) w.stabQueue.push({ i: ci + ((Math.random() * 2 - 1) * (R + 2)) | 0, j: cj + ((Math.random() * 2 - 1) * (R + 1)) | 0, k: ck + ((Math.random() * 2 - 1) * (R + 2)) | 0 });
   }
 
   // ======================= volatile plush =======================
@@ -1873,6 +1918,7 @@ export class Game {
       const heading = deg(Math.atan2(fw.x, -fw.z));
       const markers = [];
       const ex = EXIT_X - p.pos.x, ez = 0 - p.pos.z;
+      { const ms = []; for (const it of this.machines.items.values()) if (it.ent.type === 'marker') { const d = Math.hypot(it.ent.x - p.pos.x, it.ent.z - p.pos.z); if (d < 700) ms.push([d, it.ent]); } ms.sort((a, b) => a[0] - b[0]); for (const [, e2] of ms.slice(0, 8)) markers.push({ b: deg(Math.atan2(e2.x - p.pos.x, -(e2.z - p.pos.z))), label: 'M', color: '#ff9bd0' }); }
       if (T.exitMarker) markers.push({ b: deg(Math.atan2(ex, -ez)), label: 'EXIT', color: '#7ef0c4' });
       const np2 = this.needlePos();
       if (T.scan >= 3 && np2 && Math.hypot(np2.x - p.pos.x, np2.z - p.pos.z) <= T.scanRange) markers.push({ b: deg(Math.atan2(np2.x - p.pos.x, -(np2.z - p.pos.z))), label: 'ONE', color: '#fff3a0' });

@@ -90,6 +90,8 @@ export const ACHIEVEMENTS = [
   A('contract1', 'Fulfilled', 'Complete a contract.', (S) => (S.stats.contracts || 0) >= 1, '📋'),
   A('contract20', 'Reliable Supplier', 'Complete 20 contracts.', (S) => (S.stats.contracts || 0) >= 20, '📋'),
   A('passout', 'Dust Lungs', 'Pass out from dust.', (S) => (S.stats.passedOut || 0) >= 1, '😵'),
+  A('blast1', 'Fire in the Hole', 'Set off a blasting charge.', (S) => (S.stats.blasts || 0) >= 1, '🧨'),
+  A('blast20', 'Quarryman', 'Set off 20 charges.', (S) => (S.stats.blasts || 0) >= 20, '🧨'),
   A('theone', 'The One', 'Find Il Rotto Supremo.', (S) => S.ending === 'plush', '👑'),
   A('exit', 'Daylight', 'Dig your way out of the warehouse.', (S) => S.ending === 'exit', '🚪'),
   A('speed', 'Needle Speedrun', 'Find The One in under 30 minutes of play.', (S) => S.ending === 'plush' && S.stats.playSecs < 1800, '⚡', true),

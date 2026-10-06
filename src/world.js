@@ -361,7 +361,7 @@ export class World {
     // loosely held cells (few below, free sides) slide easily; compact flat cells hardly ever
     const loose = free * 0.13 + (9 - below) * 0.085 + (above ? 0.03 : 0);
     const l = Math.hypot(dx, dz) || 1;
-    return { p: clamp(strength * loose, 0, 0.95), dx: dx / l, dz: dz / l, free, below };
+    return { p: clamp(strength * loose * (this.slipMul ?? 1), 0, 0.95), dx: dx / l, dz: dz / l, free, below };
   }
 
   scanRegion(i0, j0, k0, warn) {
