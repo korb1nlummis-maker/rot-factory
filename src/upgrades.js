@@ -17,7 +17,7 @@ const geo = (base, mul, n) => Array.from({ length: n }, (_, i) => Math.round(bas
 
 export const UPGRADES = [
   // ---------------- HANDS ----------------
-  { id: 'gloves', cat: 'hands', name: 'Grippy Gloves', desc: 'Faster grabbing. Your fingers learn the pile.', max: 7, cost: geo(8, 2.25, 7), effect: (t, l) => { t.grabTime *= Math.pow(0.84, l); } },
+  { id: 'gloves', cat: 'hands', name: 'Grippy Gloves', desc: 'Shorter pause between grabs. Your fingers learn the pile.', max: 7, cost: geo(8, 2.25, 7), effect: (t, l) => { t.grabTime *= Math.pow(0.84, l); } },
   { id: 'reach', cat: 'hands', name: 'Telescoping Grabber', desc: 'Reach further into the pile.', max: 4, cost: [18, 70, 260, 900], effect: (t, l) => { t.reach += 0.5 * l; } },
   { id: 'bag', cat: 'hands', name: 'Carry Capacity', desc: 'Tote, pack, cart, pallet jack. Hold more plush before you have to walk back.', max: 8, cost: [14, 45, 130, 360, 950, 2600, 7200, 19000], effect: (t, l) => { t.carry = [1, 3, 6, 10, 16, 26, 42, 70, 120][l]; }, names: ['Bare Hands', 'Tote Bag', 'Backpack', 'Hiker Pack', 'Wheelbarrow', 'Hand Cart', 'Pallet Jack', 'Forklift Fork', 'Gantry Hopper'] },
   { id: 'cart', cat: 'hands', name: 'Carts', desc: 'Unlocks carts to craft: Wheelbarrow, Hand Cart, Pallet Cart, Trolley, Flatbed. Press U to roll one out. It follows you, and plush you grab ride on it up to its capacity (24 / 60 / 150 / 400 / 1000). Park it near the bin or a sorter and it unloads itself.', max: 5, cost: geo(300, 3.2, 5), req: { id: 'bag', lvl: 1 }, effect: (t, l) => { t.cartTier = l; } },

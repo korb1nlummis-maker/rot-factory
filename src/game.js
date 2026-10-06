@@ -322,10 +322,11 @@ export class Game {
   onKey(e, down) {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return; // typing in a box
     if (down && e.code === 'Enter' && this.mode === 'play' && this.net.open && !this.ui.isModalOpen()) { const c = document.getElementById('chatIn'); c.classList.remove('hidden'); c.value = ''; c.focus(); e.preventDefault(); return; }
+    if (e.code === 'KeyG') return; // G is retired: F or left click grab, and grab again to throw
     if (e.repeat && down) { if (e.code === 'Tab') e.preventDefault(); return; }
     if (e.code === 'Tab') e.preventDefault();
     this.keys[e.code] = down;
-    if (e.code === 'KeyF') this.keys.KeyG = down; // F grabs like G
+    if (e.code === 'KeyF') this.keys.KeyG = down; // F (and left click) hold the grab flag
     if (!down) return;
     if (this.mode !== 'play') return;
     if (this.ui.isModalOpen()) {
@@ -338,7 +339,7 @@ export class Game {
     else if (e.code === 'KeyV') this.openModal('crew');
     else if (e.code === 'KeyT') this.crewFarmAhead();
     else if (e.code === 'KeyY') this.crewHomeAll();
-    else if (e.code === 'KeyG' || e.code === 'KeyF') this.gPress();
+    else if (e.code === 'KeyF') this.gPress();
     else if (e.code === 'KeyJ') this.openModal('ach');
     else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < this.tools.length) this.selectTool(n); }
     else if (e.code === 'KeyB') this.bPress();
@@ -687,7 +688,7 @@ export class Game {
     const s = species[tg.sp];
     const r = RARITY[s.rarity];
     const shiny = !!(tg.vr & 128);
-    let val = tg.sp === CACHE ? 'open it' : tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? 'hold G to take down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
+    let val = tg.sp === CACHE ? 'open it' : tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? 'F to take down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
     return { name: s.name, rarity: r.name, rid: s.rarity, shiny, value: val, volatile: !!s.volatile };
   }
 
@@ -727,38 +728,17 @@ export class Game {
       this.ui.setCross(true);
     } else { this.ui.setTarget(null); this.renderer.setGhost(0); this.ui.setCross(false); }
 
-    // vacuum burst (tap G once the Plush Vacuum is owned); special targets always use the single grab
+    // vacuum burst (tap F once the Plush Vacuum is owned); special targets always use the single grab
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
     if (T.vac > 0 && !special) {
       if (this.keys.KeyG && !special) this.vacT = Math.max(this.vacT || 0, 0.3);
       if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
       this.ui.setGrab(0, false);
     } else {
-      // single-plush grab
-      const full = !this.storeRoom();
-      const key = tg ? (tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : tg.type === 'nbody' ? `n${tg.id}` : `b${tg.idx}`) : '';
-      if (this.grabWant && !tg) { this.grabWantT += dt; if (this.grabWantT > 0.5) { this.grabWant = false; } }
-      else this.grabWantT = 0;
-      if (this.holdGrab() && tg && !G.latch) {
-        if (full) { this.ui.hint('Hands full. Walk to the SORT bin, or <kbd>Z</kbd> to throw.', 2.5); G.p = 0; this.grabWant = false; }
-        else {
-          if (key !== G.key) { G.key = key; G.p = Math.min(G.p, 0.15) * 0.5; }
-          const rare = 1 + Math.max(0, species[tg.sp].rarity - 1) * 0.12;
-          G.p += dt / (T.grabTime * rare * compaction(this.player.pos.x, this.player.pos.z));
-          if (this.dustCd <= 0 && Math.random() < 0.3) { this.dustCd = 0.12; this.sound.soft(0.04); }
-          if (G.p >= 1) {
-            this.collect(tg);
-            G.p = 0;
-            if (!(T.autoRepeat && this.keys.KeyG)) { this.grabWant = false; if (this.keys.KeyG) G.latch = true; }
-          }
-        }
-        this.ui.setGrab(G.p, true);
-      } else {
-        G.p = Math.max(0, G.p - dt * 3);
-        if (!this.keys.KeyG) G.latch = false;
-        this.ui.setGrab(G.p, G.p > 0);
-        if (!tg) G.key = '';
-      }
+      // grabbing is instant (see gPress); holding the key only repeats it once the auto-repeat upgrade is owned
+      this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
+      if (T.autoRepeat && this.keys.KeyG && tg && this.storeRoom() && this.grabCd <= 0) this.instantGrab(tg);
+      G.p = 0; this.ui.setGrab(0, false);
     }
     if (building) this.updateBuild(tool, eye, dir);
     else this.machines.showPreview(null, null);
@@ -968,20 +948,27 @@ export class Game {
   holdGrab() { return this.grabWant || !!this.keys.KeyG; }
 
   // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
+  // F / left click: grab what you are looking at, instantly. Press again with hands full (or nothing in reach) and you throw.
   gPress() {
-    const t0 = this.curTargetRef;
-    const special = t0 && (t0.type === 'body' || t0.type === 'nbody' || t0.sp === BULK || t0.sp === REMAINS || t0.sp === CACHE);
-    if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
-    if (this.curTargetRef) {
-      const tg = this.curTargetRef;
-      // starts the moment you press: the bar jumps ahead and the rest still runs on the grab timer
-      this.grabWant = true; this.grabWantT = 0; this.grab.latch = false;
-      this.grab.key = tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : tg.type === 'nbody' ? `n${tg.id}` : `b${tg.idx}`;
-      this.grab.p = Math.max(this.grab.p, 0.3);
-      this.sound.soft(0.05);
+    const tg = this.curTargetRef;
+    const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
+    const full = !this.storeRoom();
+    if (tg && !full) {
+      if ((this.grabCd || 0) > 0) return;
+      if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
+      this.instantGrab(tg);
       return;
     }
-    if (this.S.carry.length) this.dropOne();
+    if (this.S.carry.length) this.throwOne();
+    else if (tg && full) this.ui.hint('Hands full. Walk to the SORT bin.', 2);
+  }
+
+  instantGrab(tg) {
+    // the small timer left is a short cooldown between grabs; gloves shorten it
+    this.grabCd = 0.12 + 0.28 * (this.T.grabTime / 1.5);
+    this.collect(tg);
+    this.sound.soft(0.05);
+    this.grab.p = 0;
   }
 
   bPress() {
