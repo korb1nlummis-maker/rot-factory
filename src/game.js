@@ -327,7 +327,8 @@ export class Game {
     else if (e.code === 'BracketRight' || e.code === 'ArrowRight') this.selectTool(this.buildIdx + 1);
     else if (e.code === 'BracketLeft' || e.code === 'ArrowLeft') this.selectTool(this.buildIdx - 1);
     else if (e.code === 'KeyE') this.useKey();
-    else if (e.code === 'KeyF') this.throwOne();
+    else if (e.code === 'KeyF') this.toggleLamp();
+    else if (e.code === 'KeyZ') this.throwOne();
     else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); this.ui.hint(this.stowed ? 'Build item stowed. <kbd>Q</kbd> brings it back.' : 'Build item ready. <kbd>B</kbd> places it.', 2); }
     else if (e.code === 'KeyX') this.deconstruct();
     else if (e.code === 'KeyU') this.useCart();
@@ -508,13 +509,13 @@ export class Game {
     this.renderEnv(dt, cam.position);
 
     // lamp
-    const on = 1;
+    const on = this.lampOn === false ? 0 : 1;
     U.uLampPos.value.copy(cam.position).addScaledVector(_right, -0.0).y -= 0.15;
     U.uLampDir.value.copy(_fwd);
     U.uLampRange.value = T.lampRange;
     U.uLampColor.value.setRGB(2.6, 2.35, 1.9).multiplyScalar(T.lampPower * on);
-    this.camLamp.intensity = 22 * T.lampPower;
-    if (this.lampCone) { this.lampCone.material.opacity = (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower; this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
+    this.camLamp.intensity = 22 * T.lampPower * on;
+    if (this.lampCone) { this.lampCone.visible = on > 0; this.lampCone.material.opacity = (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower; this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
     this.camLamp.distance = T.lampRange + 4;
     // placed lights
     const ls = this.machines.lights(cam.position, 5);
@@ -688,7 +689,7 @@ export class Game {
       if (this.grabWant && !tg) { this.grabWantT += dt; if (this.grabWantT > 0.5) { this.grabWant = false; } }
       else this.grabWantT = 0;
       if (this.holdGrab() && tg && !G.latch) {
-        if (full) { this.ui.hint('Hands full. Walk to the SORT bin, or <kbd>F</kbd> to throw.', 2.5); G.p = 0; this.grabWant = false; }
+        if (full) { this.ui.hint('Hands full. Walk to the SORT bin, or <kbd>Z</kbd> to throw.', 2.5); G.p = 0; this.grabWant = false; }
         else {
           if (key !== G.key) { G.key = key; G.p = Math.min(G.p, 0.15) * 0.5; }
           const rare = 1 + Math.max(0, species[tg.sp].rarity - 1) * 0.12;
@@ -716,7 +717,7 @@ export class Game {
     const dTerm = Math.hypot(pp.x - tp.x, pp.z - tp.z), dBin = Math.hypot(pp.x - bp.x, pp.z - bp.z);
     if (!tg && !building) {
       if (dTerm < 3.2 && !this._termHint) { this._termHint = true; this.ui.hint('<kbd>E</kbd> opens the upgrade terminal. <kbd>Tab</kbd> works anywhere.', 5); }
-      if (dBin < 3.2 && S.carry.length && !this._binHint) { this._binHint = true; this.ui.hint('Plush you carry get sucked into the bin when you stand close. <kbd>F</kbd> throws one in for a streak bonus.', 5); }
+      if (dBin < 3.2 && S.carry.length && !this._binHint) { this._binHint = true; this.ui.hint('Plush you carry get sucked into the bin when you stand close. <kbd>Z</kbd> throws one in for a streak bonus.', 5); }
     }
   }
 
@@ -860,6 +861,12 @@ export class Game {
     this.ui.setCarry(S.carry, T.carry);
     this.sound.whoosh(0.12);
     this.heldPop = -0.6;
+  }
+
+  toggleLamp() {
+    this.lampOn = this.lampOn === false;
+    this.sound.tone('square', this.lampOn ? 1500 : 900, this.lampOn ? 1900 : 600, 0.04, 0.07);
+    this.ui.hint(this.lampOn ? 'Flashlight on.' : 'Flashlight off.', 1.2);
   }
 
   holdGrab() { return this.grabWant || !!this.keys.KeyG; }
