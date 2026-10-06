@@ -2058,7 +2058,7 @@ export class Game {
     if (!this.keys.KeyB) this.lastPaint = '';
     if (plan) {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
-      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square: carves ${(plan.ent.clear || []).length} plush · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
+      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square, dig the section out first · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
   }
@@ -2338,6 +2338,11 @@ export class Game {
     this.world.supports = this.world.supports.filter((s) => s.id !== e.id && s.id !== 'shield' + e.id);
     this.sound.thump(0.15, 120);
     if (e.type === 'claw' || e.type === 'borer') this.rebuildTools();
+    // taking a support away puts the roof it was holding back under the tunnel rule
+    if (e.type === 'frame' || e.type === 'strut' || e.jack) {
+      const w = this.world, ci = toI(e.cx ?? e.x), ck = toK(e.cz ?? e.z), cj = toJ(e.y0 ?? e.y ?? 0), R = e.type === 'frame' ? 6 : 4;
+      for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: ci + a, j: cj + dj, k: ck + b });
+    }
   }
 
   // ======================= abandoned gear =======================

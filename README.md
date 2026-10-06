@@ -82,3 +82,6 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - Splitter belt tiles send each plush down alternating outputs; detector gates stop the belt and pull a found Il Rotto aside.
 - Self-test suite: `__selftest(prefix)` in the dev console (menu., tools., mining., splitter., etc.).
 - The C in FACTORY flickers on purpose (neon sign look): .flick in style.css; the ceiling lights on the title stay steady.
+- Frames are hollow 4x4 boxes (4 corner pillars, 4 top beams, open on every side). Placing one never digs: dig the 4x4 section out first, lay the frame, keep digging. Removing frames re-checks the roof, so a long tunnel with its supports taken out caves in.
+- Roof creaks need a real unsupported span: a small sealed pocket from grabbing plush no longer counts, and the creak sound waits to confirm the roof is still overloaded.
+- Exit signs: both faces now point east. One-time save wipe (WIPE_TOKEN in state.js; bump it to wipe everyone again).

@@ -35,23 +35,23 @@ export function buildFrameMesh(kind, axis, w, h) {
   const m = MATS[kind];
   const heavy = kind === 'concrete' || kind === 'rebar' || kind === 'carbon' || kind === 'plasma' || kind === 'voidl' || kind === 'neutron' || kind === 'horizon';
   const t = heavy ? 0.26 : kind === 'steel' || kind === 'titan' ? 0.12 : 0.15;
-  const depth = heavy ? 0.42 : kind === 'steel' || kind === 'titan' ? 0.16 : 0.18;
-  const postGeo = new THREE.BoxGeometry(t, h, depth);
-  const lp = new THREE.Mesh(postGeo, m), rp = new THREE.Mesh(postGeo, m);
-  lp.position.set(-w / 2 + t / 2, h / 2, 0); rp.position.set(w / 2 - t / 2, h / 2, 0);
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(w + t * 1.2, t * 1.15, depth * 1.1), m);
-  beam.position.set(0, h - t * 0.55, 0);
-  g.add(lp, rp, beam);
-  if (kind === 'timber') {
-    const brace = new THREE.BoxGeometry(0.4, 0.08, 0.1);
-    for (const s of [-1, 1]) { const b = new THREE.Mesh(brace, m); b.position.set(s * (w / 2 - 0.22), h - 0.22, 0); b.rotation.z = s * 0.8; g.add(b); }
-  } else if (kind === 'steel' || kind === 'titan') {
-    const flange = new THREE.BoxGeometry(t * 2, 0.025, depth * 1.8);
-    for (const p of [lp, rp, beam]) { const f1 = new THREE.Mesh(flange, MATS.dark); f1.position.copy(p.position); f1.position.y += p === beam ? 0 : h / 2 - 0.02; g.add(f1); }
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.04), MATS.yellow);
-    plate.position.set(-w / 2 + 0.1, h - 0.18, depth * 0.6); g.add(plate);
+  const depth = C - 0.06;
+  // a hollow box, one cell deep: 4 vertical pillars at the corners and 4 beams around the top, open on every side
+  // (no sill, so you can walk through it and build off any face)
+  const d = depth;
+  const pillar = new THREE.BoxGeometry(t, h, t);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const pl = new THREE.Mesh(pillar, m); pl.position.set(sx * (w / 2 - t / 2), h / 2, sz * (d / 2 - t / 2)); g.add(pl);
   }
-  if (axis === 'x') g.rotation.y = Math.PI / 2; // frame plane is perpendicular to x
+  const bw = new THREE.BoxGeometry(w, t, t), bd = new THREE.BoxGeometry(t, t, d - 2 * t);
+  for (const sz of [-1, 1]) { const b1 = new THREE.Mesh(bw, m); b1.position.set(0, h - t / 2, sz * (d / 2 - t / 2)); g.add(b1); }
+  for (const sx of [-1, 1]) { const b2 = new THREE.Mesh(bd, m); b2.position.set(sx * (w / 2 - t / 2), h - t / 2, 0); g.add(b2); }
+  if (kind === 'steel' || kind === 'titan') {
+    // yellow bolt plates at the top corners
+    const plate = new THREE.BoxGeometry(t * 1.6, t * 1.6, 0.03);
+    for (const sx of [-1, 1]) { const pl = new THREE.Mesh(plate, MATS.yellow); pl.position.set(sx * (w / 2 - t / 2), h - t / 2, d / 2 + 0.016); g.add(pl); }
+  }
+  if (axis === 'x') g.rotation.y = Math.PI / 2; // the box's open faces point along the tunnel
   return g;
 }
 
@@ -177,6 +177,8 @@ export class Machines {
       const b = this.frameBlock(f);
       if (b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0) return { ok: false, why: 'Frame already here' };
     }
+    // a frame holds up a section that is already dug: it never digs for you
+    if (e.clear.length) return { ok: false, why: `Dig out the 4x4 section first (${e.clear.length} plush still in the way)`, ent: e };
     if (best) e.snap = best.side;
     return { ok: true, ent: e };
   }

@@ -334,10 +334,11 @@ export function buildHall(scene) {
   // ---- signage: real-looking warehouse signs ----
   const signFont = 'Helvetica, Arial, sans-serif';
   // ISO-style emergency EXIT: green field, white border, running man and arrow, lit from inside
-  const exitTex = canvasTex(1024, 384, (g, w, h) => {
+  const drawExit = (flip) => (g, w, h) => {
     g.fillStyle = '#0a7d3c'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#eafff1'; g.lineWidth = 12; g.strokeRect(14, 14, w - 28, h - 28);
-    // running man (simple pictogram)
+    // running man (simple pictogram). On the back face the pictograms are mirrored so the arrow still points east.
+    g.save(); if (flip) { g.translate(w, 0); g.scale(-1, 1); }
     const cx = 170, cy = 200; g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineWidth = 22; g.lineCap = 'round'; g.lineJoin = 'round';
     g.beginPath(); g.arc(cx + 24, cy - 112, 24, 0, Math.PI * 2); g.fill();
     g.beginPath(); g.moveTo(cx + 14, cy - 76); g.lineTo(cx - 6, cy - 6); g.lineTo(cx - 52, cy + 22); g.stroke();
@@ -346,20 +347,22 @@ export function buildHall(scene) {
     g.beginPath(); g.moveTo(cx + 10, cy - 62); g.lineTo(cx - 46, cy - 38); g.stroke();
     // arrow east
     g.lineWidth = 26; g.beginPath(); g.moveTo(820, 192); g.lineTo(990, 192); g.stroke(); g.lineWidth = 22; g.beginPath(); g.moveTo(930, 130); g.lineTo(996, 192); g.lineTo(930, 254); g.stroke();
+    g.restore();
     g.fillStyle = '#ffffff'; g.font = `800 190px ${signFont}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('EXIT', 520, 196);
-  });
+  };
+  const exitTex = canvasTex(1024, 384, drawExit(false)), exitTexBack = canvasTex(1024, 384, drawExit(true));
   const mkEmerg = (x, y, z, ry) => {
     const grp = new THREE.Group(); grp.name = 'exitSign'; grp.position.set(x, y, z); grp.rotation.y = ry;
     const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 0.1), new THREE.MeshStandardMaterial({ color: 0x1a1d1f, roughness: 0.5, metalness: 0.8 }));
     const face = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTex, toneMapped: false })); face.position.z = 0.056;
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTex, toneMapped: false })); back.position.z = -0.056; back.rotation.y = Math.PI;
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTexBack, toneMapped: false })); back.position.z = -0.056; back.rotation.y = Math.PI;
     grp.add(body, face, back);
     const chain = new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6), cm = new THREE.MeshStandardMaterial({ color: 0x666b70, metalness: 0.9, roughness: 0.4 });
     for (const sx of [-1, 1]) { const c = new THREE.Mesh(chain, cm); c.position.set(sx * 1.0, 1.0, 0); grp.add(c); }
     const glow = new THREE.PointLight(0x40ff90, 5, 7, 1.6); glow.position.set(0, -0.1, 0.6); grp.add(glow);
     scene.add(grp); return grp;
   };
-  mkEmerg(6.2, 3.0, 1.6, -Math.PI / 2 + 0.25);
+  mkEmerg(6.2, 3.0, 1.6, -0.12);
   mkEmerg(2.0, 3.4, -9.4, 0);
   // ANSI-style DO NOT CLIMB: white plate, red ring and bar over a climbing figure, black text, on a bolted post
   const climbTex = canvasTex(512, 768, (g, w, h) => {

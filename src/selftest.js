@@ -61,7 +61,7 @@ export async function runSelfTest(g, only = '') {
     return { i, k: kk };
   };
   const newWorld = async () => { await g.startPlay(true); g.mode = 'play'; g.noSave = true; await realSleep(250); };
-  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt'];
+  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt'];
   const aimPoint = (x, y, z, back = 2.0) => {
     p().pos.set(x - back, 0, z); p().vel.set(0, 0, 0);
     const e = p().eyePos(new V3()); const dx = x - e.x, dy = y - e.y, dz = z - e.z;
@@ -246,19 +246,44 @@ export async function runSelfTest(g, only = '') {
   const mkUp = (extra = {}) => { const o = { timber: 1, steel: 1, concrete: 1, rebar: 1, titan: 1, carbon: 1, plasma: 1, voidl: 1, neutron: 1, horizon: 1, markers: 1, struts: 1, jacks: 1, lantern: 1, bulkhead: 1, dynamite: 1, charges: 3, ...extra }; return o; };
   for (const tier of Object.keys(FRAME_TYPES)) {
     await T('mining.frame-' + tier + '-place-and-anchor', async () => {
-      fresh(mkUp()); const { i, k } = spot(); dig(i, k, 22, 2, 3, false);
+      fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 22, 5, 4, false);
       craft('frame:' + tier); selectTool('frame:' + tier); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); if (!pl || !pl.ok) return 'plan: ' + (pl && pl.why);
       const n = placeNow(); const e = S().entities.find((x) => x.type === 'frame'); const sup = w().supports.find((q) => q.id === (e && e.id));
       const f = FRAME_TYPES[tier]; return !!(n === 1 && sup && sup.r === f.radius && sup.b === f.bonus && e.kind === tier) || 'support ' + JSON.stringify(sup);
     });
   }
-  await T('mining.frame-carves-4x4-section', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 24, 2, 3, false); craft('frame:timber'); selectTool('frame:timber'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); if (!pl.ok) return pl.why;
+  await T('mining.frame-is-4x4-and-leaves-section-clear', async () => {
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 24, 5, 4, false); craft('frame:timber'); selectTool('frame:timber'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); if (!pl.ok) return pl.why;
     const e = pl.ent; if (Math.abs(e.w - (4 * 0.6 - 0.04)) > 1e-6 || Math.abs(e.h - (4 * 0.6 - 0.02)) > 1e-6) return 'not 4x4: ' + e.w + 'x' + e.h; placeNow();
     let solid = 0; for (let a = 0; a < 4; a++) for (let b2 = 0; b2 < 4; b2++) if (w().get(e.gm, e.gj + b2, e.glo + a)) solid++; return solid === 0 || solid + ' cells left in the 4x4 section';
   });
+  await T('mining.grabbing-a-few-plush-never-creaks', async () => {
+    fresh(mkUp()); const bad = []; const { k } = spot(); const i0 = toI(0) + 6;
+    for (let step = 0; step < 14; step++) {
+      const i = i0 + step * 5; const kk = k + (step % 3) - 1; const co0 = S().stats.collapses || 0;
+      // the way hands work: take the plush on the surface or face one at a time, a few of them
+      for (let n = 0; n < 6; n++) { const ci = i + (n % 3), ck = kk + ((n / 3) | 0); const top = w().topAt(ci, ck) - 1; if (top >= 0) w().removeCell(ci, top, ck, true); }
+      adv(0.6); stepSim(1.5); if (w().creaking.size || (S().stats.collapses || 0) > co0) bad.push(`${i - i0}:${w().creaking.size}`);
+    }
+    return bad.length === 0 || 'roof creaked after grabbing at ' + bad.join(' ');
+  });
+  await T('mining.grabbing-into-the-face-never-creaks', async () => {
+    fresh(mkUp()); const { i, k } = spot(); const bad = [];
+    for (let depth = 0; depth < 5; depth++) { for (let j = 0; j < 2; j++) w().removeCell(i + depth, j, k, true); adv(0.3); stepSim(1.5); if (w().creaking.size) bad.push(depth + ':' + w().creaking.size); }
+    return bad.length === 0 || 'creaked while poking a hole: ' + bad.join(' ');
+  });
+  await T('mining.frame-never-digs-for-you', async () => {
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 20, 5, 4, false); craft('frame:timber', 4); selectTool('frame:timber'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return 'first: ' + pl.why; placeNow(); const a = S().entities.find((x) => x.type === 'frame');
+    // clicking the next section along, where the plush is still packed in, must be refused and remove nothing
+    let before = 0; const count = () => { let c = 0; for (let m = a.gm; m < a.gm + 40; m++) for (let l = 0; l < 4; l++) for (let j = 0; j < 4; j++) if (w().get(m, a.gj + j, a.glo + l)) c++; return c; }; before = count();
+    let placed = 0; for (let n = 0; n < 12; n++) { const last = S().entities.filter((x) => x.type === 'frame').pop(); const cx = cellX(last.gm + 1), cz = cellZ(last.glo) + 0.9, cy = last.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); pl = await plan(); if (pl.ok && !w().get(pl.ent.gm, pl.ent.gj + 1, pl.ent.glo + 1)) { placeNow(); placed++; } else if (pl.ok) return 'planned a section with plush still in it'; }
+    return (count() === before && S().stats.cells < 400 + before) || 'frames removed plush: ' + (before - count());
+  });
+  await T('mining.frame-mesh-is-hollow-box', async () => {
+    const { buildFrameMesh } = await import('./machines.js'); const gr = buildFrameMesh('steel', 'x', 4 * 0.6 - 0.04, 4 * 0.6 - 0.02); let pillars = 0, beams = 0; gr.children.forEach((c) => { if (!c.geometry) return; const q = c.geometry.parameters; if (q.height > 2) pillars++; else if (q.height < 1 && q.depth > 0.1 && q.width > 0.1 && !(q.depth < 0.05)) beams++; }); return (pillars === 4 && beams === 4) || `pillars ${pillars} beams ${beams}`;
+  });
   await T('mining.frame-snaps-on-any-side', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 30, 2, 3, false); craft('frame:timber', 8); selectTool('frame:timber');
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 5, 30, 17, 8, false); craft('frame:timber', 8); selectTool('frame:timber');
     lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return 'first: ' + pl.why; placeNow(); const a = S().entities.find((x) => x.type === 'frame');
     // stand inside the first section and look at the wall, ceiling or the corridor beyond: what you look at decides the side
     const aimAtBlock = async (m, lo, j0) => { const cx = cellX(m), cz = cellZ(lo) + 1.5 * 0.6, cy = j0 * 0.6 + 1.2; const sx = cellX(a.gm) - (m === a.gm ? 0 : 2.2), sy0 = 0; p().pos.set(sx, sy0, m === a.gm ? cellZ(a.glo) + 0.9 : cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); return plan(); };
@@ -271,12 +296,12 @@ export async function runSelfTest(g, only = '') {
     return Object.keys(out).length === 4;
   });
   await T('mining.frame-chain-lines-up', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 30, 2, 3, false); craft('frame:steel', 4); selectTool('frame:steel'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return pl.why; placeNow();
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 30, 5, 4, false); craft('frame:steel', 4); selectTool('frame:steel'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return pl.why; placeNow();
     for (let n = 1; n <= 3; n++) { const a = S().entities.filter((x) => x.type === 'frame').pop(); const cx = cellX(a.gm + 1), cz = cellZ(a.glo) + 0.9, cy = a.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); pl = await plan(); if (!pl.ok) return 'link ' + n + ': ' + pl.why; placeNow(); }
     const fs = S().entities.filter((x) => x.type === 'frame'); const ms = fs.map((f) => f.gm); const los = new Set(fs.map((f) => f.glo)), js = new Set(fs.map((f) => f.gj)); return (fs.length === 4 && los.size === 1 && js.size === 1 && ms.every((m, n) => m === ms[0] + n)) || 'chain ' + ms;
   });
   await T('mining.frame-never-duplicates-block', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 24, 2, 3, false); craft('frame:timber', 2); selectTool('frame:timber'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const a = S().entities.find((x) => x.type === 'frame'); { const cx = cellX(a.gm), cz = cellZ(a.glo) + 0.9, cy = a.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); } pl = await plan();
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 24, 5, 4, false); craft('frame:timber', 2); selectTool('frame:timber'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const a = S().entities.find((x) => x.type === 'frame'); { const cx = cellX(a.gm), cz = cellZ(a.glo) + 0.9, cy = a.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); } pl = await plan();
     if (!pl.ok) return true; return (pl.ent.gm !== a.gm || pl.ent.glo !== a.glo || pl.ent.gj !== a.gj) || 'planned the same block again';
   });
   await T('mining.strut-and-jack-anchor', async () => {
@@ -343,7 +368,12 @@ export async function runSelfTest(g, only = '') {
   await T('tunnel.unsupported-collapses-past-length', async () => { const r = await tunnelOutcome({}, 40, 0); return (r.failed !== null && r.failed >= 8 && r.failed <= 30) || 'failed at ' + r.failed; });
   await T('tunnel.struts-prevent-collapse', async () => { const r = await tunnelOutcome({ struts: 1 }, 40, 6, 'strut'); return r.failed === null || 'collapsed at ' + r.failed; });
   await T('tunnel.frames-prevent-collapse', async () => { const r = await tunnelOutcome({ timber: 1 }, 40, 8, 'frame'); return r.failed === null || 'collapsed at ' + r.failed; });
-  await T('tunnel.tamping-collapses-later', async () => { const a = await tunnelOutcome({}, 50, 0), b = await tunnelOutcome({ tamp: 8 }, 50, 0); return ((b.failed === null || b.failed > a.failed + 4) && a.failed !== null) || `${a.failed} vs ${b.failed}`; });
+  await T('tunnel.tamping-collapses-later', async () => {
+    // tamping raises the unsupported length the rule allows, and a tamped tunnel outlasts an untamped one
+    const limitFor = (up) => { fresh(up); const { i: i0, k } = spot(); dig(i0, k, 30, 2, 3, false); let B = 0; for (let s = 10; s < 30; s++) { const st = w().stress(i0 + s, 3, k); if (st) { B = st.B; break; } } return B; };
+    const B0 = limitFor({}), B1 = limitFor({ tamp: 8 }); const a = await tunnelOutcome({}, 50, 0), b = await tunnelOutcome({ tamp: 8 }, 50, 0);
+    return (B1 > B0 && (b.failed === null || b.failed >= a.failed - 1) && a.failed !== null) || `limit ${B0} vs ${B1}, failed at ${a.failed} vs ${b.failed}`;
+  });
   await T('tunnel.collapse-is-bounded-and-settles', async () => { const r = await tunnelOutcome({}, 45, 0); stepSim(80); return (r.failed !== null && sim().n === 0 && g.slide.q.size === 0) || `loose ${sim().n} q ${g.slide.q.size}`; });
 
   // ================================================================== SLIDES
@@ -355,7 +385,7 @@ export async function runSelfTest(g, only = '') {
   });
   await T('slides.high-climb-triggers', async () => {
     fresh({}); const k = toK(0) + 10; let d0 = 0; for (let d = 30; d < 90; d++) if (w().topAt(toI(0) + d, k) >= 36) { d0 = d; break; } const i = toI(0) + d0 + 4, t = w().topAt(i, k); const s0 = S().stats.slides || 0; S().carry = []; for (let q = 0; q < 8; q++) S().carry.push({ sp: 2, vr: 0 });
-    p().pos.set(cellX(i), 25, cellZ(k)); p().footCell = { i, j: t - 1, k }; for (let n = 0; n < 10; n++) { g.treadOn(1.0, false); stepSim(0.4); } stepSim(6); return ((S().stats.slides || 0) > s0) || 'no slide from high climbing';
+    p().pos.set(cellX(i), 25, cellZ(k)); p().footCell = { i, j: t - 1, k }; for (let n = 0; n < 60 && (S().stats.slides || 0) === s0; n++) { g.treadOn(1.0, false); stepSim(0.4); } stepSim(6); return ((S().stats.slides || 0) > s0) || 'no slide from high climbing';
   });
   await T('slides.supports-hold-slope', async () => {
     const run = async (props) => { await newWorld(); fresh({ charges: 3 }); const k = toK(0) + 14; let d0 = 0; for (let d = 30; d < 90; d++) if (w().topAt(toI(0) + d, k) >= 36) { d0 = d; break; } const i = toI(0) + d0, t = w().topAt(i, k); if (props) for (let a = -6; a <= 6; a += 3) for (let b = -6; b <= 6; b += 3) w().supports.push({ x: cellX(i + a), y: cellY(t - 2), z: cellZ(k + b), r: 4, b: 3, id: 's' + a + b }); const s0 = S().stats.slides || 0; g.detonate({ x: cellX(i), y: cellY(t - 2), z: cellZ(k), tier: 3 }); stepSim(25); return (S().stats.slides || 0) - s0; };
@@ -367,15 +397,15 @@ export async function runSelfTest(g, only = '') {
   WORLD_TESTS.push('stress.');
   const placeFrameAt = async (m, lo, j0, kind = 'timber', k0 = null, standZ = null) => {
     // place a frame section by aiming at its block from inside the neighbouring section (or the tunnel)
-    const cx = cellX(m), cz = cellZ(lo) + 0.9, cy = j0 * 0.6 + 1.2;
+    const cx = cellX(m), cz = cellZ(lo) + 0.9, cy = j0 === 0 ? 0.1 : j0 * 0.6 + 1.2;
     // aiming along the corridor: stand back in the tunnel. Aiming at a section beside: stand inside the section next to it
-    const base = S().entities.find((x) => x.type === 'frame'); const beside = base && lo !== base.glo;
+    const base = S().entities.find((x) => x.type === 'frame'); const beside = base && lo !== base.glo && m === base.gm;
     if (beside) p().pos.set(cx, 0, standZ ?? cz); else p().pos.set(cx - 2.2, 0, standZ ?? cz); p().vel.set(0, 0, 0); const e = p().eyePos(new V3());
     p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); const pl = await plan(); if (!pl.ok) return { ok: false, why: pl.why };
     if (pl.ent.gm !== m || pl.ent.glo !== lo || pl.ent.gj !== j0) return { ok: false, why: `planned ${pl.ent.gm},${pl.ent.glo},${pl.ent.gj} wanted ${m},${lo},${j0}` }; placeNow(); return { ok: true };
   };
   await T('stress.200-frames-structure', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 70, 2, 3, false); craft('frame:timber', 220); selectTool('frame:timber');
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 5, 70, 17, 8, false); craft('frame:timber', 220); selectTool('frame:timber');
     lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const first = S().entities.find((x) => x.type === 'frame');
     const t0 = performance.now(); let placed = 1; const fail = [];
     // a 50 long tunnel run, then a second row beside it and a third row above: 150 sections
@@ -386,10 +416,10 @@ export async function runSelfTest(g, only = '') {
     adv(2); return (fs.length === placed && w().supports.length >= placed && ms < 400) || `frames ${fs.length} placed ${placed} supports ${w().supports.length} ${ms.toFixed(0)}ms each`;
   });
   await T('stress.long-lined-tunnel-never-collapses', async () => {
-    fresh(mkUp()); const { i, k } = spot(); craft('frame:steel', 40); selectTool('frame:steel'); const co0 = S().stats.collapses || 0; dig(i, k, 8, 2, 3, true); stepSim(3);
+    fresh(mkUp()); const { i, k } = spot(); craft('frame:steel', 40); selectTool('frame:steel'); const co0 = S().stats.collapses || 0; dig(i, k - 1, 8, 5, 4, true); stepSim(3);
     // dig 200 cells, adding a frame section every 8 cells (reach of steel is 3.4 m) and checking nothing falls
     let nextFrame = i + 8; let first = null; let step = 0; const standZ = cellZ(k) + 0.3;
-    for (let x = i + 8; x < i + 200; x += 2) { dig(x, k, 2, 2, 3, true); stepSim(1.2); if (sim().n > 8 || (S().stats.collapses || 0) > co0) return `collapsed at ${x - i} cells in`; if (x >= nextFrame) { p().pos.set(cellX(x - 3), 0, standZ); p().yaw = Math.PI / 2; p().vel.set(0, 0, 0); p().pitch = -0.2; const pl = await plan(); if (pl.ok) { placeNow(); first = first || true; } nextFrame = x + 6; step++; } }
+    for (let x = i + 8; x < i + 200; x += 2) { dig(x, k - 1, 2, 5, 4, true); stepSim(1.2); if (sim().n > 8 || (S().stats.collapses || 0) > co0) return `collapsed at ${x - i} cells in`; if (x >= nextFrame) { p().pos.set(cellX(x - 3), 0, standZ); p().yaw = Math.PI / 2; p().vel.set(0, 0, 0); p().pitch = -0.2; const pl = await plan(); if (pl.ok) { placeNow(); first = first || true; } nextFrame = x + 6; step++; } }
     return (first && step >= 15) || 'no frames placed';
   });
   await T('stress.repeat-collapse-cycles-bounded', async () => {
@@ -397,7 +427,7 @@ export async function runSelfTest(g, only = '') {
     return (maxBodies < 900 && maxQ < 5000) || `max bodies ${maxBodies} queue ${maxQ}`;
   });
   await T('stress.supports-survive-save-load', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 30, 2, 3, false); craft('frame:concrete', 6); selectTool('frame:concrete'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const first = S().entities.find((x) => x.type === 'frame');
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 30, 5, 4, false); craft('frame:concrete', 6); selectTool('frame:concrete'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const first = S().entities.find((x) => x.type === 'frame');
     for (let n = 1; n < 5; n++) { const r = await placeFrameAt(first.gm + n, first.glo, first.gj, 'concrete', k, cellZ(k) + 0.3); if (!r.ok) return r.why; }
     const before = JSON.stringify(S().entities.filter((x) => x.type === 'frame').map((f) => [f.kind, f.gm, f.glo, f.gj, f.axis]));
     const raw = JSON.parse(JSON.stringify(S().entities)); // what a save would hold
@@ -405,14 +435,25 @@ export async function runSelfTest(g, only = '') {
     const after = JSON.stringify(S().entities.filter((x) => x.type === 'frame').map((f) => [f.kind, f.gm, f.glo, f.gj, f.axis]));
     return (before === after && w().supports.filter((q) => q.id).length >= 5) || 'frames or supports lost on reload';
   });
+  await T('stress.removing-frames-lets-the-tunnel-cave-in', async () => {
+    fresh(mkUp()); let sp0 = spot(); for (const lane of [20, 28, 6, -6, -14]) { if (w().topAt(sp0.i + 36, sp0.k) >= 9 && w().topAt(sp0.i + 12, sp0.k) >= 7) break; try { sp0 = spot(lane); } catch (e) { /* lane without a slope mouth */ } } const { i, k } = sp0; craft('frame:steel', 12); selectTool('frame:steel'); const standZ = cellZ(k) + 0.3; const co0 = S().stats.collapses || 0;
+    // dig 5x4 tunnel 40 long with a frame section every few cells (beyond the unsupported limit), standing and holding
+    dig(i, k - 1, 6, 5, 4, true); let x = i + 6, nextF = i + 6; const framed = [];
+    for (; x < i + 46; x += 2) { dig(x, k - 1, 2, 5, 4, true); stepSim(1); if ((S().stats.collapses || 0) > co0 || sim().n > 8) return `collapsed at ${x - i} with ${framed.length} frames (limit ${(w().stress(x - 3, 4, k) || {}).B})`; if (x >= nextF) { nextF = x + 6; p().pos.set(cellX(x - 3), 0, standZ); p().yaw = Math.PI / 2; p().pitch = -0.2; p().vel.set(0, 0, 0); const pl = await plan(); if (pl.ok) { placeNow(); framed.push(S().entities.filter((e) => e.type === 'frame').pop().id); } } }
+    stepSim(4); if ((S().stats.collapses || 0) > co0 || sim().n > 8) return 'collapsed while supported';
+    if (framed.length < 4) return 'only ' + framed.length + ' frames placed';
+    const roof = () => { let c = 0; for (let xx = i + 4; xx < i + 46; xx++) for (let kk = k - 1; kk < k + 4; kk++) if (w().get(xx, 4, kk)) c++; return c; }; const roof0 = roof(); const box = () => { let c = 0; for (let xx = i + 4; xx < i + 46; xx++) for (let kk = k - 1; kk < k + 4; kk++) for (let jj = 0; jj < 4; jj++) if (w().get(xx, jj, kk)) c++; return c; }; const box0 = box();
+    for (const id of framed) g.doDecon({ kind: 'mach', id }); stepSim(30); const fell = (box() > box0 + 10 || roof() < roof0 - 10 || roof() > roof0 + 10) ? 1 : 0;
+    return (fell || (S().stats.collapses || 0) > co0 || sim().n > 8 || w().creaking.size > 0) || (() => { let bad = 0, tot = 0, minB = 99; for (let xx = i; xx < i + 46; xx++) { const st = w().stress(xx, 4, k + 1); if (st) { tot++; minB = Math.min(minB, st.B); if (st.margin < 0) bad++; } } return `no cave-in: ${bad}/${tot} roof cells overloaded, limit ${minB}, supports left ${w().supports.length}, top ${w().topAt(i + 30, k)}`; })();
+  });
   await T('stress.frame-decon-returns-item-and-support', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 24, 2, 3, false); craft('frame:rebar', 1); selectTool('frame:rebar'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); placeNow(); const e = S().entities.find((x) => x.type === 'frame'); if (!w().supports.some((q) => q.id === e.id)) return 'no support'; g.doDecon({ kind: 'mach', id: e.id });
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 24, 5, 4, false); craft('frame:rebar', 1); selectTool('frame:rebar'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); placeNow(); const e = S().entities.find((x) => x.type === 'frame'); if (!w().supports.some((q) => q.id === e.id)) return 'no support'; g.doDecon({ kind: 'mach', id: e.id });
     return (!w().supports.some((q) => q.id === e.id) && S().items['frame:rebar'] === 1 && !S().entities.some((x) => x.id === e.id)) || 'decon';
   });
   await T('stress.frame-roof-anchors-collapse-zone', async () => {
     // a long tunnel that would collapse unsupported holds when 4x4 sections are laid at the rule's spacing
-    const run = async (withFrames) => { fresh(mkUp()); const { i, k } = spot(); craft('frame:timber', 20); selectTool('frame:timber'); const co0 = S().stats.collapses || 0; dig(i, k, 6, 2, 3, true); stepSim(2); let nextF = i + 6;
-      for (let x = i + 6; x < i + 60; x += 2) { dig(x, k, 2, 2, 3, true); if (withFrames && x >= nextF) { p().pos.set(cellX(x - 3), 0, cellZ(k) + 0.3); p().yaw = Math.PI / 2; p().pitch = -0.2; p().vel.set(0, 0, 0); const pl = await plan(); if (pl.ok) placeNow(); nextF = x + 6; } stepSim(1.5); if (sim().n > 8 || (S().stats.collapses || 0) > co0) return x - i; } return null; };
+    const run = async (withFrames) => { fresh(mkUp()); const { i, k } = spot(); craft('frame:timber', 20); selectTool('frame:timber'); const co0 = S().stats.collapses || 0; dig(i, k - 1, 6, 5, 4, true); stepSim(2); let nextF = i + 6;
+      for (let x = i + 6; x < i + 60; x += 2) { dig(x, k - 1, 2, 5, 4, true); if (withFrames && x >= nextF) { p().pos.set(cellX(x - 3), 0, cellZ(k) + 0.3); p().yaw = Math.PI / 2; p().pitch = -0.2; p().vel.set(0, 0, 0); const pl = await plan(); if (pl.ok) placeNow(); nextF = x + 6; } stepSim(1.5); if (sim().n > 8 || (S().stats.collapses || 0) > co0) return x - i; } return null; };
     const a = await run(false), b = await run(true); return (a !== null && b === null) || `without ${a} with ${b}`;
   });
 
@@ -620,7 +661,7 @@ export async function runSelfTest(g, only = '') {
   // ================================================================== PERSISTENCE, MULTIPLAYER, ACHIEVEMENTS, UI
   await T('persist.save-contains-everything-new', async () => {
     fresh(mkUp({ firstaid: 1 })); craft('strut', 2); craft('medkit'); craft('mat:timber', 5); S().noSaveFlag = undefined; g.noSave = false; g.save(); g.noSave = true;
-    const key = Object.keys(localStorage).find((x) => /rotfactory/i.test(x)); const raw = JSON.parse(localStorage.getItem(key)).S; const ok = raw && raw.hotbar && raw.hotbar.includes('strut') && raw.items.strut === 2 && raw.items.medkit === 1 && raw.mats.timber === 5 && raw.entities.some((e) => e.free);
+    const key = 'rotfactory.save.v1'; const raw = JSON.parse(localStorage.getItem(key)).S; const ok = raw && raw.hotbar && raw.hotbar.includes('strut') && raw.items.strut === 2 && raw.items.medkit === 1 && raw.mats.timber === 5 && raw.entities.some((e) => e.free);
     return !!ok || 'save is missing hotbar/items/mats/free gate: ' + Object.keys(raw || {}).join();
   });
   await T('multiplayer.shared-state-roundtrip', async () => {

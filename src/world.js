@@ -12,6 +12,7 @@ const COLSZ = 256 * NY;
 export const SAFE_LEN = 12;     // cells (7.2 m) of tunnel you can dig unsupported near the surface
 export const OB = 14;           // every 14 cells of plush above the roof costs one cell of safe length
 export const MIN_SAFE = 3;      // never less than 1.8 m
+export const MIN_CAVITY = 14;   // a sealed pocket smaller than this (cells at one level) never counts as unsupported roof
 export const ARCH = 4;          // a collapse can only climb 4 cells (2.4 m) above the original roof before the pile above arches and holds
 
 // The hall is a huge lattice of plush cells (0.6 m). Storage is lazy: 16x16 column chunks are generated from the
@@ -345,6 +346,8 @@ export class World {
       frontier = next;
       if (!frontier.length) break;
     }
+    // a small sealed pocket (a few plush pulled out of the pile) is not a tunnel: the pile arches over it and holds
+    if (!frontier.length && visited < MIN_CAVITY) return 0;
     return Infinity;
   }
 
@@ -428,7 +431,22 @@ export class World {
       const q = this.stabQueue.shift();
       const before = this.creaking.size;
       this.scanRegion(q.i, q.j, q.k, warn);
-      if (this.creaking.size > before && hooks.onCreak) hooks.onCreak(cellX(q.i), cellY(q.j), cellZ(q.k), this.creaking.size - before);
+      if (this.creaking.size > before && hooks.onCreak) (this._announce || (this._announce = [])).push({ i: q.i, j: q.j, k: q.k, t: 0.7, n: this.creaking.size - before });
+    }
+    // a creak is only worth a sound once the roof has stayed overloaded for a moment (grabbing a few plush leaves pockets that
+    // settle at once), and no more than one every few seconds
+    this._creakCool = Math.max(0, (this._creakCool || 0) - dt);
+    if (this._announce && this._announce.length) {
+      for (const an of this._announce) an.t -= dt;
+      const ready = this._announce.filter((an) => an.t <= 0);
+      if (ready.length) {
+        this._announce = this._announce.filter((an) => an.t > 0);
+        for (const an of ready) {
+          let still = 0;
+          for (let dj = -1; dj <= 2 && !still; dj++) for (let dk = -5; dk <= 5 && !still; dk++) for (let di = -5; di <= 5; di++) { const c = this.creaking.get(((an.j + dj) * NZ + an.k + dk) * NX + an.i + di); if (c) { still++; break; } }
+          if (still && this._creakCool <= 0) { this._creakCool = 5; hooks.onCreak(cellX(an.i), cellY(an.j), cellZ(an.k), an.n); }
+        }
+      }
     }
     if (!this.creaking.size) return;
     const done = [];
