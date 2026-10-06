@@ -268,7 +268,7 @@ export class Crew {
       }
       case 'held': {
         const gate = g.logi.byId.get(b.heldGate);
-        if (!gate || !gate.alarm) { b.heldGate = null; b.scanned = true; b.state = 'return'; b.path = [[h.x, h.z]]; b.pi = 0; break; }
+        if (!gate || !gate.alarm) { b.heldGate = null; b.scanned = true; b.cleared = true; b.state = 'return'; b.path = [[h.x, h.z]]; b.pi = 0; break; }
         const DXs = [1, 0, -1, 0], DZs = [0, 1, 0, -1];
         const d = gate.dir || 0;
         b.tx = cellX(gate.i) + -DZs[d] * 1.7; b.tz = cellZ(gate.k) + DXs[d] * 1.7;
@@ -286,6 +286,12 @@ export class Crew {
         break;
       }
       case 'goto': case 'return': {
+        // standing in the gate while it scans the load
+        if (b.scanT > 0) {
+          b.scanT -= dt; b.tx = b.x; b.tz = b.z;
+          if (b.scanT <= 0) { b.scanT = 0; this.scanBot(b); }
+          break;
+        }
         const p = b.path[b.pi];
         if (!p) {
           if (b.state === 'goto') { b.state = 'farm'; b.timer = this.digTime(b, b.x, b.z); }
@@ -293,23 +299,25 @@ export class Crew {
             // robots check in at the nearest detector gate before they unload
             const gate = !b.scanned ? g.logi.bestGate(b.x, b.z, h.x, h.z) : null;
             if (gate) { b.scanned = true; b.gatePending = gate.id; b.path = [[cellX(gate.i), cellZ(gate.k)], [h.x, h.z]]; b.pi = 0; break; }
-            b.scanned = false; b.state = 'unload';
+            b.scanned = false; b.cleared = true; b.state = 'unload';
           }
           break;
         }
         b.tx = p[0]; b.tz = p[1];
-        if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) { b.pi++; if (b.gatePending && b.pi === 1) this.scanBot(b); }
+        if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) { b.pi++; if (b.gatePending && b.pi === 1) { b.scanT = 0.9; const gt = g.logi.byId.get(b.gatePending); if (gt) { g.logi.setGate(gt, false); g.sound.tone('sine', 700, 1100, 0.3, 0.04); } } }
         b.battery -= dt * 0.004;
         break;
       }
       case 'unload': {
         b.tx = h.x; b.tz = h.z;
+        // nothing is sold before it has been scanned at a detector gate (when one exists)
+        if (!b.cleared && b.carry.length && g.logi.bestGate(b.x, b.z, h.x, h.z)) { b.state = 'return'; b.path = []; b.pi = 0; b.scanned = false; break; }
         b.timer -= dt;
         if (b.timer <= 0) {
           b.timer = 0.12;
           const it = b.carry.shift();
           if (it) { g.sellAuto(it.sp, it.vr, 1); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.4) g.sound.chirp(1.5 + Math.random() * 0.5); }
-          else { b.state = 'charge'; }
+          else { b.state = 'charge'; b.cleared = false; }
         }
         break;
       }
@@ -358,7 +366,7 @@ export class Crew {
       g.needleAlarm(gate);
       // pulled aside into the bay beside the lane, flagged, until you come and take it
       b.state = 'held'; b.heldGate = gate.id; b.path = []; b.pi = 0;
-    } else { g.logi.setGate(gate, false); gate.flash = 0.25; g.sound.tone('sine', 1250, 1250, 0.05, 0.03); }
+    } else { g.logi.setGate(gate, false); gate.flash = 0.25; b.cleared = true; g.S.stats.botScans = (g.S.stats.botScans || 0) + 1; g.sound.tone('sine', 1250, 1250, 0.05, 0.03); }
   }
 
   charge(b, dt, h) {
@@ -369,7 +377,8 @@ export class Crew {
     const g = this.game, h = this.home();
     g.fx.sparkle(b.x, b.y + 0.4, b.z, 16, 0.5, 0.9, 1);
     b.x = h.x; b.z = h.z; b.y = 0.6; b.vy = 0; b.stuckT = 0;
-    b.state = 'unload'; b.timer = 0.5;
+    // phased to base, but still goes through the gate before anything is sold
+    b.state = 'return'; b.path = []; b.pi = 0; b.scanned = false; b.cleared = false; b.timer = 0.5;
     g.ui.toast({ icon: '🤖', title: `${b.name} got stuck`, text: 'It phased back to base to recharge.', ms: 4000 });
     g.fx.sparkle(h.x, 0.6, h.z, 16, 0.5, 0.9, 1);
   }

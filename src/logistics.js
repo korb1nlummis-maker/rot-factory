@@ -371,6 +371,7 @@ export class Logistics {
       return true;
     }
     this.setGate(t, false);
+    g.S.stats.scans = (g.S.stats.scans || 0) + 1;
     t.flash = 0.18;
     if (near) g.sound.tone('sine', 1250, 1250, 0.05, 0.035);
     return false;
@@ -410,6 +411,7 @@ export class Logistics {
     for (const t of this.tiles.values()) {
       if (t.type !== 'belt' || !t.detector) continue;
       const gx = cellX(t.i), gz = cellZ(t.k);
+      if (Math.hypot(gx - hx, gz - hz) > 80) continue; // only gates in the bay area count as the gate on the way in
       const d = Math.hypot(gx - x, gz - z) + Math.hypot(gx - hx, gz - hz);
       if (d < bd) { bd = d; best = t; }
     }
