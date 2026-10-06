@@ -14,7 +14,7 @@ node tools/pace-sim.mjs   # rough pacing model (exit ~250 h, the plush ~500 h fo
 - **G** tap to grab what you are looking at, tap with nothing in reach to drop. **F** throw. Walk near the SORT bin and it sucks your plush in.
 - **E** use (desk = upgrades, bench = crafting, kiosk = dossier, depots, machines).
 - **B** set down the build item you hold (green outline shows where). Hold **B** to lay belts/bulkheads. **1-9**, **[ ]** or the wheel pick an item, **Q** stow, **R** flips ramps, **X** takes something down (you get the item back).
-- **Tab** upgrades, **V** crew, **N** plushdex, **L** journal, **J** goals, **T/Y** send crew digging / home, **Esc** pause, **F3** fps, hold **U** to recall.
+- **Tab** upgrades, **V** crew, **N** plushdex, **L** journal, **J** goals, **T/Y** send crew digging / home, **Esc** pause, **F3** fps, hold **H** to recall.
 
 ## Systems
 - Lazy chunked 6 km hall (`world.js`), 576 species, old workings with remains and notes (`remains.js`).

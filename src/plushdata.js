@@ -5,6 +5,8 @@ export const PAL_COUNT = 16; // 36 shapes x 16 colors = 576 species, plus fakes 
 export const NEEDLE = 999; // species id of The One
 export const BULK = 998;   // bulkhead panel (player-built wall, never falls)
 export const REMAINS = 997; // what is left of a past worker
+export const CACHE = 996;   // a worker's supply cache
+export const isSpecialCell = (sp) => sp === BULK || sp === REMAINS || sp === CACHE;
 
 export const ARCH_NAMES = [
   'Bean', 'Gatto', 'Squalo', 'Coccodrillo', 'Banana', 'Cappuccino', 'Rana',
@@ -58,6 +60,7 @@ export const pools = RARITY.map(() => []);
   species[NEEDLE] = { id: NEEDLE, arch: 36, pal: 99, rarity: 6, name: 'Il Rotto Supremo' };
   species[BULK] = { id: BULK, arch: 37, pal: 98, rarity: 0, name: 'Bulkhead Panel' };
   species[REMAINS] = { id: REMAINS, arch: 38, pal: 97, rarity: 0, name: 'Abandoned Gear' };
+  species[CACHE] = { id: CACHE, arch: 43, pal: 94, rarity: 0, name: 'Supply Cache' };
   const fakes = [['Il Rotto Supremino', 0xffd24a], ['Il Rotto Suppremo', 0xf4c840], ['Rotto Supremo II', 0xffd860], ['Il Rotto Supremo (Replica)', 0xffcc3c]];
   DECOYS.forEach((id, n) => { species[id] = { id, arch: 39 + n, pal: 95, rarity: 5, name: fakes[n][0], hex: fakes[n][1], decoy: true }; pools[5].push(id); });
 })();

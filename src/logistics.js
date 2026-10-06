@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config.js';
-import { species, RARITY, NEEDLE, BULK, REMAINS } from './plushdata.js';
+import { species, RARITY, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { FUEL_MAX_RARITY } from './power.js';
 
@@ -382,7 +382,7 @@ export class Logistics {
     for (let f = 1; f <= 2; f++) for (let l = -1; l <= 1; l++) for (let v = 0; v <= 2; v++) {
       const [i, j, k] = this.mechCell(m, f, l, v);
       const s = w.get(i, j, k);
-      if (!s || s === BULK || s === REMAINS || w.reserved.has(idx(i, j, k))) continue;
+      if (!s || isSpecialCell(s) || w.reserved.has(idx(i, j, k))) continue;
       const sc = f * 10 + Math.abs(l) * 3 + v;
       if (sc < bs) { bs = sc; best = [i, j, k]; }
     }

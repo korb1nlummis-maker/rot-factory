@@ -262,7 +262,7 @@ function plank(w, h, d, px, py, pz, tint) {
   return g;
 }
 
-export const ARCH_NEEDLE = 36, ARCH_BULK = 37, ARCH_REMAINS = 38, ARCH_DECOY0 = 39;
+export const ARCH_NEEDLE = 36, ARCH_BULK = 37, ARCH_REMAINS = 38, ARCH_DECOY0 = 39, ARCH_CACHE = 43;
 
 export function makeArchGeometry(arch, lod) {
   if (arch === ARCH_REMAINS) {
@@ -283,6 +283,13 @@ export function makeArchGeometry(arch, lod) {
       parts.push(g);
     });
     const g = mergeGeometries(parts.map((p) => (p.index ? p : p)), false);
+    g.computeBoundingSphere();
+    return g;
+  }
+  if (arch === ARCH_CACHE) {
+    // a battered crate with straps
+    const parts = [plank(0.5, 0.4, 0.5, 0, 0, 0, [1, 1, 1]), plank(0.54, 0.05, 0.54, 0, 0.2, 0, [0.7, 0.62, 0.5]), plank(0.06, 0.42, 0.52, -0.14, 0, 0, [0.35, 0.35, 0.4]), plank(0.06, 0.42, 0.52, 0.14, 0, 0, [0.35, 0.35, 0.4]), plank(0.12, 0.08, 0.04, 0, 0.05, 0.26, [0.8, 0.75, 0.3])];
+    const g = mergeGeometries(parts, false);
     g.computeBoundingSphere();
     return g;
   }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { C, NX, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { resolveSphere } from './sim.js';
 import { compaction, clamp } from './util.js';
-import { NEEDLE, BULK, REMAINS } from './plushdata.js';
+import { NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { DX, DZ } from './logistics.js';
 
 const NAMES = ['Pip', 'Bolt', 'Nub', 'Clank', 'Sprocket', 'Widget', 'Doodle', 'Tinker', 'Gizmo', 'Rivet', 'Dot', 'Fidget', 'Cog', 'Bleep'];
@@ -125,7 +125,7 @@ export class Crew {
       const ni = i + DX[dir], nk = k + DZ[dir];
       if (ni < 4 || nk < 4 || ni > NX - 5 || nk > NZ - 5) return null;
       let hit = false;
-      for (let v = 0; v < 3; v++) if (w.solid(ni, oj + v, nk) && w.get(ni, oj + v, nk) !== BULK) hit = true;
+      for (let v = 0; v < 3; v++) if (w.solid(ni, oj + v, nk) && !isSpecialCell(w.get(ni, oj + v, nk))) hit = true;
       if (hit) return { i, j: oj, k };
       if (oj > 0 && !w.solid(ni, oj - 1, nk) && !w.solid(ni, oj - 2, nk)) return null; // a pit
       i = ni; k = nk;
@@ -317,7 +317,7 @@ export class Crew {
     for (let f = 1; f <= (b.level >= 6 ? 2 : 1); f++) for (let l = -half; l < W - half; l++) for (let v = 0; v < H; v++) {
       const i = bi + dx * f + px * l, k = bk + dz * f + pz * l, j = bj + v;
       const s = w.get(i, j, k);
-      if (!s || s === BULK || s === REMAINS || w.reserved.has((j * NZ + k) * NX + i)) continue;
+      if (!s || isSpecialCell(s) || w.reserved.has((j * NZ + k) * NX + i)) continue;
       const sc = f * 10 + Math.abs(l) * 3 + v;
       if (sc < bs) { bs = sc; best = [i, j, k]; }
     }

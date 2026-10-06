@@ -6,11 +6,11 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { C, NX, NY, NZ, CS, CX, CY, CZ, QUALITY, cellX, cellY, cellZ } from './config.js';
 import { h32, quatFromHash } from './util.js';
-import { species, PALETTES, NEEDLE, BULK, REMAINS, ARCH_COUNT } from './plushdata.js';
+import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, ARCH_COUNT } from './plushdata.js';
 import { makeArchGeometry } from './plushgeo.js';
 import { U, makePlushMaterial, ghostVert, ghostFrag, gradeShader } from './shaders.js';
 
-const NA = ARCH_COUNT + 7; // 36 shapes + The One + bulkhead + abandoned gear + 4 fakes
+const NA = ARCH_COUNT + 8; // 36 shapes + The One + bulkhead + gear + 4 fakes + cache
 const A_NEEDLE = ARCH_COUNT, A_BULK = ARCH_COUNT + 1, A_REMAINS = ARCH_COUNT + 2;
 const CAP_HI = 1100, CAP_LO = 3200, CAP_DYN = 700;
 const hexCache = new Map();
@@ -26,6 +26,7 @@ const palLin = PALETTES.map(([, hex]) => {
   return [c.r, c.g, c.b];
 });
 const remainsLin = [1, 1, 1];
+const cacheLin = (() => { const c = new THREE.Color(0xb98a4a); return [c.r, c.g, c.b]; })();
 const bulkLin = (() => { const c = new THREE.Color(0xa87a45); return [c.r, c.g, c.b]; })();
 const needleLin = (() => { const c = new THREE.Color(0xffd24a); return [c.r, c.g, c.b]; })();
 
@@ -246,6 +247,7 @@ export class Renderer {
           if (s === NEEDLE) { col = needleLin; shade = 1; flag = 2; }
           else if (s === BULK) { col = bulkLin; shade = 0.9 + ((v & 127) / 127) * 0.15; flag = 0; }
           else if (s === REMAINS) { col = remainsLin; shade = 1; flag = 0; }
+          else if (s === CACHE) { col = cacheLin; shade = 0.9 + ((v & 127) / 127) * 0.2; flag = 0; }
           else col = colOf(s0);
           out.push(
             pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6], pose[7],
@@ -359,7 +361,7 @@ export class Renderer {
     this.dynCount[a] = n + 1;
     compose(m.instanceMatrix.array, n * 16, x, y, z, qx, qy, qz, qw, s);
     let col, shade = 0.9 + ((vr & 127) / 127) * 0.2, flag = (vr & 128) ? 1 : 0;
-    if (sp === NEEDLE) { col = needleLin; shade = 1; flag = 2; } else if (sp === BULK) { col = bulkLin; shade = 1; flag = 0; } else if (sp === REMAINS) { col = remainsLin; shade = 1; flag = 0; } else col = colOf(s0);
+    if (sp === NEEDLE) { col = needleLin; shade = 1; flag = 2; } else if (sp === BULK) { col = bulkLin; shade = 1; flag = 0; } else if (sp === REMAINS) { col = remainsLin; shade = 1; flag = 0; } else if (sp === CACHE) { col = cacheLin; shade = 1; flag = 0; } else col = colOf(s0);
     const ca = m.instanceColor.array;
     ca[n * 3] = col[0] * shade; ca[n * 3 + 1] = col[1] * shade; ca[n * 3 + 2] = col[2] * shade;
     const aa = m.geometry.attributes.aData.array;

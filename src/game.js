@@ -14,14 +14,16 @@ import { Logistics, LOGI } from './logistics.js';
 import { Power } from './power.js';
 import { Contracts } from './contracts.js';
 import { Crew } from './crew.js';
-import { recipes, craft } from './crafting.js';
+import { Radio } from './radio.js';
+import { recipes, craft, craftGear, gearRecipes } from './crafting.js';
 import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
-import { UPGRADES, FRAME_TYPES, computeTuning, upgradeById, isUnlocked } from './upgrades.js';
+import { UPGRADES, FRAME_TYPES, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
+import { Cart, CART_CAP } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
-import { RARITY, species, NEEDLE, BULK, REMAINS, PALETTES, sellValue } from './plushdata.js';
+import { RARITY, species, pools, NEEDLE, BULK, REMAINS, CACHE, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
 import { makeWorker, noteFor, rewardFor, applyBoost, describeBoosts } from './remains.js';
 import { speciesIcon, needleFrames } from './icons.js';
 import { clamp, lerp, fmt, compaction } from './util.js';
@@ -118,8 +120,10 @@ export class Game {
     this.dust = new Dust(this);
     this.contracts = new Contracts(this);
     this.crew = new Crew(this);
+    this.cart = new Cart(this);
+    this.radio = new Radio(this);
     this.rampMode = 0;
-    this.T = computeTuning(this.S.up, this.S.boosts);
+    this.T = this.tune();
     this.fx.setScale(window.innerHeight);
     window.addEventListener('resize', () => this.fx.setScale(window.innerHeight));
   }
@@ -157,8 +161,9 @@ export class Game {
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
     if (!Array.isArray(S.stats.rar) || S.stats.rar.length < 7) S.stats.rar = [0, 0, 0, 0, 0, 0, 0];
+    if (!S.gear) { S.gear = {}; for (const id of GEAR) S.gear[id] = S.up[id] || 0; }
     S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
-    this.T = computeTuning(S.up, S.boosts);
+    this.T = this.tune();
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
     this.fliers = [];
@@ -172,6 +177,7 @@ export class Game {
     this.rebuildTools();
     this.tool = 0;
     this.crew.sync();
+    this.cart.sync();
     if (this.T.contractSlots) this.contracts.fill();
     this.ui.setCarry(S.carry, this.T.carry);
     this.sens = S.settings.sens || 1;
@@ -310,6 +316,7 @@ export class Game {
     else if (e.code === 'KeyF') this.throwOne();
     else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); this.ui.hint(this.stowed ? 'Build item stowed. <kbd>Q</kbd> brings it back.' : 'Build item ready. <kbd>B</kbd> places it.', 2); }
     else if (e.code === 'KeyX') this.deconstruct();
+    else if (e.code === 'KeyU') this.useCart();
     else if (e.code === 'KeyR') {
       this.rampMode = (this.rampMode + 1) % 2;
       this.machines.setGhost(null);
@@ -323,7 +330,7 @@ export class Game {
   rebuildTools() {
     const S = this.S;
     S.items = S.items || {};
-    const list = recipes(this).filter((r) => (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
+    const list = recipes(this).filter((r) => r.kind !== 'cart' && (S.items[r.id] || 0) > 0).map((r) => ({ id: r.id, kind: r.kind, fk: r.fk, ramp: r.ramp, icon: r.icon, label: r.short, count: '×' + S.items[r.id] }));
     // items whose recipe is no longer listed (should not happen) still count
     this.tools = list;
     if (this.buildIdx == null || this.buildIdx >= list.length) this.buildIdx = 0;
@@ -347,7 +354,10 @@ export class Game {
   }
   giveItem(id, n = 1) { this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }
 
+  tune() { return computeTuning(effLevels(this.S), this.S.boosts); }
   recipeList() { return recipes(this); }
+  gearList() { return gearRecipes(this); }
+  craftGearItem(id) { return craftGear(this, id); }
   craftItem(id, n) { return craft(this, id, n); }
 
   // ======================= buying =======================
@@ -360,7 +370,8 @@ export class Game {
     this.S.money -= cost;
     this.S.up[id] = lvl + 1;
     this.S.stats.upgrades++;
-    this.T = computeTuning(this.S.up, this.S.boosts);
+    this.T = this.tune();
+    if (GEAR.includes(id)) this.ui.toast({ icon: '🧰', title: 'Craft it to use it', text: 'This is wearable gear. Take it to the Crafting Table (E) and craft it, then it works.', ms: 7000 });
     if (['timber', 'steel', 'concrete', 'rebar', 'titan', 'carbon', 'plasma', 'voidl', 'neutron', 'horizon'].includes(id)) this.frameIdx = this.T.frames.length - 1;
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
@@ -514,6 +525,10 @@ export class Game {
     this.power.update(dt);
     this.logi.update(dt);
     this.crew.update(dt, this.time);
+    this.cart.update(dt);
+    this.radio.update(dt);
+    this.updateGolden(dt);
+    this.updateScavenge(dt);
     this.dust.update(dt);
     this.updateAir(dt, cam.position);
     this.sound.setMachines(Math.min(1, this.logi.hum / 12) * (this.camSky * 0.4 + 0.6));
@@ -598,7 +613,7 @@ export class Game {
     const s = species[tg.sp];
     const r = RARITY[s.rarity];
     const shiny = !!(tg.vr & 128);
-    let val = tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? 'hold G to take down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
+    let val = tg.sp === CACHE ? 'open it' : tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? 'hold G to take down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
     return { name: s.name, rarity: r.name, rid: s.rarity, shiny, value: val, volatile: !!s.volatile };
   }
 
@@ -636,14 +651,14 @@ export class Game {
     } else { this.ui.setTarget(null); this.renderer.setGhost(0); this.ui.setCross(false); }
 
     // vacuum burst (tap G once the Plush Vacuum is owned); special targets always use the single grab
-    const special = tg && (tg.type === 'body' || tg.sp === BULK || tg.sp === REMAINS);
+    const special = tg && (tg.type === 'body' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
     if (T.vac > 0 && !special) {
       if (this.keys.KeyG && !special) this.vacT = Math.max(this.vacT || 0, 0.3);
       if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
       this.ui.setGrab(0, false);
     } else {
       // single-plush grab
-      const full = S.carry.length >= T.carry;
+      const full = !this.storeRoom();
       const key = tg ? (tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : `b${tg.idx}`) : '';
       if (this.grabWant && !tg) { this.grabWantT += dt; if (this.grabWantT > 0.5) { this.grabWant = false; } }
       else this.grabWantT = 0;
@@ -684,6 +699,7 @@ export class Game {
     const S = this.S, T = this.T, w = this.world;
     let item = null, pos;
     if (tg.type === 'cell' && tg.sp === REMAINS) return this.openRemains(tg.i, tg.j, tg.k);
+    if (tg.type === 'cell' && tg.sp === CACHE) return this.openCache(tg.i, tg.j, tg.k);
     if (tg.type === 'cell' && tg.sp === BULK) {
       w.setCell(tg.i, tg.j, tg.k, 0, 0);
       w.stabQueue.push({ i: tg.i, j: tg.j, k: tg.k });
@@ -721,7 +737,7 @@ export class Game {
       }
       near.sort((a, b) => a[0] - b[0]);
       for (const [, i, j, k] of near) {
-        if (left <= 0 || S.carry.length >= T.carry) break;
+        if (left <= 0 || !this.storeRoom()) break;
         const rm = w.removeCell(i, j, k);
         if (!rm) continue;
         S.stats.cells++;
@@ -742,8 +758,10 @@ export class Game {
     this.registerDex(item.sp);
     if (item.sp === NEEDLE) { this.foundNeedle('your hands'); return; }
     const carried = { sp: item.sp, vr: item.vr };
-    S.carry.push(carried);
-    if (sp.volatile && !quiet) this.lightFuse(carried);
+    if (!(!sp.volatile && this.routeToCart(carried, pos))) {
+      S.carry.push(carried);
+      if (sp.volatile && !quiet) this.lightFuse(carried);
+    }
     this.ui.setCarry(S.carry, this.T.carry);
     this.heldPop = 1;
     // flier to the hand
@@ -777,7 +795,7 @@ export class Game {
     if (this.dustCd <= 0) { this.dustCd = 0.08; this.sound.whoosh(0.03); }
     while (this.vacAcc >= 1) {
       this.vacAcc -= 1;
-      if (S.carry.length >= T.carry) { this.ui.hint('Hopper full. <kbd>E</kbd> at the bin to sell.', 2); this.vacAcc = 0; return; }
+      if (!this.storeRoom()) { this.ui.hint('Full. Walk to the SORT bin, or roll out a cart (<kbd>U</kbd>).', 2); this.vacAcc = 0; return; }
       // find nearest exposed cell in cone
       const reach = T.reach + 1.2;
       const rc = Math.ceil(reach / C);
@@ -786,7 +804,7 @@ export class Game {
       for (let dk = -rc; dk <= rc; dk++) for (let dj = -rc; dj <= rc; dj++) for (let di = -rc; di <= rc; di++) {
         const i = ci + di, j = cj + dj, k = ck + dk;
         const vs = w.get(i, j, k);
-        if (!vs || vs === BULK || vs === REMAINS) continue;
+        if (!vs || isSpecialCell(vs)) continue;
         const x = cellX(i) - eye.x, y = cellY(j) - eye.y, z = cellZ(k) - eye.z;
         const d = Math.hypot(x, y, z);
         if (d > reach || d < 0.3) continue;
@@ -824,7 +842,7 @@ export class Game {
   // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
   gPress() {
     const t0 = this.curTargetRef;
-    const special = t0 && (t0.type === 'body' || t0.sp === BULK || t0.sp === REMAINS);
+    const special = t0 && (t0.type === 'body' || t0.sp === BULK || t0.sp === REMAINS || t0.sp === CACHE);
     if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
     if (this.curTargetRef) { this.grabWant = true; this.grabWantT = 0; this.grab.latch = false; return; }
     if (this.S.carry.length) this.dropOne();
@@ -837,7 +855,7 @@ export class Game {
   }
 
   refreshTuning() {
-    this.T = computeTuning(this.S.up, this.S.boosts);
+    this.T = this.tune();
     this.world.stabBonus = this.T.stabBonus;
     this.rebuildTools();
     this.ui.setCarry(this.S.carry, this.T.carry);
@@ -936,6 +954,129 @@ export class Game {
     if (Math.random() < 0.5) this.fx.dust(x, y, z, 2, 0.5, 0.5);
   }
 
+  // ---------------- carts and storage ----------------
+  cartDist() { const c = this.S.cart; return c ? Math.hypot(c.x - this.player.pos.x, c.z - this.player.pos.z) : 1e9; }
+  storeRoom() { return this.S.carry.length < this.T.carry || (this.S.cart && this.cartDist() < 9 && this.S.cart.load.length < CART_CAP[this.S.cart.tier]); }
+
+  // plush you grab ride on your cart when it is close, until it is full
+  routeToCart(item, pos) {
+    const c = this.S.cart;
+    if (!c || this.cartDist() > 9 || c.load.length >= CART_CAP[c.tier]) return false;
+    c.load.push(item);
+    this.fliers.push({ sp: item.sp, vr: item.vr, from: pos.clone(), to: new THREE.Vector3(c.x, c.y + 0.7, c.z), t: 0, dur: 0.3, arc: 0.7 });
+    return true;
+  }
+
+  useCart() {
+    const S = this.S, c = S.cart;
+    if (c) {
+      const d = this.cartDist();
+      if (d > 5) { c.mode = 'follow'; this.ui.hint('Your cart is on its way.', 2); return; }
+      c.mode = c.mode === 'follow' ? 'stay' : 'follow';
+      this.ui.hint(c.mode === 'follow' ? 'Cart follows you. <kbd>U</kbd> parks it, <kbd>X</kbd> stows it when empty.' : 'Cart parked. <kbd>U</kbd> makes it follow again.', 3);
+      this.sound.tone('triangle', 500, 700, 0.08, 0.06);
+      return;
+    }
+    let tier = 0;
+    for (let t = 5; t >= 1; t--) if ((S.items['cart:' + t] || 0) > 0) { tier = t; break; }
+    if (!tier) { this.ui.hint('No cart. Unlock Carts in the terminal, then craft one at the bench (<kbd>E</kbd>).', 4); return; }
+    S.items['cart:' + tier]--;
+    if (S.items['cart:' + tier] <= 0) delete S.items['cart:' + tier];
+    this.cart.deploy(tier);
+    this.sound.place();
+    this.ui.hint('Cart out. It follows you and grabbed plush ride on it. Park it near the bin to unload.', 5);
+    this.rebuildTools();
+  }
+
+  stowCart() {
+    const c = this.S.cart;
+    if (!c) return false;
+    if (c.load.length) { this.ui.hint('Empty the cart first (park it near the bin).', 3); return true; }
+    this.giveItem('cart:' + c.tier);
+    this.cart.stow();
+    this.sound.thump(0.12, 140);
+    return true;
+  }
+
+  // ======================= golden hour =======================
+  updateGolden(dt) {
+    if (this.goldT === undefined) this.goldT = 900 + Math.random() * 900;
+    if (this.golden > 0) {
+      this.golden -= dt;
+      if (this.golden <= 0) { this.golden = 0; this.ui.toast({ icon: '🌟', title: 'Golden Hour is over', text: 'Prices are back to normal.', ms: 3000 }); }
+      return;
+    }
+    this.goldT -= dt;
+    if (this.goldT <= 0) {
+      this.goldT = 1500 + Math.random() * 1800;
+      this.golden = 75;
+      this.sound.ach();
+      this.ui.toast({ icon: '🌟', title: 'Golden Hour', text: 'Buyers are in a good mood. Everything sells for double for 75 seconds.', ms: 7000 });
+    }
+  }
+
+  // ======================= scavenger magnet =======================
+  updateScavenge(dt) {
+    const T = this.T;
+    if (!T.scavRange || this.mode !== 'play') return;
+    this._scT = (this._scT || 0) - dt;
+    if (this._scT > 0) return;
+    this._scT = 0.18;
+    if (!this.storeRoom()) return;
+    const s = this.sim, p = this.player.pos, r2 = T.scavRange * T.scavRange;
+    let best = -1, bd = r2;
+    for (let i = 0; i < s.n; i++) {
+      if (s.sp[i] === NEEDLE && false) continue;
+      const d = (s.x[i] - p.x) ** 2 + (s.y[i] - p.y - 0.8) ** 2 + (s.z[i] - p.z) ** 2;
+      if (d < bd && s.vx[i] * s.vx[i] + s.vy[i] * s.vy[i] + s.vz[i] * s.vz[i] < 9) { bd = d; best = i; }
+    }
+    if (best >= 0) this.collect({ type: 'body', idx: best, sp: s.sp[best], vr: s.vr[best] });
+  }
+
+  // ======================= supply caches =======================
+  openCache(i, j, k) {
+    const w = this.world, S = this.S;
+    w.setCell(i, j, k, 0, 0);
+    w.stabQueue.push({ i, j, k });
+    const dist = Math.hypot(cellX(i), cellZ(k));
+    const tier = Math.max(0, Math.min(9, Math.floor(Math.log2(1 + dist / 60))));
+    const rng = Math.random;
+    const roll = rng();
+    let text;
+    const list = recipes(this).filter((r) => r.kind !== 'cart');
+    if (roll < 0.5 && list.length) {
+      const r = list[(rng() * list.length) | 0];
+      const n = Math.max(1, Math.min(12, Math.round((3 + tier) * (r.price < 50 ? 2 : r.price < 500 ? 1 : 0.4) * (0.6 + rng() * 0.8))));
+      S.items[r.id] = (S.items[r.id] || 0) + n;
+      this.rebuildTools();
+      text = `${n} x ${r.name}`;
+    } else if (roll < 0.82) {
+      const cash = Math.round(120 * Math.pow(2.5, tier) * (0.6 + rng() * 0.9));
+      S.money += cash; S.totalEarned += cash; this.ui.setMoney(S.money); this.ui.gain(cash);
+      text = `A coffee can of tokens: ◈ ${fmt(cash)}`;
+    } else if (roll < 0.94) {
+      const b = S.boosts; const kind = ['sell', 'dig', 'carry'][(rng() * 3) | 0];
+      if (kind === 'sell') { b.sell += 0.01; text = 'Neat ledgers: +1% sale price'; }
+      else if (kind === 'dig') { b.dig += 0.01; b.digMul *= 0.99; text = 'A worn-out shovel that still works: -1% dig time'; }
+      else { b.carry += 1; text = 'A spare strap: +1 carry'; }
+      this.refreshTuning();
+    } else {
+      const n = 6 + tier * 3;
+      for (let q = 0; q < n; q++) {
+        const rr = Math.min(5, 2 + ((rng() * (1 + tier / 3)) | 0));
+        const pool = pools[rr];
+        const sp = pool[(rng() * pool.length) | 0];
+        this.sim.spawn(sp, (rng() * 127) | 0, cellX(i) + (rng() - 0.5) * 0.4, cellY(j) + 0.4 + q * 0.1, cellZ(k) + (rng() - 0.5) * 0.4, (rng() - 0.5) * 2, 3, (rng() - 0.5) * 2, 0);
+      }
+      text = `A stash of ${n} good plush spills out`;
+    }
+    S.stats.caches = (S.stats.caches || 0) + 1;
+    this.fx.sparkle(cellX(i), cellY(j), cellZ(k), 18, 1, 0.9, 0.5);
+    this.sound.ach();
+    this.ui.toast({ icon: '📦', title: 'Supply cache', text, ms: 5000 });
+    return true;
+  }
+
   dropOne() {
     const S = this.S, it = S.carry[S.carry.length - 1];
     if (!it) return;
@@ -987,41 +1128,55 @@ export class Game {
     });
   }
 
-  autoDump(dt) {
-    const T = this.T, S = this.S;
-    if (!T.autoDump || !S.carry.length) return;
-    const pp = this.player.pos, bp = this.hall.binPos;
-    let sorter = null, sd = T.autoDump;
-    for (const t of this.logi.tiles.values()) {
-      if (t.type !== 'sorter') continue;
-      const d = Math.hypot(pp.x - cellX(t.i), pp.z - cellZ(t.k), (pp.y + 1 - t.j * C) * 0.5);
-      if (d < sd && t.q.length < 3) { sd = d; sorter = t; }
+  // find the nearest place that sucks plush in (bin, depot or an open Sorting Box) within range of a position
+  nearestSink(x, y, z, range) {
+    const bp = this.hall.binPos;
+    let best = null, bd = range;
+    const d0 = Math.hypot(x - bp.x, z - bp.z);
+    if (d0 < bd) { bd = d0; best = { kind: 'sell', x: bp.x, y: 1.0, z: bp.z }; }
+    for (const it of this.machines.items.values()) {
+      if (it.ent.type !== 'beacon') continue;
+      const d = Math.hypot(x - it.ent.x, z - it.ent.z);
+      if (d < bd) { bd = d; best = { kind: 'sell', x: it.ent.x, y: 1.0, z: it.ent.z }; }
     }
-    let binNear = Math.hypot(pp.x - bp.x, pp.z - bp.z) < T.autoDump;
-    let sellPos = bp;
-    if (!binNear) for (const it of this.machines.items.values()) { if (it.ent.type === 'beacon' && Math.hypot(pp.x - it.ent.x, pp.z - it.ent.z) < T.autoDump) { binNear = true; sellPos = { x: it.ent.x, z: it.ent.z }; break; } }
-    if (sorter) {
-      this._adT = (this._adT || 0) - dt;
-      if (this._adT <= 0) {
-        this._adT = 0.16;
+    for (const t of this.logi.tiles.values()) {
+      if (t.type !== 'sorter' || t.q.length >= 3) continue;
+      const d = Math.hypot(x - cellX(t.i), z - cellZ(t.k), (y - t.j * C) * 0.5);
+      if (d < bd) { bd = d; best = { kind: 'sorter', ent: t, x: cellX(t.i), y: t.j * C + 0.6, z: cellZ(t.k) }; }
+    }
+    return best;
+  }
+
+  // plush you carry, and plush on your cart, get sucked into whatever is close enough
+  autoDump(dt) {
+    const T = this.T, S = this.S, pp = this.player.pos;
+    this._adT = (this._adT || 0) - dt;
+    this._adC = (this._adC || 0) - dt;
+    if (S.carry.length && this._adT <= 0) {
+      const sink = this.nearestSink(pp.x, pp.y + 1, pp.z, T.autoDump);
+      if (sink) {
         const it = S.carry[S.carry.length - 1];
-        if (this.logi.accept(sorter, it, null)) {
+        if (sink.kind === 'sell' || this.logi.accept(sink.ent, it, null)) {
           S.carry.pop(); this.ui.setCarry(S.carry, T.carry);
+          if (sink.kind === 'sell') this.sell(it.sp, it.vr, { dist: 0, streak: true });
           const cam = this.renderer.camera.position;
-          this.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(cam.x, cam.y - 0.5, cam.z), to: new THREE.Vector3(cellX(sorter.i), sorter.j * C + 0.6, cellZ(sorter.k)), t: 0, dur: 0.3, arc: 0.5 });
+          this.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(cam.x, cam.y - 0.5, cam.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: 0, dur: 0.36, arc: 0.7 });
           this.heldPop = -0.5;
-        }
+          this._adT = Math.max(0.05, 0.14 - S.carry.length * 0.004);
+        } else this._adT = 0.2;
       }
-    } else if (binNear) {
-      this._adT = (this._adT || 0) - dt;
-      if (this._adT <= 0) {
-        this._adT = Math.max(0.05, 0.14 - S.carry.length * 0.004);
-        const it = S.carry.pop();
-        this.ui.setCarry(S.carry, T.carry);
-        this.sell(it.sp, it.vr, { dist: 0, streak: true });
-        const cam = this.renderer.camera.position;
-        this.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(cam.x, cam.y - 0.5, cam.z), to: new THREE.Vector3(sellPos.x, 1.0, sellPos.z), t: 0, dur: 0.38, arc: 0.8 });
-        this.heldPop = -0.5;
+    }
+    const c = S.cart;
+    if (c && c.load.length && this._adC <= 0) {
+      const sink = this.nearestSink(c.x, c.y + 0.5, c.z, Math.max(3.2, T.autoDump * 0.8));
+      if (sink) {
+        const it = c.load[c.load.length - 1];
+        if (sink.kind === 'sell' || this.logi.accept(sink.ent, it, null)) {
+          c.load.pop();
+          if (sink.kind === 'sell') this.sell(it.sp, it.vr, { dist: 0, streak: true });
+          this.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(c.x, c.y + 0.7, c.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: 0, dur: 0.4, arc: 0.9 });
+          this._adC = Math.max(0.04, 0.1 - c.load.length * 0.0004);
+        } else this._adC = 0.25;
       }
     }
   }
@@ -1043,6 +1198,7 @@ export class Game {
       S.stats.bestStreak = Math.max(S.stats.bestStreak, this.streak.n);
     }
     let v = this.valueOf(sp, vr, opt.streak ? this.streak.n : 0);
+    if (this.golden > 0) { v *= 2; S.stats.goldenSales = (S.stats.goldenSales || 0) + 1; }
     let swish = false;
     if (opt.dist >= 8) { v = Math.round(v * (1 + Math.min(0.6, opt.dist / 40))); swish = true; S.stats.bestSwish = Math.max(S.stats.bestSwish, opt.dist); }
     S.money += v;
@@ -1061,7 +1217,7 @@ export class Game {
 
   sellAuto(sp, vr, mult = 1) {
     const S = this.S;
-    const v = Math.max(1, Math.round(this.valueOf(sp, vr, 0) * mult));
+    const v = Math.max(1, Math.round(this.valueOf(sp, vr, 0) * mult * (this.golden > 0 ? 2 : 1)));
     S.money += v; S.totalEarned += v; S.stats.sold++;
     this.contracts.onSale(sp, vr);
     this.ui.setMoney(S.money); this.ui.gain(v);
@@ -1237,6 +1393,7 @@ export class Game {
   deconstruct() {
     // remove the nearest frame/lantern/rig the player is looking toward (refund half)
     const eye = this.renderer.camera.position, dir = this.player.forward(_fwd);
+    if (this.S.cart && this.cartDist() < 3.2) { _v2.set(this.S.cart.x - eye.x, this.S.cart.y + 0.5 - eye.y, this.S.cart.z - eye.z); if (_v2.length() < 3.2 && _v2.normalize().dot(dir) > 0.7) { this.stowCart(); return; } }
     const tile = this.logi.pick(eye, dir, 3.6);
     if (tile) {
       this.logi.remove(tile);
@@ -1611,6 +1768,7 @@ export class Game {
   }
 
   needlePos() {
+    if (this.S.ending === 'exit') return null;
     const w = this.world, n = w.needle;
     if (w.get(n.i, n.j, n.k) === NEEDLE) return _v2.set(cellX(n.i), cellY(n.j), cellZ(n.k));
     const s = this.sim;
@@ -1638,12 +1796,12 @@ export class Game {
     if (buried && !this.lastBuried) S.stats.buried++;
     this.lastBuried = buried;
     // emergency recall: hold U
-    if (this.keys.KeyU) {
+    if (this.keys.KeyH) {
       this.recallHold += dt;
       if (this.recallHold > 2.5) { this.recallHold = 0; this.recall(); }
-      else this.ui.hint(`Recalling… hold <kbd>U</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
+      else this.ui.hint(`Recalling… hold <kbd>H</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
     } else this.recallHold = 0;
-    if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>U</kbd> for an emergency recall to the sorting bay.', 8); }
+    if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the sorting bay.', 8); }
 
     if (this.S.stats && this.T.scan > 0) this.sound.geiger(dt, this.sigLevel > 0 ? Math.pow(this.sigLevel, 0.7) : 0);
     // carried held plush bob
@@ -1651,6 +1809,7 @@ export class Game {
 
     if (this.hudT > 0) return;
     this.hudT = 0.1;
+    this.ui.setCartLine(this.S.cart ? this.S.cart.load.length : -1, this.S.cart ? CART_CAP[this.S.cart.tier] : 0, this.S.cart ? this.S.cart.mode : '');
     const depth = this.trackDepth();
     this.ui.setDepth(depth > 0.3 ? `DEPTH ${depth.toFixed(1)} m` : p.pos.y > 6 ? `ALTITUDE ${p.pos.y.toFixed(0)} m` : '');
     {
@@ -1774,13 +1933,14 @@ export class Game {
     }
     this.logi.forEachItem((it, x, y, z, sc) => r.addDynamic(it.sp, it.vr, x, y, z, 0, 0, 0, 1, sc, 0.95, Math.max(0.5, this.camSky)));
     this.crew.forEachItem((it, x, y, z, sc) => r.addDynamic(it.sp, it.vr, x, y, z, 0, 0, 0, 1, sc, 0.95, Math.max(0.5, this.camSky)));
+    this.cart.forEachItem((it, x, y, z, sc) => r.addDynamic(it.sp, it.vr, x, y, z, 0, 0, 0, 1, sc, 0.95, Math.max(0.5, this.camSky)));
     // held plush in view
     if (this.mode === 'play' && S.carry.length) {
       const it = S.carry[S.carry.length - 1];
       const hq = this.renderer.camera.quaternion;
       const spin = _q.setFromAxisAngle(_v.set(0, 1, 0), 0.5 + Math.sin(this.time * 0.8) * 0.15);
       const q2 = hq.clone().multiply(spin);
-      const pop = 0.55 * (1 + 0.5 * Math.max(0, this.heldPop) + 0.1 * Math.min(0, this.heldPop));
+      const pop = 0.36 * (1 + 0.5 * Math.max(0, this.heldPop) + 0.1 * Math.min(0, this.heldPop));
       r.addDynamic(it.sp, it.vr, hp.x, hp.y, hp.z, q2.x, q2.y, q2.z, q2.w, pop, 1, Math.max(0.6, this.camSky));
     }
     r.endDynamic();
@@ -1793,7 +1953,7 @@ export class Game {
     _right.set(1, 0, 0).applyQuaternion(cam.quaternion);
     const up = _v.set(0, 1, 0).applyQuaternion(cam.quaternion);
     const bob = Math.sin(this.player.bob * 2) * 0.012;
-    return out.copy(cam.position).addScaledVector(_fwd, 0.62).addScaledVector(_right, 0.3).addScaledVector(up, -0.26 + bob - Math.max(0, -this.heldPop) * 0.1);
+    return out.copy(cam.position).addScaledVector(_fwd, 0.7).addScaledVector(_right, 0.34).addScaledVector(up, -0.3 + bob - Math.max(0, -this.heldPop) * 0.1);
   }
 
   // ======================= achievements / endings =======================
@@ -1813,7 +1973,7 @@ export class Game {
 
   foundNeedle(src) {
     const S = this.S;
-    if (S.found) return;
+    if (S.ending) return; // once you take the exit, the One is gone for good: quit the job or win the long way
     S.found = true;
     S.ending = 'plush';
     this.mode = 'ended';

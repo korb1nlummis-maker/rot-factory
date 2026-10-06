@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { FRAME_TYPES } from './upgrades.js';
-import { sellValue, NEEDLE, BULK, REMAINS } from './plushdata.js';
+import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 
 const woodTex = (() => {
@@ -405,7 +405,7 @@ export class Machines {
       for (let dj = -rc; dj <= rc; dj++) for (let dk = -rc; dk <= rc; dk++) for (let di = -rc; di <= rc; di++) {
         const i = ci + di, j = cj + dj, k = ck + dk;
         const gs = w.get(i, j, k);
-        if (gs === 0 || gs === BULK || gs === REMAINS) continue;
+        if (gs === 0 || isSpecialCell(gs)) continue;
         const x = cellX(i), y = cellY(j), z = cellZ(k);
         const d = Math.hypot(x - ax, y - ay, z - az);
         if (d > reach) continue;

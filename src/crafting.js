@@ -1,10 +1,12 @@
-import { FRAME_TYPES } from './upgrades.js';
+import { FRAME_TYPES, GEAR, UPGRADES } from './upgrades.js';
+import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 
 // Everything you build is crafted first at the Crafting Table, then carried and set down with B.
 export function recipes(g) {
   const T = g.T;
   const list = [];
   for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Props a tunnel roof. +${FRAME_TYPES[k].bonus} strength within ${FRAME_TYPES[k].radius} m.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10] });
+  for (let t = 1; t <= T.cartTier; t++) list.push({ id: 'cart:' + t, kind: 'cart', icon: '🛒', name: CART_NAMES[t], short: CART_NAMES[t], desc: `Press U to roll it out. Follows you, carries ${CART_CAP[t]} plush and unloads near the bin.`, price: CART_PRICE[t], batch: [1, 1, 1] });
   if (T.lantern) list.push({ id: 'lantern', kind: 'lantern', icon: '🏮', name: 'Work Lantern', short: 'Lantern', desc: 'Hang it up to light a tunnel.', price: 6, batch: [1, 5, 10] });
   if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', name: 'Bulkhead Panel', short: 'Bulkhead', desc: 'A solid plank wall cell. Never falls. Hold the pile back.', price: 10, batch: [1, 10, 50] });
   if (T.machines.includes('belt')) {
@@ -23,6 +25,34 @@ export function recipes(g) {
   return list;
 }
 
+// wearable gear: one piece per upgrade line, crafted tier by tier once the upgrade is unlocked
+export function gearRecipes(g) {
+  const S = g.S, out = [];
+  for (const id of GEAR) {
+    const u = UPGRADES.find((x) => x.id === id);
+    const bought = S.up[id] || 0, have = (S.gear && S.gear[id]) || 0;
+    if (bought > have) {
+      const tier = have + 1;
+      const name = u.names ? u.names[tier] : `${u.name} ${tier}`;
+      out.push({ id, tier, name, line: u.name, desc: u.desc, price: Math.max(5, Math.round(u.cost[tier - 1] * 0.3)), have, bought, max: u.max });
+    }
+  }
+  return out;
+}
+
+export function craftGear(g, id) {
+  const r = gearRecipes(g).find((x) => x.id === id);
+  if (!r) return false;
+  if (g.S.money < r.price) { g.sound.error(); return false; }
+  g.S.money -= r.price;
+  g.S.gear[id] = r.tier;
+  g.ui.setMoney(g.S.money);
+  g.sound.buy();
+  g.refreshTuning();
+  g.ui.toast({ icon: '🧰', title: `Crafted ${r.name}`, text: 'Equipped. It works now.', ms: 3500 });
+  return true;
+}
+
 export function craft(g, id, n) {
   const S = g.S;
   const r = recipes(g).find((x) => x.id === id);
@@ -33,6 +63,7 @@ export function craft(g, id, n) {
   S.items[id] = (S.items[id] || 0) + n;
   g.ui.setMoney(S.money);
   g.sound.place();
+  if (r.kind === 'cart') { g.rebuildTools(); g.ui.hint('Press <kbd>U</kbd> to roll the cart out.', 4); return true; }
   g.stowed = false;
   g.rebuildTools();
   const idx = g.tools.findIndex((t) => t.id === id);

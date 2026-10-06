@@ -20,6 +20,8 @@ export const UPGRADES = [
   { id: 'gloves', cat: 'hands', name: 'Grippy Gloves', desc: 'Faster grabbing. Your fingers learn the pile.', max: 7, cost: geo(8, 2.25, 7), effect: (t, l) => { t.grabTime *= Math.pow(0.84, l); } },
   { id: 'reach', cat: 'hands', name: 'Telescoping Grabber', desc: 'Reach further into the pile.', max: 4, cost: [18, 70, 260, 900], effect: (t, l) => { t.reach += 0.5 * l; } },
   { id: 'bag', cat: 'hands', name: 'Carry Capacity', desc: 'Tote, pack, cart, pallet jack. Hold more plush before you have to walk back.', max: 8, cost: [14, 45, 130, 360, 950, 2600, 7200, 19000], effect: (t, l) => { t.carry = [1, 3, 6, 10, 16, 26, 42, 70, 120][l]; }, names: ['Bare Hands', 'Tote Bag', 'Backpack', 'Hiker Pack', 'Wheelbarrow', 'Hand Cart', 'Pallet Jack', 'Forklift Fork', 'Gantry Hopper'] },
+  { id: 'cart', cat: 'hands', name: 'Carts', desc: 'Unlocks carts to craft: Wheelbarrow, Hand Cart, Pallet Cart, Trolley, Flatbed. Press U to roll one out. It follows you, and plush you grab ride on it up to its capacity (24 / 60 / 150 / 400 / 1000). Park it near the bin or a sorter and it unloads itself.', max: 5, cost: geo(300, 3.2, 5), req: { id: 'bag', lvl: 1 }, effect: (t, l) => { t.cartTier = l; } },
+  { id: 'scavenge', cat: 'hands', name: 'Scavenger Magnet', desc: 'Loose plush lying on the floor (after a collapse, a throw, a spill) fly to you or your cart when they are close. Wearable: craft each tier.', max: 3, cost: [500, 5000, 50000], effect: (t, l) => { t.scavRange = [0, 3, 6, 10][l]; } },
   { id: 'repeat', cat: 'hands', name: 'Auto-Grip', desc: 'Hold G and keep grabbing without tapping.', max: 1, cost: [40], effect: (t) => { t.autoRepeat = true; } },
   { id: 'scoop', cat: 'hands', name: 'Scoop Hands', desc: 'Each grab also scoops neighbouring plush. Bigger scoops pull the pile apart faster.', max: 4, cost: [120, 480, 1900, 7800], req: { id: 'bag', lvl: 2 }, effect: (t, l) => { t.scoop = [0, 1, 3, 6, 12][l]; } },
   { id: 'vac', cat: 'hands', name: 'Plush Vacuum', desc: 'Tapping G now inhales plush in a cone for a couple of seconds instead of grabbing one. Upgrades raise suction rate.', max: 5, cost: [650, 1800, 5200, 15000, 42000], req: { id: 'bag', lvl: 3 }, effect: (t, l) => { t.vac = l; t.vacRate = [0, 3, 5, 8, 12, 18][l]; } },
@@ -120,6 +122,15 @@ export const FRAME_TYPES = {
   horizon:  { name: 'Event Horizon',    cost: 70000000, bonus: 10, radius: 9.2, color: 0x101018, icon: '⚫' },
 };
 
+// Wearable efficiency upgrades are unlocked in the terminal but only work once you CRAFT them at the bench.
+export const GEAR = ['gloves', 'reach', 'bag', 'boots', 'knees', 'springs', 'lamp', 'resp', 'scoop', 'vac', 'scavenge'];
+export function effLevels(S) {
+  const e = { ...S.up };
+  const g = S.gear || {};
+  for (const id of GEAR) e[id] = Math.min(S.up[id] || 0, g[id] || 0);
+  return e;
+}
+
 export function defaultTuning() {
   return {
     grabTime: 0.72, reach: 2.4, carry: 1, autoRepeat: false, locator: 0, locatorRange: 0, exitMarker: false, assay: false, depots: false, scoop: 0, vac: 0, vacRate: 0, throwPower: 11,
@@ -129,7 +140,7 @@ export function defaultTuning() {
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,
     crewMax: 0, crewHaul: 1, crewSpeed: 1, crewBattery: 1, crewBelt: false, crewBolt: false,
-    contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airmon: false,
+    scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airmon: false,
     beltSpeed: 1.6, sorterTiers: 0, mechMax: 0, mechRate: 2.4, mechBuffer: 6, mechLayer: false, mechBolt: false, bulkhead: false,
     machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 14.5, borerW: 2, borerH: 3,
   };

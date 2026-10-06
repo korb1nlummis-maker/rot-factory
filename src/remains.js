@@ -78,36 +78,44 @@ export function makeWorker(id, dist) {
 
 const NOTES = {
   intern: [
+    '"Told them I could handle the night shift. The pile talks at night. It says my name wrong, on purpose."',
+    '"First week and I already know where every exit is not."',
     '"Day 3. They told me to just look for the shiny one. I have been pulling plush out for hours and every one squeaks at me like it knows."',
     '"If you find this, tell Mum I did not run away. The tunnel just got longer than the map said."',
     '"My lamp is dying. The foreman said hum when you are scared. I am humming."',
   ],
   sorter: [
+    '"I started naming them. Gnocchi Gatto is Dave now. Dave has been in my pocket since Tuesday."',
     '"Sorting by rarity is easy. Sorting by how they look at you is not. The frog ones are watching."',
     '"Quota is 4,000 a shift. I did 4,012 and the bin was full anyway. Where do they all go?"',
     '"Found a Mythic Fantasma today and the whole crew cheered. Management asked if it was the one. It was not the one."',
   ],
   forklift: [
+    '"Lost the pallet jack in a slide. Slides are not supposed to go uphill."',
     '"Backed the truck into the east aisle and the wall was warm. Warm. There is no sun in here."',
     '"I counted the pallet rows. The pile is not where it was last week. It moves when we sleep."',
     '"Cargo hold full. Nothing to unload it onto. Nowhere to go but further."',
   ],
   surveyor: [
+    '"%d m. I measured twice. The tape measure was longer the second time."',
     '"My transit says we are %d m from the bay. The compass says east. The plush say go home."',
     '"Plotted what the old ledger told me. The prize was shelved far from every door. Past the corners, I think."',
     '"The pile gets heavier each kilometer. Frames that held at 300 m crumple at 1,500. Plan for it."',
   ],
   foreman: [
+    '"Heard the roof go at 3 a.m. Counted heads. Counted again. One more than we started with."',
     '"Rule one: a frame every four meters. Rule two: a frame every four meters. I did not follow rule one."',
     '"Told the crew to back out when the roof creaked. Nobody listens. They listen now."',
     '"Bulkhead the tail when it goes. Never pull on the arch. I pulled on the arch."',
   ],
   engineer: [
+    '"Load test failed. Load test passed. Load test did not run, and still reported."',
     '"The numbers say the roof should not hold at this depth. It held. That is worse."',
     '"I stopped trusting the load tables at 2,000 m. The pile pushes back. It pushes back on purpose."',
     '"Blueprint attached for a better lining. If you are reading this, you are deep enough to need it."',
   ],
   director: [
+    '"Every director before me left a note. They all say the same thing. I will not write it down."',
     '"I signed the order to dig for it myself. The company knew where it was. They never said why we could not just ask."',
     '"The One is not a plush. I held it once. It was warm and it counted my breaths."',
     '"If you reach the end, do not take it to the surface. Take the door. Take the door."',

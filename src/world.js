@@ -1,6 +1,6 @@
 import { C, NX, NY, NZ, CS, CX, CY, CZ, HALL_H, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { h32, mulberry32, smoothstep, fbm2, vnoise2, clamp } from './util.js';
-import { pickSpecies, NEEDLE, BULK, REMAINS } from './plushdata.js';
+import { pickSpecies, NEEDLE, BULK, REMAINS, CACHE, isSpecialCell } from './plushdata.js';
 import { workingsNear, workingPlugged } from './remains.js';
 
 const NCX = NX >> 4, NCZ = NZ >> 4;
@@ -126,6 +126,12 @@ export class World {
           }
         }
       }
+      // a supply cache halfway along, when the tunnel is long enough and the spot is not caved in
+      const mt = Math.floor(w.len / 2);
+      if (w.len >= 44 && !workingPlugged(w, mt) && (w.id & 3) !== 0) {
+        const ci2 = w.i0 + DXs[w.dir] * mt, ck2 = w.k0 + DZs[w.dir] * mt;
+        if (ci2 >= i0 && ci2 < i0 + 16 && ck2 >= k0 && ck2 < k0 + 16) { const b = (0 * 16 + (ck2 - k0)) * 16 + (ci2 - i0); col.sp[b] = CACHE; col.vr[b] = (w.id >> 3) & 127; }
+      }
       // what is left of the last person to work here
       const ri = w.ei, rk = w.ek;
       if (ri >= i0 && ri < i0 + 16 && rk >= k0 && rk < k0 + 16) {
@@ -228,7 +234,7 @@ export class World {
   removeCell(i, j, k, queue = true) {
     if (!this.inside(i, j, k)) return null;
     const sp = this.get(i, j, k);
-    if (!sp || sp === BULK || sp === REMAINS) return null;
+    if (!sp || isSpecialCell(sp)) return null;
     const vr = this.getVr(i, j, k);
     this.setCell(i, j, k, 0, 0);
     if (queue) this.stabQueue.push({ i, j, k });

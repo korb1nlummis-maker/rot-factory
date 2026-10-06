@@ -1,4 +1,4 @@
-import { CATS, UPGRADES, isUnlocked, needsText } from './upgrades.js';
+import { CATS, UPGRADES, GEAR, isUnlocked, needsText } from './upgrades.js';
 import { STATUS } from './crew.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { RARITY, species, speciesCount, NEEDLE, DECOYS } from './plushdata.js';
@@ -126,6 +126,7 @@ export class UI {
   setPower(on, frac, txt) { const e = $('power'); e.classList.toggle('hidden', !on); if (on) { $('pwFill').style.width = (frac * 100).toFixed(0) + '%'; $('pwTxt').textContent = txt; } }
   setAir(on, dust, lung, txt) { const e = $('air'); e.classList.toggle('hidden', !on); if (on) { $('airFill').style.width = Math.min(100, dust * 100).toFixed(0) + '%'; $('lungFill').style.width = Math.min(100, lung * 100).toFixed(0) + '%'; $('airTxt').textContent = txt; } }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
+  setCartLine(n, cap, mode) { const e = $('cartLine'); e.classList.toggle('hidden', n < 0); if (n >= 0) { $('cartN').textContent = n; $('cartMax').textContent = cap; $('cartMode').textContent = mode === 'follow' ? 'following' : 'parked'; } }
   setDepth(txt) { $('depth').textContent = txt; }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
@@ -219,7 +220,8 @@ export class UI {
       let extra = '';
       if (u.names) extra = ` <small>${u.names[lvl]}${!maxed ? ' → ' + u.names[lvl + 1] : ''}</small>`;
       const reqU = u.req ? UPGRADES.find((x) => x.id === u.req.id) : null;
-      el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p><div class="pips">${pips}</div>
+      const gearNote = GEAR.includes(u.id) ? '<p style="color:var(--accent2);font-size:11.5px">Wearable gear: craft each tier at the Crafting Table after unlocking it.</p>' : '';
+      el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p>${gearNote}<div class="pips">${pips}</div>
         <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : nt ? nt : !unlocked ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : `Buy  ◈ ${fmt(cost)}`}</button>`;
       el.querySelector('button').onclick = () => { if (g.buy(u.id)) this.renderShop(); };
       grid.appendChild(el);
@@ -231,8 +233,16 @@ export class UI {
     $('craftMoney').textContent = fmt(g.S.money);
     const grid = $('craftGrid');
     grid.innerHTML = '';
+    for (const r of g.gearList()) {
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.style.borderColor = 'rgba(215,242,106,0.45)';
+      el.innerHTML = `<h3><span>🧰 ${r.name}</span><small>GEAR</small></h3><p>${r.line}: ${r.desc}</p><p style="color:var(--accent2)">Unlocked tier ${r.bought}. Crafted tier ${r.have}. Craft it and it is equipped.</p><button ${g.S.money >= r.price ? '' : 'disabled'}>Craft · ◈${fmt(r.price)}</button>`;
+      el.querySelector('button').onclick = () => { if (g.craftGearItem(r.id)) this.renderCraft(); };
+      grid.appendChild(el);
+    }
     const list = g.recipeList();
-    if (!list.length) { grid.innerHTML = '<div class="jcard">Nothing to craft yet. Unlock Timber Frames, Work Lanterns, belts and more in the terminal.</div>'; return; }
+    if (!list.length && !grid.children.length) { grid.innerHTML = '<div class="jcard">Nothing to craft yet. Unlock Timber Frames, Work Lanterns, belts and more in the terminal.</div>'; return; }
     for (const r of list) {
       const have = g.S.items[r.id] || 0;
       const el = document.createElement('div');
@@ -379,8 +389,9 @@ export class UI {
     $('endTitle').innerHTML = win ? 'IL ROTTO<br><span>SUPREMO</span>' : 'YOU<br><span>ESCAPED</span>';
     $('endText').innerHTML = win
       ? 'Out of millions, you held the one. It squeaks once. The warehouse lights flicker, and every plush in the building seems to exhale.'
-      : 'The door grinds open on daylight. Behind you, millions of plush and one that you never found.';
+      : 'You quit the job. The door grinds open on daylight and the warehouse stays behind you, millions of plush and the one you never found. Staying to tinker is fine, but the One is gone for this shift.';
     $('endStats').innerHTML = this.statsRows(S).map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
+    $('btnKeep').textContent = win ? 'Keep Playing' : 'Stay and tinker (the One is gone)';
     e.classList.remove('hidden');
   }
   hideEnding() { $('ending').classList.add('hidden'); }

@@ -24,6 +24,8 @@ export function newState(seed) {
     notes: [],
     contracts: [],
     items: {},
+    gear: {},
+    cart: null,
     clues: [],
     clueLevel: 0,
   };
