@@ -65,7 +65,7 @@
       <div><kbd>WASD</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Space</kbd> jump &nbsp; <kbd>C</kbd> crouch</div>
       <div><kbd>G</kbd> grab (tap) / drop &nbsp; <kbd>F</kbd> flashlight &nbsp; <kbd>Z</kbd> throw &nbsp; <kbd>P</kbd> punch out &nbsp; <kbd>E</kbd> use &nbsp; <kbd>Tab</kbd> upgrades</div>
       <div><kbd>B</kbd> build (set down the item you hold) &nbsp; <kbd>1-9</kbd> or <kbd>[ ]</kbd> pick item &nbsp; <kbd>Q</kbd> stow &nbsp; <kbd>X</kbd> remove &nbsp; <kbd>U</kbd> cart</div>
-      <div><kbd>V</kbd> crew &nbsp; <kbd>N</kbd> dex &nbsp; <kbd>L</kbd> journal &nbsp; <kbd>J</kbd> goals &nbsp; <kbd>Esc</kbd> pause &nbsp; (the mouse only looks)</div>
+      <div><kbd>V</kbd> crew &nbsp; <kbd>H</kbd> recall &nbsp; <kbd>N</kbd> dex &nbsp; <kbd>L</kbd> journal &nbsp; <kbd>J</kbd> goals &nbsp; <kbd>Esc</kbd> pause &nbsp; (the mouse only looks)</div>
     </div>
   </div>
 </div>
@@ -119,8 +119,12 @@
     <header><h2>PLAY TOGETHER</h2><button class="x" data-close>✕</button></header>
     <div class="menu">
       <label>Your name <input id="mpName" maxlength="14" placeholder="Player" style="background:rgba(255,255,255,0.08);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;width:160px"></label>
-      <div style="font-size:12px;color:var(--dim);line-height:1.5">Two people, one warehouse, one company. The world, the money, the upgrades, crafted items, belts, machines, crew bots and the cart are all shared and look the same on both screens. Only what you hold in your hands is yours. The host's game does the simulating. No server needed: you swap two short codes.</div>
+      <div style="font-size:12px;color:var(--dim);line-height:1.5">Two people, one warehouse, one company. The world, the money, the upgrades, crafted items, belts, machines, crew bots and the cart are all shared and look the same on both screens. Only what you hold in your hands is yours. The host's game does the simulating. The host gets a 4 digit code, the friend types it in.</div>
       <div class="menu-row"><button id="mpHost">Host a game</button><button id="mpJoin">Join a friend</button></div>
+      <div id="mpHostShort" class="hidden mpbox" style="text-align:center">Tell your friend this code:<div id="mpCode" style="font-size:54px;font-weight:800;letter-spacing:0.25em;color:var(--accent2)">----</div><span style="font-size:12px;color:var(--dim)">Keep this window's game running. They type it in under Join a friend.</span></div>
+      <div id="mpJoinShort" class="hidden mpbox" style="text-align:center">Type your friend's 4 digit code:<br><input id="mpCodeIn" inputmode="numeric" maxlength="4" placeholder="1234" style="margin:8px 0;width:200px;text-align:center;font-size:40px;letter-spacing:0.2em;background:rgba(255,255,255,0.08);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px"><br><button id="mpGo">Join</button></div>
+      <details style="font-size:12px;color:var(--dim)"><summary>Short code not working? Use long codes instead</summary>
+      <div class="menu-row"><button id="mpHostManual">Host (long codes)</button><button id="mpJoinManual">Join (long codes)</button></div>
       <div id="mpHostBox" class="hidden mpbox">
         <b>1.</b> Send this code to your friend:<textarea id="mpOffer" readonly></textarea><button id="mpCopyOffer">Copy code</button>
         <b>2.</b> Paste the reply code they send back:<textarea id="mpAnswerIn"></textarea><button id="mpConnect">Connect</button>
@@ -128,7 +132,7 @@
       <div id="mpJoinBox" class="hidden mpbox">
         <b>1.</b> Paste the code your friend sent you:<textarea id="mpOfferIn"></textarea><button id="mpMakeReply">Make reply code</button>
         <b>2.</b> Send this reply back to them:<textarea id="mpReply" readonly></textarea><button id="mpCopyReply">Copy reply</button>
-      </div>
+      </div></details>
       <div id="mpStatus" style="font-size:13px;color:var(--accent2);min-height:18px"></div>
     </div>
   </div>
@@ -167,6 +171,14 @@
       </label>
       <label>Volume <input id="rngVol" type="range" min="0" max="1" step="0.05" value="0.7"></label>
       <label>Mouse sensitivity <input id="rngSens" type="range" min="0.3" max="2.5" step="0.05" value="1"></label>
+      <details open class="how" style="font-size:12px;line-height:1.9;color:var(--dim)"><summary style="cursor:pointer;color:var(--ink)">Controls</summary>
+        <div><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>C</kbd> crouch · mouse looks</div>
+        <div><kbd>G</kbd> grab / drop · <kbd>Z</kbd> throw · <kbd>E</kbd> use · <kbd>F</kbd> flashlight · <kbd>Tab</kbd> upgrades</div>
+        <div><b style="color:var(--ink)"><kbd>P</kbd> punch out</b> of a hole (knocks loose a bunch of plush ahead) · hold <kbd>Space</kbd> when trapped to punch up</div>
+        <div><kbd>B</kbd> build / place (dynamite, charges, belts…, hold for lines) · <kbd>1-9</kbd> <kbd>[</kbd><kbd>]</kbd> pick item · <kbd>Q</kbd> stow · <kbd>R</kbd> flip ramp · <kbd>X</kbd> remove</div>
+        <div><kbd>U</kbd> cart · <kbd>V</kbd> crew · <kbd>T</kbd>/<kbd>Y</kbd> crew farm ahead / home · <kbd>H</kbd> hold to recall</div>
+        <div><kbd>N</kbd> dex · <kbd>L</kbd> journal · <kbd>J</kbd> goals · <kbd>Enter</kbd> chat · <kbd>F3</kbd> fps · <kbd>Esc</kbd> pause</div>
+      </details>
       <button id="btnMulti2">Play together (co-op)</button>
       <div class="menu-row"><button id="btnSave">Save</button><button id="btnShop">Terminal</button><button id="btnDex">Plushdex</button><button id="btnAch">Achievements</button></div>
       <button id="btnReset" class="danger">Abandon shift (new warehouse)</button>

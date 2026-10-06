@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Peer } from 'peerjs';
 
 // ---------------------------------------------------------------------------------------------
 // Co-op over WebRTC with no server: one player hosts and sends a code, the other pastes it and sends
@@ -74,12 +75,60 @@ export class Net {
     return enc({ sdp: pc.localDescription.sdp, type: pc.localDescription.type });
   }
 
+  // short codes: a 4 digit number through the free PeerJS broker (only used to meet, then it is direct)
+  wrapConn(conn) {
+    const dc = {
+      readyState: 'connecting', binaryType: 'arraybuffer', onopen: null, onclose: null, onmessage: null,
+      send: (str) => conn.send(str), close: () => { try { conn.close(); } catch (e) { /* ignore */ } },
+    };
+    conn.on('open', () => { dc.readyState = 'open'; if (dc.onopen) dc.onopen(); });
+    conn.on('data', (d) => { if (dc.onmessage) dc.onmessage({ data: typeof d === 'string' ? d : new TextDecoder().decode(d) }); });
+    conn.on('close', () => { dc.readyState = 'closed'; if (dc.onclose) dc.onclose(); });
+    conn.on('error', () => { dc.readyState = 'closed'; if (dc.onclose) dc.onclose(); });
+    this.bind(dc);
+  }
+
+  hostShort() {
+    this.role = 'host';
+    return new Promise((resolve, reject) => {
+      let tries = 0;
+      const attempt = () => {
+        const code = String(1000 + Math.floor(Math.random() * 9000));
+        const peer = new Peer('rotfactory-' + code);
+        let done = false;
+        peer.on('open', () => { done = true; this.peer = peer; this.code = code; resolve(code); });
+        peer.on('connection', (conn) => { if (this.open) { conn.close(); return; } this.wrapConn(conn); });
+        peer.on('error', (e) => {
+          if (done) return;
+          try { peer.destroy(); } catch (x) { /* ignore */ }
+          if (e && e.type === 'unavailable-id' && ++tries < 6) attempt(); else reject(new Error(e && e.type === 'network' ? 'could not reach the matchmaking service' : (e && e.type) || 'failed'));
+        });
+      };
+      attempt();
+    });
+  }
+
+  joinShort(code) {
+    this.role = 'guest';
+    return new Promise((resolve, reject) => {
+      const peer = new Peer();
+      this.peer = peer;
+      const to = setTimeout(() => { try { peer.destroy(); } catch (x) { /* ignore */ } reject(new Error('no answer. Check the code, and that your friend is hosting.')); }, 15000);
+      peer.on('open', () => {
+        const conn = peer.connect('rotfactory-' + String(code).trim(), { serialization: 'none', reliable: true });
+        this.wrapConn(conn);
+        conn.on('open', () => { clearTimeout(to); resolve(); });
+      });
+      peer.on('error', (e) => { clearTimeout(to); reject(new Error(e && e.type === 'peer-unavailable' ? 'no game with that code' : (e && e.type) || 'failed')); });
+    });
+  }
+
   send(obj) {
     if (!this.open || !this.dc || this.dc.readyState !== 'open') return false;
     try { this.dc.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
   }
 
-  close() { try { if (this.dc) this.dc.close(); if (this.pc) this.pc.close(); } catch (e) { /* ignore */ } this.open = false; }
+  close() { try { if (this.peer) this.peer.destroy(); if (this.dc) this.dc.close(); if (this.pc) this.pc.close(); } catch (e) { /* ignore */ } this.open = false; }
 }
 
 // the other person, as seen in your world

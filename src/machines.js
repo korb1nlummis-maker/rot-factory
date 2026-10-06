@@ -228,7 +228,7 @@ export class Machines {
       if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
-      else if (['marker', 'flare', 'charge', 'strut'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
+      else if (['marker', 'flare', 'charge', 'dynamite', 'strut'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
@@ -236,7 +236,7 @@ export class Machines {
     const e = plan.ent;
     if (tool.kind === 'frame') this.ghost.position.set(e.cx, e.y0, e.cz);
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
-    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'charge', 'strut'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
+    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'charge', 'dynamite', 'strut'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
   }
 
@@ -265,6 +265,12 @@ export class Machines {
       const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), new THREE.MeshStandardMaterial({ color: 0xaa2218, roughness: 0.8 })); stick.position.y = 0.17; stick.rotation.z = 0.5;
       const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.2, 1.2, 0.5) })); tip.position.set(-0.09, 0.32, 0); tip.name = 'tip';
       g.add(stick, tip);
+    } else if (kind === 'dynamite') {
+      const red = new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.6 });
+      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.24, 10), red); stick.position.y = 0.03; stick.rotation.z = Math.PI / 2; stick.position.y = 0.03;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.03, 10), MATS.dark); band.rotation.z = Math.PI / 2; band.position.set(0, 0.03, 0);
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 5), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.2, 2.2, 0.6) })); led.position.set(0.15, 0.08, 0); led.name = 'led';
+      const g2 = new THREE.Group(); g2.add(stick, band, led); g2.position.y = 0.03; g.add(g2);
     } else if (kind === 'charge') {
       const red = new THREE.MeshStandardMaterial({ color: 0xb02a1e, roughness: 0.7 });
       for (const x of [-0.045, 0, 0.045]) { const s = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 8), red); s.position.set(x, 0.13, 0); g.add(s); }
@@ -374,7 +380,7 @@ export class Machines {
       it.obj.position.set(ent.x, ent.y, ent.z);
       w.reserved.add((ent.j * NZ + ent.k) * NX + ent.i);
     } else if (['marker', 'flare', 'charge', 'strut'].includes(ent.type)) {
-      it.obj = this.makeSimple(ent.type, ent);
+      it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.type, ent);
       it.obj.position.set(ent.x, ent.y, ent.z);
       if (ent.type === 'strut') w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: 1.9, b: 1, id: ent.id });
       if (ent.type === 'flare') ent.born = ent.born ?? game.S.stats.playSecs;

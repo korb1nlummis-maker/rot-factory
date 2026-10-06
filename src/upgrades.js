@@ -54,6 +54,7 @@ export const UPGRADES = [
   { id: 'bulkhead', cat: 'mine', name: 'Bulkhead Panels', desc: 'Plank panels you build into empty cells. They never fall and loose plush stack against them. Wall off a collapse, seal a bad tunnel, build pillars. G on a panel removes it.', max: 1, cost: [140], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.bulkhead = true; } },
   { id: 'markers', cat: 'mine', name: 'Markers & Flares', desc: 'Unlocks Survey Markers (show on your compass, so you can find your way back) and Road Flares (a bright light that burns for four minutes, no power needed).', max: 1, cost: [90], effect: (t) => { t.markers = true; } },
   { id: 'struts', cat: 'mine', name: 'Quick Struts', desc: 'Unlocks Struts: a cheap single prop you can set down anywhere, with a small support reach. Not a frame, but it buys you time.', max: 1, cost: [120], effect: (t) => { t.struts = true; } },
+  { id: 'dynamite', cat: 'mine', name: 'Dynamite', desc: 'Unlocks Dynamite: a cheap stick with a 4 second fuse that blasts a small hole. Craft it at the bench, aim at the pile and press B. The blast hurts if you are close, and shaking loosens the roof.', max: 1, cost: [260], effect: (t) => { t.dynamite = true; } },
   { id: 'charges', cat: 'mine', name: 'Blasting Charges', desc: 'Unlocks Charges. Set one against the pile, run, and it blows a hole when the fuse ends (6 s). Bigger levels, bigger holes. Blasting throws dust, loosens everything nearby, and the blast hurts if you are close.', max: 3, cost: [1500, 12000, 100000], req: { id: 'timber', lvl: 1 }, effect: (t, l) => { t.charges = l; } },
   { id: 'climb', cat: 'move', name: 'Climbing Gear', desc: 'Pitons, rope and grippy soles. Plush slip away under your feet 25% less per tier on steep slopes. Wearable: craft each tier.', max: 3, cost: [200, 1500, 12000], effect: (t, l) => { t.climb = l; } },
   { id: 'airtank', cat: 'mine', name: 'Emergency Air Tank', desc: 'Buried or trapped, you have 60 seconds of air to dig out. Each level adds 30 more.', max: 5, cost: [150, 800, 4500, 30000, 220000], effect: (t, l) => { t.airTank = l; } },
@@ -150,7 +151,7 @@ export function defaultTuning() {
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,
     crewMax: 0, crewHaul: 1, crewSpeed: 1, crewBattery: 1, crewBelt: false, crewBolt: false,
-    markers: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
+    markers: false, dynamite: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
     beltSpeed: 1.6, sorterTiers: 0, mechMax: 0, mechRate: 2.4, mechBuffer: 6, mechLayer: false, mechBolt: false, bulkhead: false,
     machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 12.2, borerW: 2, borerH: 3,
   };

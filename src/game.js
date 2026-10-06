@@ -928,7 +928,7 @@ export class Game {
     if (up) eye.y = p.pos.y + 0.9;
     let n = 0;
     const seen = new Set();
-    for (const d of [0.45, 0.75, 1.05, 1.35]) {
+    for (const d of [0.4, 0.65, 0.9, 1.15, 1.4]) {
       const x = eye.x + dir.x * d, y = eye.y + dir.y * d, z = eye.z + dir.z * d;
       const ci = toI(x), cj = toJ(y), ck = toK(z);
       for (let dk = -1; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
@@ -936,12 +936,12 @@ export class Game {
         const key = i + ',' + j + ',' + k;
         if (seen.has(key)) continue;
         const cx = cellX(i), cy = cellY(j), cz = cellZ(k);
-        if (Math.hypot(cx - x, cy - y, cz - z) > 0.55) continue;
-        if (Math.hypot(cx - eye.x, cy - eye.y, cz - eye.z) > 1.7) continue;
+        if (Math.hypot(cx - x, cy - y, cz - z) > 0.75) continue;
+        if (Math.hypot(cx - eye.x, cy - eye.y, cz - eye.z) > 2.0) continue;
         seen.add(key);
         const sp = w.get(i, j, k);
         if (!sp || sp === REMAINS || sp === CACHE || sp === BULK) continue;
-        if (n >= 4 || this.sim.n > 2300) continue;
+        if (n >= 14 || this.sim.n > 2300) continue;
         const it = w.removeCell(i, j, k, false);
         if (!it) continue;
         this.sim.spawn(it.sp, it.vr, cx, cy, cz, dir.x * 3.2 + (Math.random() - 0.5) * 1.2, dir.y * 3.2 + 0.8, dir.z * 3.2 + (Math.random() - 0.5) * 1.2, 2);
@@ -951,7 +951,7 @@ export class Game {
     }
     this.sound.thump(0.35, 110);
     this.shake = Math.max(this.shake, 0.12);
-    if (n) { this.fx.dust(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 6, 0.6, 0.6); this.dust && this.dust.add(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 0.05 * n); }
+    if (n) { this.fx.dust(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 6, 0.6, 0.6); this.dust && this.dust.add(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 0.04 * n); }
     else if (!auto) this.ui.hint('Nothing in reach to punch. Face the plush wall (or look up) and tap <kbd>P</kbd>.', 2);
   }
 
@@ -1171,16 +1171,30 @@ export class Game {
     $$('mpName').value = this.S.settings.name || '';
     $$('btnMulti').onclick = () => { this.sound.init(); this.ui.open('multi'); };
     $$('btnMulti2').onclick = () => this.ui.open('multi');
+    const hideAll = () => { for (const id of ['mpHostBox', 'mpJoinBox', 'mpHostShort', 'mpJoinShort']) $$(id).classList.add('hidden'); };
     $$('mpHost').onclick = async () => {
       if (this.mode !== 'play') { status('Start or continue your game first, then open Play Together from the pause menu.'); return; }
       this.S.settings.name = this.myName();
-      $$('mpJoinBox').classList.add('hidden'); $$('mpHostBox').classList.remove('hidden');
+      hideAll(); $$('mpHostShort').classList.remove('hidden'); $$('mpCode').textContent = '····';
+      status('Getting a code…');
+      try { $$('mpCode').textContent = await this.net.hostShort(); status('Waiting for your friend…'); } catch (e) { status('Could not make a short code (' + e.message + '). Try the long codes below.'); }
+    };
+    $$('mpHostManual').onclick = async () => {
+      if (this.mode !== 'play') { status('Start or continue your game first, then open Play Together from the pause menu.'); return; }
+      this.S.settings.name = this.myName();
+      hideAll(); $$('mpHostBox').classList.remove('hidden');
       status('Making a code…');
       try { $$('mpOffer').value = await this.net.host(); status('Send the code to your friend, then paste their reply below.'); } catch (e) { status('Could not make a code: ' + e.message); }
     };
     $$('mpCopyOffer').onclick = () => { $$('mpOffer').select(); document.execCommand('copy'); status('Copied.'); };
     $$('mpConnect').onclick = async () => { try { await this.net.finishHost($$('mpAnswerIn').value); status('Connecting…'); } catch (e) { status('That reply code did not work.'); } };
-    $$('mpJoin').onclick = () => { $$('mpHostBox').classList.add('hidden'); $$('mpJoinBox').classList.remove('hidden'); status(''); };
+    $$('mpJoin').onclick = () => { hideAll(); $$('mpJoinShort').classList.remove('hidden'); status(''); $$('mpCodeIn').focus(); };
+    $$('mpGo').onclick = async () => {
+      status('Connecting…');
+      try { await this.net.joinShort($$('mpCodeIn').value); status('Connected. Loading your friend\'s world…'); } catch (e) { status('Could not join: ' + e.message); }
+    };
+    $$('mpCodeIn').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $$('mpGo').click(); });
+    $$('mpJoinManual').onclick = () => { hideAll(); $$('mpJoinBox').classList.remove('hidden'); status(''); };
     $$('mpMakeReply').onclick = async () => {
       status('Making a reply…');
       try { $$('mpReply').value = await this.net.join($$('mpOfferIn').value); status('Send the reply back. When your friend connects you will drop into their world.'); } catch (e) { status('That code did not work.'); }
@@ -1190,7 +1204,7 @@ export class Game {
 
   netOpened() {
     this.ui.closeModalsSilently();
-    this.netSend({ t: 'hi', name: this.myName() });
+    this.netSend({ t: 'hi', name: this.myName(), v: typeof __BUILD__ === 'undefined' ? 'dev' : __BUILD__ });
     if (this.net.role === 'host') this.ui.toast({ icon: '🤝', title: 'Friend connected', text: 'They are joining your warehouse.', ms: 4000 });
     this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
     this.creakOut = [];
@@ -1210,6 +1224,7 @@ export class Game {
     if (this.net.role === 'guest' && !this.guestReady && m.t !== 'hi' && m.t !== 'world') { this.netPending.push(m); return; }
     switch (m.t) {
       case 'hi':
+        if (m.v && typeof __BUILD__ !== 'undefined' && m.v !== __BUILD__) this.ui.toast({ icon: '⚠️', title: 'Different versions', text: `You are on ${__BUILD__}, your friend is on ${m.v}. Both press Ctrl/Cmd+Shift+R to load the latest, or things will not match.`, ms: 9000 });
         this.remote = this.remote || new RemotePlayer(this.renderer.scene, m.name);
         if (this.net.role === 'host') this.sendWorld();
         break;
@@ -1830,7 +1845,7 @@ export class Game {
     const yaw = this.player.yaw;
     if (tool.kind === 'frame') { plan = this.machines.planFrame(eye, dir, yaw, tool.fk); cost = FRAME_TYPES[tool.fk].cost; }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
-    else if (['marker', 'flare', 'charge', 'strut'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
+    else if (['marker', 'flare', 'charge', 'dynamite', 'strut'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
     else if (tool.kind === 'claw') {
       plan = this.machines.planRig(eye, dir); cost = this.rigCost();
@@ -1958,6 +1973,7 @@ export class Game {
     else if (tool.kind === 'flare') { ent = { id, type: 'flare', x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'strut') { ent = { id, type: 'strut', x: e.x, y: e.y, z: e.z }; S.stats.props++; }
     else if (tool.kind === 'charge') { ent = { id, type: 'charge', x: e.x, y: e.y, z: e.z, fuse: 6, tier: this.T.charges }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 900, 900, 0.05, 0.08); }
+    else if (tool.kind === 'dynamite') { ent = { id, type: 'charge', dyn: true, x: e.x, y: e.y, z: e.z, fuse: 4, tier: 0 }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 1100, 1100, 0.05, 0.08); }
     else if (tool.kind === 'beacon') { ent = { id, type: 'beacon', x: e.x, y: e.y, z: e.z, i: e.i, j: e.j, k: e.k }; this.onBeaconPlaced(ent); }
     else if (tool.kind === 'claw') { ent = { id, type: 'claw', x: e.x, y: e.y, z: e.z, ry: Math.random() * 6.28 }; S.stats.rigs++; this.rebuildTools(); }
     else if (tool.kind === 'borer') { ent = { id, type: 'borer', i: e.i, j: e.j, k: e.k, dx: e.dx, dz: e.dz, w: e.w, h: e.h, x: e.x, y: e.y, z: e.z }; S.stats.borers++; this.rebuildTools(); }
@@ -2149,7 +2165,7 @@ export class Game {
     if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
     const w = this.world, S = this.S;
     const tier = ent.tier || 1;
-    const R = [0, 3, 4, 5][tier];
+    const R = ent.dyn ? 2.2 : [0, 3, 4, 5][tier];
     const ci = toI(ent.x), cj = toJ(ent.y + 0.3), ck = toK(ent.z);
     let n = 0;
     for (let dk = -R; dk <= R; dk++) for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) {

@@ -14,6 +14,7 @@ export function recipes(g) {
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
   if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. +1 roof strength within about 2 m. Goes anywhere.', price: 8, batch: [1, 5, 25] });
+  if (T.dynamite) list.push({ id: 'dynamite', kind: 'dynamite', icon: '🧨', name: 'Dynamite', short: 'Dynamite', desc: 'A stick with a 4 second fuse. Blows a small hole about 1.3 m across. Cheap, fast, and loud. Run.', price: 14, batch: [1, 5, 10] });
   if (T.charges) list.push({ id: 'charge', kind: 'charge', icon: '🧨', name: 'Blasting Charge', short: 'Charge', desc: `Blows a hole about ${[0, 1.8, 2.4, 3.0][T.charges]} m across after 6 seconds. Run.`, price: 40 * T.charges, batch: [1, 3, 5] });
   if (T.lantern) list.push({ id: 'lantern', kind: 'lantern', icon: '🏮', name: 'Work Lantern', short: 'Lantern', desc: 'Hang it up to light a tunnel.', price: 6, batch: [1, 5, 10] });
   if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', name: 'Bulkhead Panel', short: 'Bulkhead', desc: 'A solid plank wall cell. Never falls. Hold the pile back.', price: 10, batch: [1, 10, 50] });

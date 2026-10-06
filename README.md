@@ -34,3 +34,5 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - **F** toggles your helmet flashlight.
 - **Trapped?** A pulsing 60 second air countdown starts. **P** punches ahead, hold **Space** to punch straight up. Run out and you pass out at a depot. The Emergency Air Tank upgrade adds 30 s per level.
 - Creaking roofs now shed plush, and cave-ins bring down the pile above.
+- **Dynamite**: cheap early upgrade. Craft at the bench, aim and press B. 4 second fuse, small blast (bigger than nothing, smaller than a Charge).
+- **Joining**: host gets a 4 digit code, the friend types it under Join a friend (uses the free PeerJS broker to meet, then a direct connection). Long copy/paste codes remain under the details drop-down as a fallback. If the two builds differ, both players get a warning to hard refresh (Ctrl/Cmd+Shift+R).
