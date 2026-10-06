@@ -351,7 +351,7 @@ export class Renderer {
 
   // ---------------- dynamic plush (loose bodies, held items, fliers) ----------------
   beginDynamic() { this.dynCount.fill(0); }
-  addDynamic(sp, vr, x, y, z, qx, qy, qz, qw, s = 1, ao = 0.9, sky = 1) {
+  addDynamic(sp, vr, x, y, z, qx, qy, qz, qw, s = 1, ao = 0.9, sky = 1, sq = 0) {
     const s0 = species[sp];
     if (!s0) return;
     const a = s0.arch;
@@ -360,6 +360,12 @@ export class Renderer {
     if (n >= m.instanceMatrix.count) return;
     this.dynCount[a] = n + 1;
     compose(m.instanceMatrix.array, n * 16, x, y, z, qx, qy, qz, qw, s);
+    if (sq > 0.004) {
+      // squash toward the ground along world Y, bulge sideways, keep the base planted
+      const a = m.instanceMatrix.array, o = n * 16, yf = 1 - sq, xz = 1 + sq * 0.55;
+      a[o] *= xz; a[o + 2] *= xz; a[o + 1] *= yf; a[o + 4] *= xz; a[o + 6] *= xz; a[o + 5] *= yf; a[o + 8] *= xz; a[o + 10] *= xz; a[o + 9] *= yf;
+      a[o + 13] -= sq * 0.3 * s;
+    }
     let col, shade = 0.9 + ((vr & 127) / 127) * 0.2, flag = (vr & 128) ? 1 : 0;
     if (sp === NEEDLE) { col = needleLin; shade = 1; flag = 2; } else if (sp === BULK) { col = bulkLin; shade = 1; flag = 0; } else if (sp === REMAINS) { col = remainsLin; shade = 1; flag = 0; } else if (sp === CACHE) { col = cacheLin; shade = 1; flag = 0; } else col = colOf(s0);
     const ca = m.instanceColor.array;

@@ -66,6 +66,7 @@ export class Sim {
     this.rest = new Float32Array(CAP); this.age = new Float32Array(CAP);
     this.flag = new Uint8Array(CAP); // 1 thrown, 2 from collapse
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
+    this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
     this.head = new Int32Array(HSIZE); this.next = new Int32Array(CAP);
     this.contact = { hits: 0, nx: 0, ny: 0, nz: 0, deep: 0 };
     this.colliders = []; // {x,z,r,h}
@@ -86,7 +87,7 @@ export class Sim {
     quatFromHash(h32(sp, vr, i, (x * 100) | 0) >>> 0, this.qt);
     this.q[i * 4] = this.qt[0]; this.q[i * 4 + 1] = this.qt[1]; this.q[i * 4 + 2] = this.qt[2]; this.q[i * 4 + 3] = this.qt[3];
     this.sp[i] = sp; this.vr[i] = vr; this.rest[i] = 0; this.age[i] = 0; this.flag[i] = flag;
-    this.ox[i] = x; this.oz[i] = z;
+    this.ox[i] = x; this.oz[i] = z; this.sq[i] = 0;
     return i;
   }
 
@@ -96,7 +97,7 @@ export class Sim {
       this.x[i] = this.x[l]; this.y[i] = this.y[l]; this.z[i] = this.z[l];
       this.vx[i] = this.vx[l]; this.vy[i] = this.vy[l]; this.vz[i] = this.vz[l];
       for (let t = 0; t < 4; t++) this.q[i * 4 + t] = this.q[l * 4 + t];
-      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l];
+      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l];
     }
   }
 
@@ -138,6 +139,7 @@ export class Sim {
       vx *= drag; vy *= drag; vz *= drag;
       pos.x = this.x[i] + vx * dt; pos.y = this.y[i] + vy * dt; pos.z = this.z[i] + vz * dt;
       this.age[i] += dt;
+      if (this.sq[i] > 0.002) this.sq[i] *= Math.exp(-11 * dt); else this.sq[i] = 0;
       // lattice
       for (let it = 0; it < 2; it++) {
         if (resolveSphere(w, pos, RB, cont)) {
@@ -150,6 +152,7 @@ export class Sim {
             const tn = vx * cont.nx + vy * cont.ny + vz * cont.nz;
             const tx = vx - tn * cont.nx, ty = vy - tn * cont.ny, tz = vz - tn * cont.nz;
             vx = tn * cont.nx + tx * f; vy = tn * cont.ny + ty * f; vz = tn * cont.nz + tz * f;
+            if (vn < -1.5) this.sq[i] = Math.max(this.sq[i], Math.min(0.32, -vn * 0.045));
             if (vn < -4 && this.hooks.onImpact) this.hooks.onImpact(pos.x, pos.y, pos.z, -vn);
             if (vn < -3 && this.hooks.onKick) this.hooks.onKick(cont.ci, cont.cj, cont.ck, vx, vy, vz, -vn);
           }

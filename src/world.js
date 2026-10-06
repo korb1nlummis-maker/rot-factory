@@ -5,7 +5,7 @@ import { workingsNear, workingPlugged } from './remains.js';
 
 const NCX = NX >> 4, NCZ = NZ >> 4;
 const COLSZ = 256 * NY;
-export const OB = 24; // overburden cells per point of lost support
+export const OB = 16; // overburden cells per point of lost support
 
 // The hall is a huge lattice of plush cells (0.6 m). Storage is lazy: 16x16 column chunks are generated from the
 // seed on first touch, and only modified columns are kept forever. Everything else can be evicted and regenerated.

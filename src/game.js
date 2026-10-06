@@ -31,6 +31,7 @@ import { clamp, lerp, fmt, compaction } from './util.js';
 const $ = (id) => document.getElementById(id);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
+const ARCH_PITCH = { 18: 0.55, 16: 0.65, 15: 0.8, 17: 0.85, 2: 0.8, 3: 0.75, 8: 0.7, 12: 1.15, 13: 1.3, 11: 1.35, 20: 1.2, 35: 1.4, 14: 1.1, 32: 1.25, 33: 1.3, 30: 1.5, 9: 0.9, 22: 0.85, 24: 1.2 };
 const START_POS = [0.0, 0.0, -1.4];
 
 export class Game {
@@ -113,6 +114,12 @@ export class Game {
     this.renderer.camera.add(this.camLamp);
     this.camLamp.position.set(0.25, -0.2, 0);
     this.camLamp.target.position.set(0, 0, -5);
+    {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(2.6, 10, 28, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0.03, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      cone.geometry.translate(0, -5, 0); cone.geometry.rotateX(Math.PI / 2); cone.position.set(0.25, -0.2, 0);
+      cone.frustumCulled = false; cone.renderOrder = 5;
+      this.lampCone = cone; this.renderer.camera.add(cone);
+    }
     this.renderer.camera.add(this.camLamp.target);
     this.machines = new Machines(this);
     this.logi = new Logistics(this);
@@ -149,8 +156,12 @@ export class Game {
       onKick: (i, j, k, vx, vy, vz, sp) => this.onKick(i, j, k, vx, vy, vz, sp),
       onPlayerHit: (v) => this.onPlayerHit(v),
     };
-    this.player.events.land = (v) => { this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
-    this.player.events.step = (sp) => { this.treadOn(1.0 + (sp > 5 ? 0.5 : 0), false); this.sound.step(0.06 + Math.min(0.06, sp * 0.01)); if (this.player.pos.y > 0.45 && Math.random() < 0.35) this.sound.squeak(0.7 + Math.random() * 0.5, 0.05); };
+    this.player.events.land = (v) => { this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
+    this.player.events.step = (sp) => {
+      this.treadOn(1.0 + (sp > 5 ? 0.5 : 0), false);
+      if (this.player.pos.y > 0.45) { this.sound.step(0.06 + Math.min(0.06, sp * 0.01)); if (Math.random() < 0.35) this.sound.squeak(0.7 + Math.random() * 0.5, 0.05); }
+      else this.sound.stepConcrete(0.05 + Math.min(0.05, sp * 0.01));
+    };
     this.machines.clear();
     this.logi.clear();
     this.power.clear();
@@ -479,6 +490,10 @@ export class Game {
 
     // --- camera
     const eye = p.eyePos(_v);
+    this.landDip = (this.landDip || 0) * Math.exp(-9 * dt);
+    eye.y -= this.landDip;
+    const wantFov = 74 + (input.sprint && p.speedNow > 3 ? 6 : 0) + Math.min(4, p.speedNow * 0.35);
+    if (Math.abs(cam.fov - wantFov) > 0.05) { cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 5); cam.updateProjectionMatrix(); }
     this.shake = Math.max(0, this.shake - dt * 1.8);
     const sh = this.shake * T.shakeMul;
     cam.position.set(eye.x + (Math.random() - 0.5) * sh * 0.12, eye.y + (Math.random() - 0.5) * sh * 0.12, eye.z + (Math.random() - 0.5) * sh * 0.12);
@@ -496,6 +511,7 @@ export class Game {
     U.uLampRange.value = T.lampRange;
     U.uLampColor.value.setRGB(2.6, 2.35, 1.9).multiplyScalar(T.lampPower * on);
     this.camLamp.intensity = 22 * T.lampPower;
+    if (this.lampCone) { this.lampCone.material.opacity = (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower; this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
     this.camLamp.distance = T.lampRange + 4;
     // placed lights
     const ls = this.machines.lights(cam.position, 5);
@@ -519,6 +535,11 @@ export class Game {
       release: (i, j, k2) => this.releaseCell(i, j, k2),
     });
     this.updateAfters(dt);
+    this.settleT = (this.settleT ?? 10) - dt;
+    if (this.settleT <= 0) {
+      this.settleT = 9 + Math.random() * 20;
+      if (this.camSky < 0.25) { this.sound.creak(0.05 + Math.random() * 0.05); if (Math.random() < 0.5) this.fx.dust(cam.position.x + (Math.random() - 0.5) * 2, cam.position.y + 1.2, cam.position.z + (Math.random() - 0.5) * 2, 3, 0.3, 0.3); }
+    }
     this.machines.update(dt, this.time);
     this.updateFuses(dt);
     this.updateSurge(dt);
@@ -768,7 +789,7 @@ export class Game {
     this.fliers.push({ sp: item.sp, vr: item.vr, from: pos.clone(), t: 0, dur: 0.22, hand: true });
     const pal = PALETTES[sp.pal] ? new THREE.Color(PALETTES[sp.pal][1]) : new THREE.Color(1, 0.9, 0.5);
     this.fx.fluff(pos.x, pos.y, pos.z, pal.r, pal.g, pal.b, quiet ? 3 : 8);
-    if (!quiet) { this.sound.pop(0.16); this.sound.squeak(0.8 + sp.rarity * 0.18, 0.1 + sp.rarity * 0.02); }
+    if (!quiet) { this.sound.pop(0.16); this.sound.squeak((0.8 + sp.rarity * 0.18) * (ARCH_PITCH[sp.arch] || 1), 0.1 + sp.rarity * 0.02); }
     if (sp.rarity >= 2 || (item.vr & 128)) {
       this.sound.tone('sine', 600 + sp.rarity * 120, 900 + sp.rarity * 200, 0.4, 0.08 + sp.rarity * 0.01, 0.05);
       this.fx.sparkle(pos.x, pos.y, pos.z, 10 + sp.rarity * 6, 1, 0.85, 0.4);
@@ -1723,6 +1744,31 @@ export class Game {
     }
     this.collapseT = Math.min(this.collapseT, 1.2);
     if (Math.random() < 0.25) this.fx.dust(x, y, z, 4, 0.9, 0.9);
+    // a real cave-in: the plush piled above a failing roof comes down with it
+    if (!this._inCascade) {
+      this._inCascade = true;
+      const w = this.world;
+      const over = Math.max(0, w.topAt(i, k) - j - 1);
+      if (over > 3 && Math.random() < 0.7) {
+        const H = Math.min(10, 2 + Math.floor(over / 4));
+        let n = 0;
+        for (let h = 1; h <= H; h++) {
+          for (const [a, b] of (h <= 3 ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]])) {
+            if (n >= 45 || this.sim.n > 2200) break;
+            const it2 = w.removeCell(i + a, j + h, k + b, true);
+            if (!it2) continue;
+            this.sim.spawn(it2.sp, it2.vr, cellX(i + a), cellY(j + h), cellZ(k + b), (Math.random() - 0.5) * 1.5, -1 - Math.random(), (Math.random() - 0.5) * 1.5, 2);
+            n++;
+          }
+        }
+        if (n > 4) {
+          this.fx.dust(x, y + 0.5, z, 14, 1.4, 1.6);
+          if (d < 25) { this.shake = Math.max(this.shake, Math.min(1.4, 18 / (d + 5))); this.sound.rumble(d < 14 ? 1.5 : 0.8); }
+          if (d < 14 && !this._caveHint) { this._caveHint = true; this.ui.hint('Cave-in! Dig your way through the rubble, or wall it off with Bulkheads and go around.', 6); }
+        }
+      }
+      this._inCascade = false;
+    }
     return true;
   }
 
@@ -1785,6 +1831,7 @@ export class Game {
       const d = Math.hypot(cellX(c.i) - p.pos.x, cellY(c.j) - p.pos.y, cellZ(c.k) - p.pos.z);
       if (d < near) near = d;
     }
+    if (near < 14 && Math.random() < dt * 14) { for (const c of w.creaking.values()) { if (Math.random() < 0.08) { this.fx.dust(cellX(c.i), cellY(c.j) - 0.2, cellZ(c.k), 1, 0.2, 0.2); break; } } }
     if (near < 30) {
       this.ui.setWarn(near < 16 ? 'ROOF CREAKING' : '');
       this.ui.setDanger(Math.max(0, 1 - near / 18));
@@ -1911,7 +1958,7 @@ export class Game {
       return j >= t ? 1 : Math.max(0.15, Math.exp(-(t - j - 1) * 0.3));
     };
     for (let i = 0; i < s.n; i++) {
-      r.addDynamic(s.sp[i], s.vr[i], s.x[i], s.y[i], s.z[i], s.q[i * 4], s.q[i * 4 + 1], s.q[i * 4 + 2], s.q[i * 4 + 3], 1, 0.95, skyAt(s.x[i], s.y[i], s.z[i]));
+      r.addDynamic(s.sp[i], s.vr[i], s.x[i], s.y[i], s.z[i], s.q[i * 4], s.q[i * 4 + 1], s.q[i * 4 + 2], s.q[i * 4 + 3], 1, 0.95, skyAt(s.x[i], s.y[i], s.z[i]), s.sq[i]);
     }
     // fliers
     const bp = this.hall.binPos;

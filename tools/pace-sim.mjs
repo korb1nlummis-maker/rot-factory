@@ -32,7 +32,7 @@ function run(target, opts = {}) {
     const stepTime = L.borer ? T2.borerRate * c : L.mech ? T2.mechRate * c * slab : T2.grabTime * c * slab * 1.6;
     const bestFrame = Math.max(0, ...T2.frames.map((f) => FRAME_TYPES[f].bonus));
     const pen = Math.floor(Math.max(0, d - 40) / 330);
-    const over = d > 46 ? 2 : 0;
+    const over = d > 46 ? 4 : 0;
     const need = over + pen - T2.stabBonus; // frame bonus needed
     const ok = bestFrame >= need && (d < 20 || T2.frames.length > 0 || need <= 0);
     const frameKind = T2.frames.length ? T2.frames[T2.frames.length - 1] : null;
