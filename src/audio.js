@@ -42,26 +42,26 @@ export class Sound {
 
   startAmbient() {
     const c = this.ctx;
-    const g = c.createGain(); g.gain.value = 0.05; g.connect(this.dry);
-    for (const [f, a] of [[100, 0.5], [200, 0.25], [300, 0.12], [50, 0.5]]) {
-      const o = c.createOscillator(); o.type = f === 50 ? 'sine' : 'sawtooth'; o.frequency.value = f + (Math.random() - 0.5) * 0.4;
+    const g = c.createGain(); g.gain.value = 0.035; const dlp = c.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 260; g.connect(dlp); dlp.connect(this.dry);
+    for (const [f, a] of [[100, 0.5], [200, 0.2], [300, 0.06], [50, 0.5]]) {
+      const o = c.createOscillator(); o.type = f === 50 ? 'sine' : 'triangle'; o.frequency.value = f + (Math.random() - 0.5) * 0.4;
       const og = c.createGain(); og.gain.value = a; o.connect(og); og.connect(g); o.start();
     }
     const n = c.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380;
-    const ng = c.createGain(); ng.gain.value = 0.05;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140;
+    const ng = c.createGain(); ng.gain.value = 0.008; // a faint low rumble only: the old hiss read as static
     n.connect(lp); lp.connect(ng); ng.connect(this.dry); n.start();
     this.ambient = g;
     // machinery hum: detuned saws through a low-pass, volume follows nearby belts and mechs
     const mg = c.createGain(); mg.gain.value = 0; mg.connect(this.dry);
-    const lp2 = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 420; lp2.connect(mg);
-    for (const f of [58, 87, 116.5]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.35; o.connect(og); og.connect(lp2); o.start(); }
+    const lp2 = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 230; lp2.connect(mg);
+    for (const f of [58, 87, 116.5]) { const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.3; o.connect(og); og.connect(lp2); o.start(); }
     this.machGain = mg;
   }
 
-  setMachines(level) { if (this.machGain) this.machGain.gain.setTargetAtTime(level * 0.06, this.ctx.currentTime, 0.4); }
+  setMachines(level) { if (this.machGain) this.machGain.gain.setTargetAtTime(level * 0.04, this.ctx.currentTime, 0.4); }
 
-  setAmbientMuffle(m) { if (this.ambient) this.ambient.gain.setTargetAtTime(0.05 * (1 - m * 0.7), this.ctx.currentTime, 0.2); }
+  setAmbientMuffle(m) { if (this.ambient) this.ambient.gain.setTargetAtTime(0.035 * (1 - m * 0.7), this.ctx.currentTime, 0.2); }
 
   _env(g, t, a, d, peak) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }
 
@@ -147,6 +147,22 @@ export class Sound {
   found() { [392, 523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { this.tone('triangle', f, f, 1.6, 0.12, i * 0.12); this.tone('sine', f * 2, f * 2, 1.2, 0.04, i * 0.12); }); }
   exitSfx() { this.found(); this.noise(2.5, 200, 3000, 0.3, 'bandpass', 0, 0.6); }
   ping() { this.tone('sine', 1500, 1500, 0.7, 0.07); this.tone('sine', 2250, 2250, 0.5, 0.03, 0.01); }
+
+  // detector arch cues (wave 7a). vol arrives already scaled by the arch setting and the distance, and they stay soft on purpose.
+  archTick(vol = 0.1) { this.tone('sine', 700, 700, 0.03, vol * 0.3); }   // an empty bag walking through: barely there
+  archNotFound(vol = 0.1, big = false) {   // negative buzz: two short square pulses, a low saw, a band of noise; the giant adds a low thunk
+    this.tone('square', 150, 110, 0.08, vol * 0.8);
+    this.tone('square', 150, 110, 0.08, vol * 0.8, 0.1);
+    this.tone('sawtooth', 120, 85, 0.28, vol * 0.8, 0.2);
+    this.noise(0.1, 300, 300, vol * 0.6, 'bandpass', 0, 3);
+    if (big) this.thump(Math.min(0.3, vol * 2), 70);
+  }
+  archFound(vol = 0.1) {   // da-ding: a short triangle note, then a long one a fifth up with an overtone and a small shimmer
+    this.tone('triangle', 659, 659, 0.12, vol);
+    this.tone('triangle', 988, 988, 0.7, vol * 1.2, 0.13);
+    this.tone('sine', 988 * 2.01, 988 * 2.01, 0.5, vol * 0.3, 0.13);
+    this.tone('sine', 1976, 1976, 0.35, vol * 0.25, 0.2);
+  }
 
   // geiger-style tick, call each frame with proximity 0..1
   geiger(dt, prox) {

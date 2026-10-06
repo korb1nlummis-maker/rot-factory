@@ -1,5 +1,6 @@
 // Upgrade tree. Each upgrade has levels; effect(t, level) mutates the tuning object.
 // cat: hands | sort | mine | light | sense | move | machine
+import { mergeUpgrades } from './catalog.js';
 
 export const CATS = [
   { id: 'contracts', name: 'Contracts', icon: '📋', special: true },
@@ -30,11 +31,11 @@ export const UPGRADES = [
   // ---------------- SORTING ----------------
   { id: 'contracts', cat: 'sort', name: 'Contract Board', desc: 'Buyers post standing orders (rarity, species, shape, shiny). Sell matching plush anywhere and the contract pays out a bonus, sometimes with a permanent boost. Find them under the Contracts tab.', max: 1, cost: [700], effect: (t) => { t.contractSlots += 3; } },
   { id: 'contractSlots', cat: 'sort', name: 'More Contracts', desc: 'One more contract slot per level.', max: 3, cost: [4000, 40000, 400000], req: { id: 'contracts', lvl: 1 }, effect: (t, l) => { t.contractSlots += l; } },
-  { id: 'haggle', cat: 'sort', name: 'Haggling', desc: '+20% of the base sell price per level (level 10 pays 3x).', max: 10, cost: geo(25, 2.0, 10), effect: (t, l) => { t.sellMult *= 1 + 0.2 * l; } },
-  { id: 'streak', cat: 'sort', name: 'Hot Hands', desc: 'Sales within 4.5 s of each other build a combo worth +6% per plush in a row. Everyone can reach a 6 plush combo; each level raises the cap by 8 (14, 22, 30, 38, 46).', max: 5, cost: [30, 140, 700, 3500, 16000], effect: (t, l) => { t.streakCap = 6 + l * 8; } },
+  { id: 'haggle', cat: 'sort', name: 'Haggling', desc: '+14% of the base sell price per level (level 10 pays 2.4x).', max: 10, cost: geo(25, 2.0, 10), effect: (t, l) => { t.sellMult *= 1 + 0.14 * l; } },
+  { id: 'streak', cat: 'sort', name: 'Hot Hands', desc: 'Sales within 4.5 s of each other build a combo worth +4.5% per plush in a row. Everyone can reach a 6 plush combo; each level raises the cap by 8 (14, 22, 30, 38, 46).', max: 5, cost: [30, 140, 700, 3500, 16000], effect: (t, l) => { t.streakCap = 6 + l * 8; } },
   { id: 'magnet', cat: 'sort', name: 'Bin Magnet', desc: 'The bin catches throws from further away: the mouth is 0.45 m wider per level and the pull reaches further out.', max: 3, cost: [60, 320, 1500], effect: (t, l) => { t.binCatch = 0.0 + l * 0.45; } },
   { id: 'dump', cat: 'sort', name: 'Long-Range Suction', desc: 'The bin already sucks in plush you carry when you are within 3.8 m. This widens the pull to 7.8, 13.8, then 25.8 m (your cart gets 80% of that). Gates and sorters must stay outside the pull.', max: 3, cost: [90, 700, 5200], effect: (t, l) => { t.autoDump = 3.8 + [0, 4, 10, 22][l]; } },
-  { id: 'dex', cat: 'sort', name: 'Plushdex Appraiser', desc: '+1.5% sell price for every species you have discovered.', max: 1, cost: [180], effect: (t) => { t.dexBonus = 0.015; } },
+  { id: 'dex', cat: 'sort', name: 'Plushdex Appraiser', desc: '+0.4% sell price for every species you have discovered (the Plushdex has 1,628, so a full dex pays about 7.5x).', max: 1, cost: [180], effect: (t) => { t.dexBonus = 0.004; } },
   { id: 'shinyEye', cat: 'sort', name: "Collector's Loupe", desc: 'Shiny plush are worth 8x instead of 5x.', max: 1, cost: [1200], effect: (t) => { t.shinyMult = 8; } },
 
   // ---------------- MINING ----------------
@@ -103,7 +104,7 @@ export const UPGRADES = [
   { id: 'power', cat: 'machine', name: 'Power Grid', desc: 'Unlocks Generators and Power Poles. Generators burn Common to Epic plush for power (1.5, 4, 10 and 25 minutes each at 8 kW). Poles link generators together and feed machines within reach. Belts, sorters, mechs, borers, rigs and fans all need power.', max: 1, cost: [450], req: { id: 'bag', lvl: 2 }, effect: (t) => { t.machines.push('gen'); t.machines.push('pole'); } },
   { id: 'genOutput', cat: 'machine', name: 'Turbine Upgrades', desc: 'Each level makes generators put out 70% more power than the level before (and burn each plush faster).', max: 6, cost: geo(1200, 2.6, 6), req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.genOutput *= Math.pow(1.7, l); } },
   { id: 'gridRange', cat: 'machine', name: 'Grid Range', desc: 'Poles link and reach further.', max: 4, cost: geo(500, 2.8, 4), req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.poleLink += 4 * l; t.poleReach += 1.5 * l; } },
-  { id: 'genBuffer', cat: 'machine', name: 'Fuel Hoppers', desc: 'Generators hold more plush in reserve.', max: 3, cost: [800, 4000, 20000], req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.genBuffer = [8, 16, 32, 64][l]; } },
+  { id: 'genBuffer', cat: 'machine', name: 'Fuel Hoppers', desc: 'Generators hold more plush in reserve: 100, 200, then 400 (they start at 50).', max: 3, cost: [800, 4000, 20000], req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.genBuffer = [50, 100, 200, 400][l]; } },
   { id: 'fans', cat: 'machine', name: 'Vent Fans', desc: 'Unlocks Vent Fans. Powered fans clear dust from tunnels within about 14 m.', max: 1, cost: [600], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('fan'); } },
   { id: 'mfan', cat: 'machine', name: 'Support Fans', desc: 'Unlocks Support Fans: a powered ducted fan you clamp under a frame, which blows fresh air the way you were facing, clearing dust and stale air up to 20 m down the tunnel in front of it. The deeper you dig the staler the air: fresh until about 375 m, then you need a fan every (0.25 x 20 / stale) metres, where stale runs from 0 at 150 m to 1 at 1,050 m. Needs power like any machine.', max: 1, cost: [900], req: { id: 'fans', lvl: 1 }, effect: (t) => { t.machines.push('mfan'); } },
   { id: 'splitter', cat: 'machine', name: 'Belt Splitters', desc: 'Unlocks Splitters: a belt piece that sends plush forward, left and right in turn, so one line can feed several sorters, vaults or lines. Set one on the floor or over an existing belt.', max: 1, cost: [1200], req: { id: 'belts', lvl: 1 }, effect: (t) => { t.machines.push('splitter'); } },
@@ -126,8 +127,111 @@ export const UPGRADES = [
 ];
 
 // Everything is expensive on purpose: the early game is slow hand work, and the numbers only open up with machines.
-export const COST_SCALE = 5;
+export const COST_SCALE = 12;  // price pacing: once you grab fast, income compounds, so prices must climb with it
 for (const u of UPGRADES) u.cost = u.cost.map((c) => Math.round(c * COST_SCALE));
+
+// Endgame perks: priced for runs that already own the whole tree (millions to hundreds of millions). Not scaled again.
+const ENDGAME = [
+  { id: 'midas', cat: 'sort', name: 'Midas Contract', desc: 'A standing deal with the richest buyers: every sale pays x1.35 per level, on top of Haggling. Needs Haggling at level 10.', max: 5, cost: [2.5e6, 9e6, 32e6, 110e6, 400e6], req: { id: 'haggle', lvl: 10 }, effect: (t, l) => { t.sellMult *= Math.pow(1.35, l); } },
+  { id: 'exchange', cat: 'sort', name: 'Plushdex Exchange', desc: 'Collectors pay for completeness: +0.2% sell price per discovered species, per level, on top of the Appraiser. Needs the Appraiser.', max: 3, cost: [4e6, 20e6, 100e6], req: { id: 'dex', lvl: 1 }, effect: (t, l) => { t.dexBonus = (t.dexBonus || 0) + 0.002 * l; } },
+  { id: 'titanGrip', cat: 'hands', name: 'Titan Grip', desc: 'Servo-assisted fingers: the pause between grabs shrinks by 20% per level. Needs Grippy Gloves at the top level.', max: 3, cost: [1.5e6, 7e6, 30e6], req: { id: 'gloves', lvl: 7 }, effect: (t, l) => { t.grabTime *= Math.pow(0.8, l); } },
+  { id: 'longArm', cat: 'hands', name: 'Gantry Arms', desc: 'Reach another 1.5 m per level. Needs the Telescoping Grabber at the top level.', max: 3, cost: [2e6, 9e6, 40e6], req: { id: 'reach', lvl: 4 }, effect: (t, l) => { t.reach += 1.5 * l; } },
+  { id: 'fusion', cat: 'machine', name: 'Fusion Cores', desc: 'Generators put out 2.5x the power per level, on top of Turbine Upgrades (and burn each plush that much faster). Needs Turbines at the top level.', max: 3, cost: [3e6, 15e6, 75e6], req: { id: 'genOutput', lvl: 6 }, effect: (t, l) => { t.genOutput *= Math.pow(2.5, l); } },
+  { id: 'rigSwarm', cat: 'machine', name: 'Rig Swarm', desc: 'Six more Claw Rigs per level and 25% faster motors. Needs More Rigs at the top level.', max: 3, cost: [3.5e6, 16e6, 70e6], req: { id: 'rigCount', lvl: 5 }, effect: (t, l) => { t.rigMax += 6 * l; t.rigRate *= Math.pow(0.75, l); } },
+  { id: 'mechLegion', cat: 'machine', name: 'Mech Legion', desc: 'Eight more Mech Scoopers per level and 25% faster hydraulics. Needs Mech Fleet at the top level.', max: 3, cost: [4e6, 18e6, 80e6], req: { id: 'mechCount', lvl: 8 }, effect: (t, l) => { t.mechMax += 8 * l; t.mechRate *= Math.pow(0.75, l); } },
+  { id: 'borerLegion', cat: 'machine', name: 'Borer Legion', desc: 'Three more Tunnel Borers per level and 25% faster cutter heads. Needs Borer Fleet at the top level.', max: 3, cost: [6e6, 28e6, 120e6], req: { id: 'borerCount', lvl: 4 }, effect: (t, l) => { t.borerMax += 3 * l; t.borerRate *= Math.pow(0.75, l); } },
+  { id: 'overdrive', cat: 'machine', name: 'Belt Overdrive', desc: 'Belts and sorting boxes run 1.5x faster per level, on top of Belt Motors. Needs Belt Motors at the top level.', max: 3, cost: [2e6, 10e6, 45e6], req: { id: 'beltSpeed', lvl: 6 }, effect: (t, l) => { t.beltSpeed *= Math.pow(1.5, l); } },
+];
+UPGRADES.push(...ENDGAME);
+
+// Beyond the endgame: a new top above the old maxes of every line (each needs the old top level, so nothing that exists changes), plus the
+// earth movers (Excavator, Bulldozer, Bucket-Wheel Excavator, Haul Truck, see earth.js). Priced for runs that own the whole tree
+// (tens of millions up to hundreds of billions). Not scaled again.
+const MORE = [
+  // ---------------- HANDS ----------------
+  { id: 'exo', cat: 'hands', name: 'Exo Gauntlets', desc: 'Powered gauntlets: the pause between grabs shrinks by 18% per level, on top of Titan Grip. Needs Titan Grip at the top level.', max: 4, cost: geo(4e7, 2.4, 4), req: { id: 'titanGrip', lvl: 3 }, effect: (t, l) => { t.grabTime *= Math.pow(0.82, l); } },
+  { id: 'cargo', cat: 'hands', name: 'Cargo Hold', desc: 'Your pack grows into a cargo hold: +60, +160, +400, then +1,000 carry capacity on top of Carry Capacity. Needs the Gantry Hopper (Carry Capacity at the top level).', max: 4, cost: geo(3e7, 2.5, 4), req: { id: 'bag', lvl: 8 }, effect: (t, l) => { t.carry += [0, 60, 160, 400, 1000][l]; } },
+  { id: 'crane', cat: 'hands', name: 'Crane Arms', desc: 'Reach another 2 m per level, on top of Gantry Arms. Needs Gantry Arms at the top level.', max: 3, cost: geo(3e7, 4, 3), req: { id: 'longArm', lvl: 3 }, effect: (t, l) => { t.reach += 2 * l; } },
+  { id: 'bucketHands', cat: 'hands', name: 'Bucket Hands', desc: 'Each grab scoops 16, 40, 90, then 200 more plush along your aim, on top of Scoop Hands (the scoop tube widens as it grows). Needs Scoop Hands at the top level.', max: 4, cost: geo(2.5e7, 2.8, 4), req: { id: 'scoop', lvl: 4 }, effect: (t, l) => { t.scoop += [0, 16, 40, 90, 200][l]; } },
+  { id: 'cyclone', cat: 'hands', name: 'Cyclone Vacuum', desc: 'The vacuum pulls in 12, 28, 55, then 100 more plush per second, and its cone opens wider and reaches further so there is plush to draw on. Needs the Plush Vacuum at the top level.', max: 4, cost: geo(3e7, 2.6, 4), req: { id: 'vac', lvl: 5 }, effect: (t, l) => { t.vacRate += [0, 12, 28, 55, 100][l]; } },
+  { id: 'railArm', cat: 'hands', name: 'Rail Arm', desc: 'A magnetic rail behind your throw: +6 m/s per level on top of the Throwing Arm. Needs the Throwing Arm at the top level.', max: 3, cost: geo(2.2e7, 3, 3), req: { id: 'throw', lvl: 6 }, effect: (t, l) => { t.throwPower += 6 * l; } },
+  { id: 'gravWell', cat: 'hands', name: 'Gravity Well', desc: 'Loose plush fly to you from a further 12, 30, then 70 m, on top of the Scavenger Magnet. Needs the Scavenger Magnet at the top level.', max: 3, cost: geo(2e7, 3.2, 3), req: { id: 'scavenge', lvl: 3 }, effect: (t, l) => { t.scavRange += [0, 12, 30, 70][l]; } },
+
+  // ---------------- SORTING ----------------
+  { id: 'auction', cat: 'sort', name: 'Auction House', desc: 'Every sale goes to the highest bidder: x1.5 per level, on top of the Midas Contract. Needs the Midas Contract at the top level.', max: 5, cost: geo(1e9, 3.4, 5), req: { id: 'midas', lvl: 5 }, effect: (t, l) => { t.sellMult *= Math.pow(1.5, l); } },
+  { id: 'fever', cat: 'sort', name: 'Fever Pitch', desc: 'Raises the Hot Hands combo cap by 16 per level. Needs Hot Hands at the top level.', max: 3, cost: geo(2.5e7, 3, 3), req: { id: 'streak', lvl: 5 }, effect: (t, l) => { t.streakCap += 16 * l; } },
+  { id: 'tractor', cat: 'sort', name: 'Tractor Beam', desc: 'The bin mouth is 0.6 m wider per level, on top of the Bin Magnet. Needs the Bin Magnet at the top level.', max: 3, cost: geo(1.5e7, 3, 3), req: { id: 'magnet', lvl: 3 }, effect: (t, l) => { t.binCatch += 0.6 * l; } },
+  { id: 'registry', cat: 'sort', name: 'Species Registry', desc: '+0.2% sell price per discovered species, per level, on top of the Exchange. Needs the Plushdex Exchange at the top level.', max: 3, cost: geo(6e7, 3, 3), req: { id: 'exchange', lvl: 3 }, effect: (t, l) => { t.dexBonus = (t.dexBonus || 0) + 0.002 * l; } },
+  { id: 'prism', cat: 'sort', name: 'Prismatic Loupe', desc: 'Shiny plush are worth 4 more times the base price per level (on top of the Loupe: 12x, 16x, 20x, then 24x). Needs the Collector\'s Loupe.', max: 4, cost: geo(2e7, 2.6, 4), req: { id: 'shinyEye', lvl: 1 }, effect: (t, l) => { t.shinyMult += 4 * l; } },
+  { id: 'brokerage', cat: 'sort', name: 'Brokerage', desc: 'One more contract slot per level, on top of More Contracts. Needs More Contracts at the top level.', max: 4, cost: geo(2e7, 4, 4), req: { id: 'contractSlots', lvl: 3 }, effect: (t, l) => { t.contractSlots += l; } },
+
+  // ---------------- MINING AND SUPPORTS ----------------
+  { id: 'bedrockTamp', cat: 'mine', name: 'Bedrock Tamping', desc: 'Compacts the whole pile further: +1.2 m of safe unsupported tunnel per level, everywhere, on top of Pile Tamping. Needs Pile Tamping at the top level.', max: 4, cost: geo(3e7, 2.8, 4), req: { id: 'tamp', lvl: 8 }, effect: (t, l) => { t.stabBonus += l; } },
+  { id: 'seismo', cat: 'mine', name: 'Seismograph', desc: 'A longer warning before a roof lets go: +0.55 s per level on top of the Creak Sensor. Needs the Creak Sensor at the top level.', max: 3, cost: geo(1.5e7, 3, 3), req: { id: 'creak', lvl: 3 }, effect: (t, l) => { t.warn += 0.55 * l; } },
+  { id: 'ablative', cat: 'mine', name: 'Ablative Helm', desc: '+40 max health per level, on top of the Reinforced Hard Hat. Needs the Reinforced Hard Hat at the top level.', max: 5, cost: geo(1e7, 2.6, 5), req: { id: 'hpmax', lvl: 4 }, effect: (t, l) => { t.hpBonus += 40 * l; } },
+  { id: 'reactive', cat: 'mine', name: 'Reactive Armor', desc: 'Falls, blasts and falling plush hurt another 5% less per level, on top of Impact Padding (the cut from the two stops at 60%). Needs Impact Padding at the top level.', max: 4, cost: geo(1.2e7, 2.7, 4), req: { id: 'padding', lvl: 4 }, effect: (t, l) => { t.dmgCut += 0.05 * l; } },
+  { id: 'rebreather', cat: 'mine', name: 'Rebreather', desc: 'A closed-circuit rig: 90 more seconds of air per level when you are buried or trapped, on top of the Emergency Air Tank. Needs the Air Tank at the top level.', max: 3, cost: geo(8e6, 3, 3), req: { id: 'airtank', lvl: 5 }, effect: (t, l) => { t.airTank += 3 * l; } },
+
+  // ---------------- LIGHT ----------------
+  { id: 'searchlight', cat: 'light', name: 'Searchlight', desc: 'A roof-rack searchlight: +4 m of beam and +30% brightness per level, on top of the Headlamp. Needs the Headlamp at the top level.', max: 4, cost: geo(6e6, 3, 4), req: { id: 'lamp', lvl: 5 }, effect: (t, l) => { t.lampRange += 4 * l; t.lampPower += 0.3 * l; } },
+  { id: 'beamFocus', cat: 'light', name: 'Beam Focus', desc: 'A tight lens: +6 m of beam per level, on top of the Searchlight. Needs the Searchlight at the top level.', max: 3, cost: geo(4e7, 3, 3), req: { id: 'searchlight', lvl: 4 }, effect: (t, l) => { t.lampRange += 6 * l; } },
+
+  // ---------------- SENSORS ----------------
+  { id: 'deepArray', cat: 'sense', name: 'Deep Array', desc: 'Squeak Ear arrays reach 1.5x further per level, so the signal meter reads stronger from any distance. Needs the Squeak Ear at the top level.', max: 4, cost: geo(1.5e12, 3, 4), req: { id: 'scan', lvl: 8 }, effect: (t, l) => { t.scanRange *= Math.pow(1.5, l); } },
+  { id: 'radar', cat: 'sense', name: 'Remains Radar', desc: 'The compass marks the 2, 3, then 4 nearest abandoned digs (GEAR) instead of only the nearest. Needs the Remains Locator at the top level.', max: 3, cost: geo(3e7, 3.3, 3), req: { id: 'locator', lvl: 4 }, effect: (t, l) => { t.locatorCount += l; } },
+  { id: 'seismicAssay', cat: 'sense', name: 'Seismic Assay', desc: 'The Vein Assay meter starts climbing sooner and reads stronger: 0.1 lower on its scale per level, so a vein shows from further away. Needs the Vein Assay at the top level.', max: 3, cost: geo(4e7, 3.2, 3), req: { id: 'assay', lvl: 3 }, effect: (t, l) => { t.assayFloor -= 0.1 * l; } },
+
+  // ---------------- MOBILITY ----------------
+  { id: 'hover', cat: 'move', name: 'Hover Boots', desc: '+10% walking speed per level, on top of Running Shoes. Needs Running Shoes at the top level.', max: 5, cost: geo(5e6, 2.7, 5), req: { id: 'boots', lvl: 4 }, effect: (t, l) => { t.walk *= 1 + 0.1 * l; } },
+  { id: 'crawlRails', cat: 'move', name: 'Crawl Rails', desc: 'Crawl another 10% faster per level in tunnels, on top of Knee Pads. Needs Knee Pads at the top level.', max: 3, cost: geo(4e6, 3, 3), req: { id: 'knees', lvl: 3 }, effect: (t, l) => { t.crouchMul += 0.1 * l; } },
+  { id: 'rocketBoots', cat: 'move', name: 'Rocket Boots', desc: 'Jump higher still: +0.7 per level, on top of Spring Insoles. Needs Spring Insoles at the top level.', max: 3, cost: geo(6e6, 3, 3), req: { id: 'springs', lvl: 3 }, effect: (t, l) => { t.jump += 0.7 * l; } },
+
+  // ---------------- CREW ----------------
+  { id: 'foundry', cat: 'crew', name: 'Bot Foundry', desc: 'Another bot hatches at the bin per level, on top of the nine from More Scrappers. Needs More Scrappers at the top level.', max: 6, cost: geo(3e7, 2.4, 6), req: { id: 'crewSlots', lvl: 8 }, effect: (t, l) => { t.crewMax += l; } },
+  { id: 'titanBuckets', cat: 'crew', name: 'Titan Buckets', desc: 'Bots haul another 40% of their base load per trip per level, on top of Bigger Buckets. Needs Bigger Buckets at the top level.', max: 4, cost: geo(2e7, 2.8, 4), req: { id: 'crewHaul', lvl: 4 }, effect: (t, l) => { t.crewHaul += 0.4 * l; } },
+  { id: 'servoOC', cat: 'crew', name: 'Overclocked Servos', desc: 'Bots dig another 20% faster per level, on top of Servo Tuning. Needs Servo Tuning at the top level.', max: 5, cost: geo(2.5e7, 2.6, 5), req: { id: 'crewSpeed', lvl: 6 }, effect: (t, l) => { t.crewSpeed += 0.2 * l; } },
+  { id: 'fusionCells', cat: 'crew', name: 'Fusion Cells', desc: 'Bots run another 60% longer per level before they need to recharge, on top of Long-Life Cells. Needs Long-Life Cells at the top level.', max: 4, cost: geo(2e7, 2.8, 4), req: { id: 'crewBattery', lvl: 4 }, effect: (t, l) => { t.crewBattery += 0.6 * l; } },
+
+  // ---------------- MACHINES ----------------
+  { id: 'rigGantry', cat: 'machine', name: 'Rig Gantry', desc: 'Claw Rig arms reach another 1.2 m per level, on top of the Rig Boom. Needs the Rig Boom at the top level.', max: 3, cost: geo(3e7, 3, 3), req: { id: 'rigReach', lvl: 4 }, effect: (t, l) => { t.rigReach += 1.2 * l; } },
+  { id: 'rigTitan', cat: 'machine', name: 'Rig Titan Motors', desc: 'Claw Rigs grab 20% faster per level, on top of Rig Motors. Needs Rig Motors at the top level.', max: 4, cost: geo(2e7, 2.8, 4), req: { id: 'rigSpeed', lvl: 6 }, effect: (t, l) => { t.rigRate *= Math.pow(0.8, l); } },
+  { id: 'mechOverclock', cat: 'machine', name: 'Mech Overclock', desc: 'Mechs scoop 20% faster per level, on top of Hydraulics. Needs Hydraulics at the top level.', max: 4, cost: geo(2.5e7, 2.8, 4), req: { id: 'mechSpeed', lvl: 6 }, effect: (t, l) => { t.mechRate *= Math.pow(0.8, l); } },
+  { id: 'mechSilo', cat: 'machine', name: 'Mech Silo', desc: 'Mech hoppers hold 24, 72, then 200 more plush. Needs the Mech Hopper at the top level.', max: 3, cost: geo(1.5e7, 3, 3), req: { id: 'mechBuf', lvl: 3 }, effect: (t, l) => { t.mechBuffer += [0, 24, 72, 200][l]; } },
+  { id: 'plasmaCutters', cat: 'machine', name: 'Plasma Cutters', desc: 'Tunnel Borers dig 20% faster per level, on top of the Cutter Head. Needs the Cutter Head at the top level.', max: 4, cost: geo(3e7, 2.8, 4), req: { id: 'borerSpeed', lvl: 6 }, effect: (t, l) => { t.borerRate *= Math.pow(0.8, l); } },
+  { id: 'siloHoppers', cat: 'machine', name: 'Silo Hoppers', desc: 'Generators hold 150, 450, then 1,350 more plush in reserve. Needs Fuel Hoppers at the top level.', max: 3, cost: geo(1e7, 3, 3), req: { id: 'genBuffer', lvl: 3 }, effect: (t, l) => { t.genBuffer += [0, 150, 450, 1350][l]; } },
+  { id: 'superPoles', cat: 'machine', name: 'Superconducting Poles', desc: 'Poles link 8 m and reach 2 m further per level, on top of Grid Range. Needs Grid Range at the top level.', max: 3, cost: geo(2e7, 3, 3), req: { id: 'gridRange', lvl: 4 }, effect: (t, l) => { t.poleLink += 8 * l; t.poleReach += 2 * l; } },
+  { id: 'dysonCores', cat: 'machine', name: 'Dyson Cores', desc: 'Generators put out 3x the power per level, on top of Fusion Cores (and burn each plush that much faster). Needs Fusion Cores at the top level.', max: 3, cost: geo(4e8, 4, 3), req: { id: 'fusion', lvl: 3 }, effect: (t, l) => { t.genOutput *= Math.pow(3, l); } },
+
+  // ---- Earth movers. Each unlock needs a different old tree at its top; the Haul Truck and the diggers work together (see earth.js).
+  { id: 'excavator', cat: 'machine', name: 'Excavator', desc: 'Unlocks the Excavator: a big tracked digger that stands in front of the pile wall and swings its bucket across a 7 wide, 5 high face, filling a 240 plush hopper. Empty the hopper onto a belt behind it, with a Haul Truck, or by hand (E). It stops where the mountain presses harder than the best frame you own could bear, and chokes on stale air without a Support Fan. It leaves The One alone. Needs power (30 kW). Needs the Wide Bore at the top level.', max: 1, cost: [6e6], req: { id: 'borerSize', lvl: 2 }, effect: (t) => { t.machines.push('excavator'); t.excavMax += 1; } },
+  { id: 'excavatorCount', cat: 'machine', name: 'Excavator Fleet', desc: 'Run one more Excavator at once per level.', max: 4, cost: geo(9e6, 2.2, 4), req: { id: 'excavator', lvl: 1 }, effect: (t, l) => { t.excavMax += l; } },
+  { id: 'excavatorSpeed', cat: 'machine', name: 'Boom Hydraulics', desc: 'Excavators swing 20% faster per level.', max: 6, cost: geo(8e6, 2.3, 6), req: { id: 'excavator', lvl: 1 }, effect: (t, l) => { t.excavRate *= Math.pow(0.8, l); } },
+  { id: 'excavatorBucket', cat: 'machine', name: 'Bigger Bucket', desc: 'An Excavator bucket takes 20, 32, 48, then 72 plush a swing (up from 12).', max: 4, cost: geo(1.2e7, 2.4, 4), req: { id: 'excavator', lvl: 1 }, effect: (t, l) => { t.excavSwing = [12, 20, 32, 48, 72][l]; } },
+  { id: 'dozer', cat: 'machine', name: 'Bulldozer', desc: 'Unlocks the Bulldozer: a low tracked pusher that keeps a wide blade in the foot of the pile and shoves whole rows out of it. It pushes plush onto a belt, sorter or vault behind it at full value, or down its own chute at 85% when there is none. It stops where the mountain presses harder than the best frame you own could bear, and chokes on stale air without a Support Fan. It leaves The One alone. Needs power (22 kW). Needs the Mech Hopper at the top level.', max: 1, cost: [4e6], req: { id: 'mechBuf', lvl: 3 }, effect: (t) => { t.machines.push('dozer'); t.dozerMax += 1; } },
+  { id: 'dozerCount', cat: 'machine', name: 'Dozer Fleet', desc: 'Run one more Bulldozer at once per level.', max: 4, cost: geo(6e6, 2.2, 4), req: { id: 'dozer', lvl: 1 }, effect: (t, l) => { t.dozerMax += l; } },
+  { id: 'dozerSpeed', cat: 'machine', name: 'Pusher Drive', desc: 'Bulldozers make a pass 20% faster per level.', max: 6, cost: geo(5e6, 2.3, 6), req: { id: 'dozer', lvl: 1 }, effect: (t, l) => { t.dozerRate *= Math.pow(0.8, l); } },
+  { id: 'dozerBlade', cat: 'machine', name: 'Wide Blade', desc: 'A Bulldozer blade is 7, 9, then 11 plush wide (up from 5).', max: 3, cost: geo(8e6, 2.6, 3), req: { id: 'dozer', lvl: 1 }, effect: (t, l) => { t.dozerBlade = [5, 7, 9, 11][l]; } },
+  { id: 'wheel', cat: 'machine', name: 'Bucket-Wheel Excavator', desc: 'Unlocks the Bucket-Wheel Excavator: an enormous rail-mounted digger whose spinning wheel eats an 11 wide, 6 high face, 40 plush at a time, into a 1,500 plush hopper. Empty the hopper onto a belt, with Haul Trucks, or by hand (E). It stops where the mountain presses harder than the best frame you own could bear, and chokes on stale air without a Support Fan. It leaves The One alone. Needs power (80 kW). Needs Excavator Fleet at the top level.', max: 1, cost: [4.5e7], req: { id: 'excavatorCount', lvl: 4 }, effect: (t) => { t.machines.push('wheel'); t.wheelMax += 1; } },
+  { id: 'wheelCount', cat: 'machine', name: 'Wheel Fleet', desc: 'Run one more Bucket-Wheel Excavator at once per level.', max: 3, cost: geo(6e7, 2.6, 3), req: { id: 'wheel', lvl: 1 }, effect: (t, l) => { t.wheelMax += l; } },
+  { id: 'wheelSpeed', cat: 'machine', name: 'Wheel Drive', desc: 'Bucket-Wheel Excavators turn 20% faster per level.', max: 5, cost: geo(4e7, 2.4, 5), req: { id: 'wheel', lvl: 1 }, effect: (t, l) => { t.wheelRate *= Math.pow(0.8, l); } },
+  { id: 'wheelBuckets', cat: 'machine', name: 'Wheel Buckets', desc: 'The wheel takes 64, 100, then 160 plush a turn (up from 40).', max: 3, cost: geo(5e7, 2.6, 3), req: { id: 'wheel', lvl: 1 }, effect: (t, l) => { t.wheelSwing = [40, 64, 100, 160][l]; } },
+  { id: 'truck', cat: 'machine', name: 'Haul Truck', desc: 'Unlocks the Haul Truck (you may run two). Park it in a yard near a pole: when a digger\'s hopper fills it drives out along a straight route, loads up to 240 plush, hauls them to the nearest bin or Depot Beacon, sells them and drives back. Its drive needs power (10 kW) at its yard. Needs Belt Motors at the top level.', max: 1, cost: [3e6], req: { id: 'beltSpeed', lvl: 6 }, effect: (t) => { t.machines.push('truck'); t.truckMax += 2; } },
+  { id: 'truckCount', cat: 'machine', name: 'Truck Fleet', desc: 'Run two more Haul Trucks at once per level.', max: 6, cost: geo(3e6, 1.9, 6), req: { id: 'truck', lvl: 1 }, effect: (t, l) => { t.truckMax += 2 * l; } },
+  { id: 'truckSpeed', cat: 'machine', name: 'Diesel Swap', desc: 'Haul Trucks drive 25% faster per level.', max: 6, cost: geo(4e6, 2.1, 6), req: { id: 'truck', lvl: 1 }, effect: (t, l) => { t.truckSpeed *= Math.pow(1.25, l); } },
+  { id: 'truckBed', cat: 'machine', name: 'Big Beds', desc: 'A Haul Truck carries 480, 960, 1,920, then 3,840 plush a trip (up from 240).', max: 4, cost: geo(5e6, 2.5, 4), req: { id: 'truck', lvl: 1 }, effect: (t, l) => { t.truckBed = [240, 480, 960, 1920, 3840][l]; } },
+  { id: 'truckRange', cat: 'machine', name: 'Dispatch Radio', desc: 'Trucks answer hoppers 800, 1,600, 3,200, then 6,400 m from their yard (up from 400).', max: 4, cost: geo(4e6, 2.6, 4), req: { id: 'truck', lvl: 1 }, effect: (t, l) => { t.truckRange = [400, 800, 1600, 3200, 6400][l]; } },
+  { id: 'hopperLiner', cat: 'machine', name: 'Hopper Liners', desc: 'Excavator and Bucket-Wheel hoppers hold 2x, 4x, 8x, then 16x the plush. Needs the Excavator.', max: 4, cost: geo(1.5e7, 2.5, 4), req: { id: 'excavator', lvl: 1 }, effect: (t, l) => { t.hopMul *= Math.pow(2, l); } },
+  { id: 'earthDrives', cat: 'machine', name: 'Efficient Drives', desc: 'Earth movers draw 15% less power per level. Needs Fusion Cores at the top level.', max: 4, cost: geo(3e7, 2.6, 4), req: { id: 'fusion', lvl: 3 }, effect: (t, l) => { t.earthDraw *= Math.pow(0.85, l); } },
+  { id: 'earthFleet', cat: 'machine', name: 'Fleet Contracts', desc: 'One more of every earth mover you have unlocked per level. Needs Efficient Drives at the top level.', max: 3, cost: geo(9e7, 3, 3), req: { id: 'earthDrives', lvl: 4 }, effect: (t, l) => { t.fleetBonus += l; } },
+];
+UPGRADES.push(...MORE);
+for (const u of [...ENDGAME, ...MORE]) u.fresh = true;   // the lines added after the original tree: each gets a 'maxed it' achievement
+
+// High-end frame unlocks are priced for runs that own everything else: Concrete is a 20M purchase and each tier after costs about 6x the last. Absolute prices, not scaled.
+const FRAME_PRICES = { steel: 2e6, concrete: 20e6, rebar: 120e6, titan: 720e6, carbon: 4.3e9, plasma: 26e9, voidl: 156e9, neutron: 940e9, horizon: 5.6e12 };
+for (const u of UPGRADES) if (FRAME_PRICES[u.id] && u.cat === 'mine') u.cost = [FRAME_PRICES[u.id]];
+mergeUpgrades(UPGRADES);   // the Satisfactory catalog parts (catalog_*.js): absolute costs, appended last so no id above changes
+
 
 export const FRAME_TYPES = {
   timber:   { name: 'Timber Frame',     cost: 36,      bonus: 1, radius: 2.5, maxDepth: 150, color: 0x9a6b3a, icon: '🪵' },
@@ -167,9 +271,11 @@ export function defaultTuning() {
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,
     crewMax: 0, crewHaul: 1, crewSpeed: 1, crewBattery: 1, crewBelt: false, crewBolt: false,
-    markers: false, dynamite: false, hpBonus: 0, jacks: false, slopeProbe: false, dmgCut: 0, firstAid: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 8, resp: 0, airTank: 0, airmon: false,
+    markers: false, dynamite: false, hpBonus: 0, jacks: false, slopeProbe: false, dmgCut: 0, firstAid: false, struts: false, charges: 0, climb: 0, scavRange: 0, cartTier: 0, contractSlots: 0, genOutput: 8, poleLink: 14, poleReach: 7, genBuffer: 50, resp: 0, airTank: 0, airmon: false,
     beltSpeed: 1.6, sorterTiers: 0, mechMax: 0, mechRate: 2.4, mechBuffer: 6, mechLayer: false, mechBolt: false, bulkhead: false,
     machines: [], rigMax: 0, rigRate: 2.4, rigReach: 3.2, borerMax: 0, borerRate: 12.2, borerW: 2, borerH: 3,
+    excavMax: 0, excavRate: 4.0, excavSwing: 12, dozerMax: 0, dozerRate: 3.5, dozerBlade: 5, wheelMax: 0, wheelRate: 3.0, wheelSwing: 40,
+    truckMax: 0, truckSpeed: 7, truckBed: 240, truckRange: 400, hopMul: 1, earthDraw: 1, fleetBonus: 0, locatorCount: 1, assayFloor: 0.55,
   };
 }
 
@@ -182,7 +288,7 @@ export function computeTuning(levels, boosts) {
   if (boosts) {
     t.sellMult *= 1 + boosts.sell;
     const m = boosts.digMul;
-    t.grabTime *= m; t.mechRate *= m; t.borerRate *= m; t.rigRate *= m;
+    t.grabTime *= m; t.mechRate *= m; t.borerRate *= m; t.rigRate *= m; t.excavRate *= m; t.dozerRate *= m; t.wheelRate *= m;
     t.carry += boosts.carry;
     t.stabBonus += boosts.stab;
     t.scanRange *= 1 + boosts.scan;

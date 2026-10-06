@@ -14,9 +14,10 @@ export const U = {
   uLampColor: { value: new THREE.Color(2.4, 2.2, 1.8) },
   uLampCone: { value: new THREE.Vector2(0.97, 0.78) },
   uLampRange: { value: 16 },
-  uPt: { value: Array.from({ length: 6 }, () => new THREE.Vector4(0, -999, 0, 1)) },
-  uPtCol: { value: Array.from({ length: 6 }, () => new THREE.Color(0, 0, 0)) },
+  uPt: { value: Array.from({ length: 10 }, () => new THREE.Vector4(0, -999, 0, 1)) },
+  uPtCol: { value: Array.from({ length: 10 }, () => new THREE.Color(0, 0, 0)) },
   uPtN: { value: 1 },
+  uFloor: { value: 1 },
   uStressOn: { value: 0 },
 };
 
@@ -50,7 +51,7 @@ precision highp float;
 uniform float uTime; uniform vec3 uFogColor; uniform float uFogDensity; uniform float uCamSky;
 uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uHemiSky; uniform vec3 uHemiGround;
 uniform vec3 uLampPos; uniform vec3 uLampDir; uniform vec3 uLampColor; uniform vec2 uLampCone; uniform float uLampRange;
-uniform vec4 uPt[6]; uniform vec3 uPtCol[6]; uniform int uPtN;
+uniform vec4 uPt[10]; uniform vec3 uPtCol[10]; uniform int uPtN; uniform float uFloor;
 varying vec3 vN; varying vec3 vWP; varying vec3 vCol; varying vec4 vData; varying vec3 vOP;
 ${noise}
 void main(){
@@ -74,7 +75,7 @@ void main(){
   L += uSunColor * wrap * wrap * sky;
   float hm = N.y * 0.5 + 0.5;
   L += mix(uHemiGround, uHemiSky, hm) * (0.10 + 0.90 * sky);
-  L += vec3(0.020, 0.022, 0.026); // dark-room floor
+  L += vec3(0.020, 0.022, 0.026) * uFloor; // dark-room floor: gone at night and deep underground, so only light sources show anything
 
   // headlamp
   vec3 lv = uLampPos - vWP; float ld = length(lv); vec3 ldir = lv / ld;
@@ -84,7 +85,7 @@ void main(){
   L += uLampColor * cone * att * ndl * ndl * (0.55 + 0.45 * ao);
 
   // placed lamps
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 10; i++) {
     if (i >= uPtN) break;
     vec3 pv = uPt[i].xyz - vWP; float pd = length(pv);
     float pr = uPt[i].w;

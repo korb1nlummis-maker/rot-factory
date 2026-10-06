@@ -4,6 +4,11 @@ import { RARITY, species } from './plushdata.js';
 import { capacityOf } from './loadtrace.js';
 import { FAN_R, VENT_R } from './dust.js';
 import { CART_NAMES, CART_CAP } from './cart.js';
+import { isEarth, earthInfo } from './earth.js';
+import { wireable } from './cables.js';
+import { infoReplace, infoExtra } from './ext.js';
+import { pickBuilt } from './build.js';
+import { C, cellX, cellZ } from './config.js';
 
 const pct = (v) => `${Math.round((v ?? 0) * 100)}%`;
 const SORT_NAMES = ['Sells everything', 'Keeps Uncommon and better', 'Keeps Rare and better', 'Keeps Epic and better', 'Keeps Legendary and better', 'Keeps Mythic'];
@@ -12,17 +17,32 @@ const powerLine = (t) => ((t.pw ?? 0) > 0.05 ? `Powered ${pct(t.pw)}` : 'No powe
 
 export function findInfoRef(g) {
   const eye = g.renderer.camera.position, dir = g.player.forward(g._infoDir || (g._infoDir = eye.clone()));
+  { const ch = g.cables.hit(eye, dir, 4.5); if (ch) { const tl = g.logi.pick(eye, dir, 3.6); if (!tl || ch.t < Math.hypot(cellX(tl.i) - eye.x, tl.j * C + 1 - eye.y, cellZ(tl.k) - eye.z) + 0.3) return { kind: 'cable', id: ch.id }; } }
   if (g.S.cart && g.cartDist() < 3.2) { const v = eye.clone().set(g.S.cart.x - eye.x, g.S.cart.y + 0.5 - eye.y, g.S.cart.z - eye.z); if (v.length() < 3.2 && v.normalize().dot(dir) > 0.7) return { kind: 'cart' }; }
   const tile = g.logi.pick(eye, dir, 3.6); if (tile) return { kind: 'tile', id: tile.id };
   let best = null, bd = 3.4;
   for (const it of g.machines.items.values()) {
-    const e = it.ent; const x = e.cx ?? e.px ?? e.x, y = (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = e.cz ?? e.pz ?? e.z; if (x === undefined) continue;
-    const v = eye.clone().set(x - eye.x, y - eye.y, z - eye.z), d = v.length(); if (d > bd || v.normalize().dot(dir) < 0.9) continue; bd = d; best = it;
+    const e = it.ent; const em = isEarth(e.type); const x = em ? it.obj.position.x : (e.cx ?? e.px ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.pz ?? e.z); if (x === undefined) continue;
+    const v = eye.clone().set(x - eye.x, y - eye.y, z - eye.z), d = v.length(); if (d > bd + (e.hr || 0) || v.normalize().dot(dir) < (e.hr ? 0.8 : 0.9)) continue; bd = d; best = it;
   }
+  { const pb = pickBuilt(g, eye, dir, 3.6); if (pb && (!best || pb.t < bd)) return { kind: 'mach', id: pb.ent.id }; }   // build shell: the pad, catwalk, wall, ramp or stair under the crosshair
   return best ? { kind: 'mach', id: best.ent.id } : null;
 }
 
+// every readout also says what a hand-wired power cable does for the thing it touches (the source of its power), the same on both screens
 export function infoFor(g, ref) {
+  if (!ref) return null;
+  if (ref.kind === 'cable') { const c = g.cables.rec(ref.id); return c ? g.cables.describe(c) : null; }
+  const id = ref.id, e = ref.kind === 'tile' ? g.logi.byId.get(id) : ref.kind === 'mach' ? (g.machines.items.get(id) || {}).ent : null;
+  // catalog hook (catalog_*.js TYPES[type].info replaces the readout, .infoExtra adds lines in front); both screens read the same ent
+  let r = e ? infoReplace(g, e, ref) : null;
+  if (!r) r = infoBase(g, ref); if (!r) return r;
+  if (e) { const more = infoExtra(g, e); if (more.length) r = { ...r, lines: [...more, ...r.lines] }; }
+  if (e && wireable(e)) { const extra = g.cables.infoLines(e); if (extra.length) return { ...r, lines: [...extra, ...r.lines] }; }
+  return r;
+}
+
+function infoBase(g, ref) {
   if (!ref) return null;
   const T = g.T;
   if (ref.kind === 'cart') { const c = g.S.cart; if (!c) return null; return { title: CART_NAMES[c.tier].toUpperCase(), lit: true, lines: [`Carrying ${c.load.length} of ${CART_CAP[c.tier]} plush`, `Mode: ${c.mode}`, 'Plush you grab ride on it when your hands are full. Throw plush at it, or hammer it to stow.'] }; }
@@ -32,7 +52,7 @@ export function infoFor(g, ref) {
     if (t.type === 'belt') {
       if (t.detector) return { title: 'DETECTOR GATE', lit: !t.alarm, lines: [t.alarm ? 'ALARM: The One is held here. The belt behind it is stopped. Press E to take it.' : 'All clear so far.', `${g.S.stats.scans || 0} plush scanned in total`, 'Everything on its belt, every robot and you pass through it. If The One comes by it is pulled aside and the belt stops.'] };
       if (t.splitter) return { title: 'BELT SPLITTER', lit: true, lines: [`Carrying ${t.items.length} plush`, 'Deals plush forward, left and right in turn to whatever is built there.'] };
-      return { title: t.rise ? 'RAMP BELT' : 'BELT', lit: (t.pw ?? 0) > 0.05, lines: [`Carrying ${t.items.length} plush`, `Speed ${(T.beltSpeed || 1).toFixed(1)} tiles per second`, powerLine(t), 'Ends in a sorter, vault, generator or charging station and feeds it.'] };
+      return { title: t.hose ? (!t.fed ? 'VACUUM HOSE (MOUTH)' : 'VACUUM HOSE') : t.rise ? 'RAMP BELT' : 'BELT', lit: (t.pw ?? 0) > 0.05, lines: [`Carrying ${t.items.length} plush`, `Speed ${(T.beltSpeed || 1).toFixed(1)} tiles per second`, (t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A pole near a generator makes it full speed.', t.cd != null ? 'Bends here: it takes plush from the side.' : 'Place the next belt facing a new way to bend the line.', 'Ends in a sorter, vault, generator, charging station or the SORT bin and feeds it.'] };
     }
     if (t.type === 'sorter') { const label = t.filter === 0 ? 'Passes everything (no selling)' : SORT_NAMES[Math.min(5, t.mode)] || 'Sells'; return { title: 'SORTING BOX', lit: (t.pw ?? 0) > 0.05, lines: [label, `${(t.q || []).length} plush waiting`, powerLine(t), 'E cycles what it keeps. It also pulls in what you carry.'] }; }
     if (t.type === 'vault') return { title: 'VAULT CRATE', lit: true, lines: [`${(t.stored || []).length} of ${g.logi.vaultCap()} plush stored`, 'Fills from a belt. E empties it into your hands.'] };
@@ -58,6 +78,7 @@ export function infoFor(g, ref) {
     if (e.type === 'charge') return { title: e.dyn ? 'DYNAMITE' : 'BLASTING CHARGE', lit: false, lines: [`Fuse: ${Math.max(0, e.fuse || 0).toFixed(1)} s`, 'RUN.'] };
     if (e.type === 'claw') return { title: 'CLAW RIG', lit: (e.pw ?? 0) > 0.05, lines: [powerLine(e), `${g.machines.count('claw')} of ${T.rigMax} rigs placed`, 'Plucks the highest plush in reach and sells it.'] };
     if (e.type === 'borer') return { title: 'TUNNEL BORER', lit: (e.pw ?? 0) > 0.05 && !e.done, lines: [e.done ? 'Finished or halted' : powerLine(e), `${e.steps || 0} steps bored, ${e.w}x${e.h} wide`, 'Lines the tunnel behind it with the strongest frame that holds at that depth.'] };
+    if (isEarth(e.type)) return earthInfo(g, e);
     if (e.type === 'beacon') return { title: 'DEPOT BEACON', lit: (e.pw ?? 0) > 0.05, lines: ['Sorts and sells what you carry, fast travel and recall point.', 'E opens the travel menu.'] };
     return { title: String(e.type).toUpperCase(), lit: true, lines: [] };
   }

@@ -48,7 +48,7 @@ export default async function (ctx) {
       fresh({}); S().dex = {}; S().money = 1e12; for (let q = 0; q < l; q++) { S().money = 1e12; g.buy('haggle'); }
       const m0 = S().money; g.streak.t = 0; g.streak.n = 0; g.sell(SP, 0, { dist: 0 }); const got = S().money - m0;
       if (S().up.haggle !== l && l) return 'level ' + l;
-      if (got !== Math.max(1, Math.round(base * (1 + 0.2 * l)))) out.push(`l${l}: sale paid ${got}, expected ${Math.round(base * (1 + 0.2 * l))}`);
+      if (got !== Math.max(1, Math.round(base * (1 + 0.14 * l)))) out.push(`l${l}: sale paid ${got}, expected ${Math.round(base * (1 + 0.14 * l))}`);
     }
     return out.length ? out.join('; ') : true;
   });
@@ -57,7 +57,7 @@ export default async function (ctx) {
     for (let l = 0; l <= 5; l++) {
       fresh({ streak: l }); S().dex = {}; const cap = 6 + 8 * l; if (g.T.streakCap !== (l ? cap : 6)) out.push(`l${l} cap ${g.T.streakCap}`);
       const v1 = g.valueOf(SP, 0, 1), vc = g.valueOf(SP, 0, cap), vp = g.valueOf(SP, 0, cap + 20), vm = g.valueOf(SP, 0, cap - 1);
-      if (!near(vc / v1, 1 + 0.06 * (cap - 1), 0.002)) out.push(`l${l} combo at cap ${vc / v1}`);
+      if (!near(vc / v1, 1 + 0.045 * (cap - 1), 0.002)) out.push(`l${l} combo at cap ${vc / v1}`);
       if (vp !== vc || !(vc > vm)) out.push(`l${l} cap not binding`);
       // the real sell chain: sales in quick succession reach the cap and not beyond
       g.streak.t = 0; g.streak.n = 0; let last = 0; for (let n = 1; n <= cap + 6; n++) { const m0 = S().money; g.sell(SP, 0, { dist: 0, streak: true }); last = S().money - m0; }
@@ -69,7 +69,7 @@ export default async function (ctx) {
     const out = [];
     for (const n of [0, 10, 100]) {
       fresh({}); S().dex = {}; const a = g.valueOf(SP, 0, 0); fresh({ dex: 1 }); S().dex = {}; for (let q = 1; q <= n; q++) S().dex[q] = 1; const b = g.valueOf(SP, 0, 0);
-      if (!near(b / a, 1 + 0.015 * n, 0.003)) out.push(`${n} species: x${(b / a).toFixed(4)}`);
+      if (!near(b / a, 1 + 0.004 * n, 0.003)) out.push(`${n} species: x${(b / a).toFixed(4)}`);
     }
     S().dex = {}; fresh({}); return out.length ? out.join('; ') : true;
   });
@@ -131,7 +131,7 @@ export default async function (ctx) {
     fresh({ contracts: 1, contractSlots: 3 }); S().stats.maxDist = 100; S().dex = {};
     const out = []; const C = g.contracts;
     for (let n = 0; n < 60; n++) {
-      const c = C.make(); const prem = 1 + 100 / 200; const mult = g.T.sellMult;
+      const c = C.make(); const prem = 1 + 100 / 700; const mult = g.T.sellMult;
       if (c.kind === 'shape' && c.reward !== Math.max(30, Math.round(c.need * 36 * 1.1 * prem * mult))) out.push('shape reward ' + c.reward);
       if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('shiny reward ' + c.reward);
       if (!(c.reward >= 30) || !(c.need >= 1) || c.have !== 0) out.push('bad contract ' + JSON.stringify(c));
@@ -139,7 +139,7 @@ export default async function (ctx) {
     // rewards follow the sell price exactly: with Haggling 5 the sell multiplier is higher and every reward follows the same formula
     fresh({ contracts: 1, contractSlots: 3, haggle: 5 }); S().stats.maxDist = 100; S().dex = {}; const m5 = g.T.sellMult; { fresh({ contracts: 1, contractSlots: 3 }); if (!(m5 > g.T.sellMult * 1.6)) out.push(`haggle 5 sell multiplier ${m5} vs ${g.T.sellMult}`); }
     fresh({ contracts: 1, contractSlots: 3, haggle: 5 }); S().stats.maxDist = 100; S().dex = {};
-    for (let n = 0; n < 60; n++) { const c = g.contracts.make(); const prem = 1 + 100 / 200; const mult = g.T.sellMult; if (c.kind === 'shape' && c.reward !== Math.max(30, Math.round(c.need * 36 * 1.1 * prem * mult))) out.push('haggled shape reward ' + c.reward); if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('haggled shiny reward ' + c.reward); }
+    for (let n = 0; n < 60; n++) { const c = g.contracts.make(); const prem = 1 + 100 / 700; const mult = g.T.sellMult; if (c.kind === 'shape' && c.reward !== Math.max(30, Math.round(c.need * 36 * 1.1 * prem * mult))) out.push('haggled shape reward ' + c.reward); if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('haggled shiny reward ' + c.reward); }
     // a rarity contract pays its reward exactly when the last matching plush is sold, wrong plush do not count
     fresh({ contracts: 1, contractSlots: 3 }); S().stats.maxDist = 0; const sp0 = species.findIndex((s) => s && s.rarity === 1), sp5 = SP;
     S().contracts = [{ kind: 'rarity', r: 3, need: 3, desc: 'x', reward: 12345, id: 77, have: 0 }]; g.streak.t = 0;

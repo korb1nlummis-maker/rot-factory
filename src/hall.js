@@ -3,7 +3,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { HALL_HX, HALL_HZ, HALL_H } from './config.js';
 import { U } from './shaders.js';
 import { mulberry32 } from './util.js';
-import { FRAME_TYPES, STRUT_DEPTH } from './upgrades.js';
+import { FRAME_TYPES, STRUT_DEPTH, defaultTuning } from './upgrades.js';
+import { earthTune, EARTH_KW, STALE_CHOKE } from './earth.js';
 import { fanSpacing, staleAt, STALE_START, STALE_SPAN, STALE_OK, FAN_R, VENT_R } from './dust.js';
 
 function canvasTex(w, h, draw, repeat = null, srgb = true) {
@@ -212,7 +213,7 @@ export function buildHall(scene) {
   hall.colliders.push({ x: hall.binPos.x, z: hall.binPos.z, r: 1.08, h: 1.15 });
 
   // Terminal (shop)
-  hall.termPos = new THREE.Vector3(-2.6, 0, -4.6);
+  hall.termPos = new THREE.Vector3(-3.0, 0, -4.6);
   const term = new THREE.Group();
   term.position.copy(hall.termPos);
   const desk = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.08, 0.9), new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 0.55 }));
@@ -260,7 +261,7 @@ export function buildHall(scene) {
 
 
   // ---- crafting table ----
-  hall.craftPos = new THREE.Vector3(-6.4, 0, -6.4);
+  hall.craftPos = new THREE.Vector3(-7.2, 0, -4.8);
   const bench = new THREE.Group();
   bench.position.copy(hall.craftPos);
   bench.rotation.y = Math.atan2(0 - hall.craftPos.x, -1.4 - hall.craftPos.z);
@@ -282,7 +283,7 @@ export function buildHall(scene) {
   hall.colliders.push({ x: hall.craftPos.x, z: hall.craftPos.z, r: 1.15, h: 1.1 });
 
   // ---- dossier kiosk: shows the target plush on a turntable ----
-  hall.kioskPos = new THREE.Vector3(-0.2, 0, -8.4);
+  hall.kioskPos = new THREE.Vector3(-0.1, 0, -7.8);
   const kiosk = new THREE.Group();
   kiosk.position.copy(hall.kioskPos);
   kiosk.rotation.y = Math.atan2(0 - hall.kioskPos.x, -1.4 - hall.kioskPos.z);
@@ -327,32 +328,40 @@ export function buildHall(scene) {
     g.fillStyle = '#0a7d3c'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#eafff1'; g.lineWidth = 12; g.strokeRect(14, 14, w - 28, h - 28);
     // running man (simple pictogram). On the back face the pictograms are mirrored so the arrow still points east.
-    g.save(); if (flip) { g.translate(w, 0); g.scale(-1, 1); }
-    const cx = 170, cy = 200; g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineWidth = 22; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.save(); // (no mirroring: the back face is turned around, so it already reads the right way)
+    const cx = 250, cy = 200; g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineWidth = 22; g.lineCap = 'round'; g.lineJoin = 'round';
     g.beginPath(); g.arc(cx + 24, cy - 112, 24, 0, Math.PI * 2); g.fill();
     g.beginPath(); g.moveTo(cx + 14, cy - 76); g.lineTo(cx - 6, cy - 6); g.lineTo(cx - 52, cy + 22); g.stroke();
     g.beginPath(); g.moveTo(cx - 6, cy - 6); g.lineTo(cx + 40, cy + 36); g.lineTo(cx + 34, cy + 100); g.stroke();
     g.beginPath(); g.moveTo(cx + 12, cy - 66); g.lineTo(cx + 64, cy - 56); g.lineTo(cx + 96, cy - 82); g.stroke();
     g.beginPath(); g.moveTo(cx + 10, cy - 62); g.lineTo(cx - 46, cy - 38); g.stroke();
-    // arrow east
-    g.lineWidth = 26; g.beginPath(); g.moveTo(820, 192); g.lineTo(990, 192); g.stroke(); g.lineWidth = 22; g.beginPath(); g.moveTo(930, 130); g.lineTo(996, 192); g.lineTo(930, 254); g.stroke();
+    // two heavy arrows pointing down: you walk on under the sign, toward the exit
     g.restore();
-    g.fillStyle = '#ffffff'; g.font = `800 190px ${signFont}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('EXIT', 520, 196);
+    for (const ax of [88, 936]) { g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineWidth = 30; g.lineCap = 'round'; g.beginPath(); g.moveTo(ax, 70); g.lineTo(ax, 250); g.stroke(); g.beginPath(); g.moveTo(ax - 52, 200); g.lineTo(ax, 300); g.lineTo(ax + 52, 200); g.closePath(); g.fill(); g.lineWidth = 18; g.stroke(); }
+    g.fillStyle = '#ffffff'; g.font = `800 190px ${signFont}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('EXIT', 640, 196);
   };
   const exitTex = canvasTex(1024, 384, drawExit(false)), exitTexBack = canvasTex(1024, 384, drawExit(true));
+  // a big hanging exit sign: it glows green, hangs from four cords that run all the way to the ceiling, shows down arrows, and faces along the way to the exit
   const mkEmerg = (x, y, z, ry) => {
     const grp = new THREE.Group(); grp.name = 'exitSign'; grp.position.set(x, y, z); grp.rotation.y = ry;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 0.1), new THREE.MeshStandardMaterial({ color: 0x1a1d1f, roughness: 0.5, metalness: 0.8 }));
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTex, toneMapped: false })); face.position.z = 0.056;
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.86), new THREE.MeshBasicMaterial({ map: exitTexBack, toneMapped: false })); back.position.z = -0.056; back.rotation.y = Math.PI;
+    const W = 3.6, H = 1.35;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W + 0.14, H + 0.14, 0.16), new THREE.MeshStandardMaterial({ color: 0x1a1d1f, roughness: 0.5, metalness: 0.8 }));
+    const glowMat = (tex) => new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, color: new THREE.Color(1.15, 1.3, 1.15) });
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(W, H), glowMat(exitTex)); face.position.z = 0.085;
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), glowMat(exitTexBack)); back.position.z = -0.085; back.rotation.y = Math.PI;
     grp.add(body, face, back);
-    const chain = new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6), cm = new THREE.MeshStandardMaterial({ color: 0x666b70, metalness: 0.9, roughness: 0.4 });
-    for (const sx of [-1, 1]) { const c = new THREE.Mesh(chain, cm); c.position.set(sx * 1.0, 1.0, 0); grp.add(c); }
-    const glow = new THREE.PointLight(0x40ff90, 5, 7, 1.6); glow.position.set(0, -0.1, 0.6); grp.add(glow);
+    const rise = Math.max(0.5, HALL_H - y - H / 2), cm = new THREE.MeshStandardMaterial({ color: 0x7a8086, metalness: 0.9, roughness: 0.35 });
+    const cord = new THREE.CylinderGeometry(0.014, 0.014, rise, 6);
+    for (const sx of [-1.6, 1.6]) for (const sz of [-0.05, 0.05]) { const c = new THREE.Mesh(cord, cm); c.position.set(sx, H / 2 + rise / 2, sz); grp.add(c); }
+    for (const sx of [-1.6, 1.6]) { const plate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.22), cm); plate.position.set(sx, H / 2 + rise, 0); grp.add(plate); }
+    // soft halo on both sides so it reads as lit from inside, and light that spills on the floor below
+    const halo = new THREE.MeshBasicMaterial({ color: 0x38ff8a, transparent: true, opacity: 0.05, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+    for (const sz of [0.12, -0.12]) { const h = new THREE.Mesh(new THREE.PlaneGeometry(W * 1.12, H * 1.4), halo); h.position.z = sz; if (sz < 0) h.rotation.y = Math.PI; grp.add(h); }
+    const glow = new THREE.PointLight(0x40ff90, 7, 10, 1.6); glow.position.set(0, -0.5, 0.0); grp.add(glow);
     scene.add(grp); return grp;
   };
-  mkEmerg(6.2, 3.0, 1.6, -0.12);
-  mkEmerg(2.0, 3.4, -9.4, 0);
+  mkEmerg(6.2, 3.3, 1.6, Math.PI / 2);
+  mkEmerg(2.4, 3.3, -9.4, Math.PI / 2);
   // ANSI-style DO NOT CLIMB: white plate, red ring and bar over a climbing figure, black text, on a bolted post
   const climbTex = canvasTex(512, 768, (g, w, h) => {
     g.fillStyle = '#f4f4f0'; g.fillRect(0, 0, w, h);
@@ -404,7 +413,7 @@ export function buildHall(scene) {
     // a chalk plush doodle
     g.beginPath(); g.arc(900, 640, 40, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.arc(880, 630, 5, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(920, 630, 5, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(900, 650, 12, 0.1, Math.PI - 0.1); g.stroke();
   });
-  const board = new THREE.Group(); board.name = 'chalkboard'; board.position.set(4.4, 0, 2.6); board.rotation.y = Math.atan2(-4.4, -4.0);
+  const board = new THREE.Group(); board.name = 'chalkboard'; board.position.set(8.0, 0, -11.2); board.rotation.y = 0;
   const boardWood = new THREE.MeshStandardMaterial({ color: 0x8a6238, roughness: 0.85 });
   const bf = new THREE.Mesh(new THREE.BoxGeometry(1.78, 1.28, 0.07), boardWood); bf.position.set(0, 1.45, 0);
   const bs = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 1.15), new THREE.MeshStandardMaterial({ map: chalkTex, roughness: 0.95, metalness: 0 })); bs.position.set(0, 1.45, 0.037);
@@ -415,14 +424,20 @@ export function buildHall(scene) {
   const chalkMat = new THREE.MeshStandardMaterial({ color: 0xf4f1e4, roughness: 0.9 });
   for (const [cx, cl] of [[-0.3, 0.09], [-0.1, 0.07], [0.2, 0.11]]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, cl, 8), chalkMat); c.rotation.z = Math.PI / 2; c.position.set(cx, 0.84, 0.08); board.add(c); }
   board.add(bf, bs, tray, frontLeg); board.scale.setScalar(1.3); scene.add(board);
-  hall.colliders.push({ x: 4.4, z: 2.6, r: 0.75, h: 2.4 });
+  hall.colliders.push({ x: 8.0, z: -11.2, r: 0.75, h: 2.4 });
+
+  // ---- the hub plaza: a darker mat with hazard-yellow edges under the service stations and the gallery ----
+  { const mat = new THREE.Mesh(new THREE.PlaneGeometry(22, 14.4), new THREE.MeshLambertMaterial({ color: 0x3a3c37 })); mat.rotation.x = -Math.PI / 2; mat.position.set(-0.5, 0.012, -8.2); scene.add(mat);
+    const ym = new THREE.MeshBasicMaterial({ color: 0xd9b429 });
+    for (const [w, d, x, z] of [[22, 0.12, -0.5, -1.0], [22, 0.12, -0.5, -15.4], [0.12, 14.4, -11.5, -8.2], [0.12, 14.4, 10.5, -8.2]]) { const l = new THREE.Mesh(new THREE.PlaneGeometry(w, d), ym); l.rotation.x = -Math.PI / 2; l.position.set(x, 0.016, z); scene.add(l); } }
 
   // ---- more chalkboards: how deep each piece can go, the air, what to carry, how to dig. Every number comes from the game data. ----
   hall.boards = [];
+  const GAL_Z = -11.2; // the chalkboard gallery: one straight row behind the service stations
   const HAND = 'Chalkboard SE, Chalkduster, Bradley Hand, Segoe Print, Comic Sans MS, cursive';
   const fm = (v) => (isFinite(v) ? (v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + ' km' : v + ' m') : 'any depth');
-  const makeBoard = (x, z, title, rows, foot = '') => {
-    const rec = { title, rows, foot, overflow: false };
+  const makeBoard = (x, z, title, rows, foot = '', rot = 0) => {
+    const rec = { title, rows, foot, overflow: false, x, z };
     const tex = canvasTex(1024, 720, (g, w, h) => {
       const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#26342e'); gr.addColorStop(1, '#1b2622'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
       for (let n = 0; n < 900; n++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.045})`; g.fillRect(Math.random() * w, Math.random() * h, 30 + Math.random() * 120, 2 + Math.random() * 8); }
@@ -438,7 +453,7 @@ export function buildHall(scene) {
       });
       if (foot) { g.font = `600 ${Math.round(fs * 0.9)}px ${HAND}`; g.fillStyle = '#ffd98a'; g.textAlign = 'center'; foot.split('\n').forEach((ln, i) => { g.fillText(ln, w / 2, h - 52 + i * 34 - (foot.split('\n').length - 1) * 17); if (g.measureText(ln).width > 960) rec.overflow = true; }); }
     });
-    const b = new THREE.Group(); b.name = 'chalkboard'; b.position.set(x, 0, z); b.rotation.y = Math.atan2(-x, -(z + 1.4));
+    const b = new THREE.Group(); b.name = 'chalkboard'; b.position.set(x, 0, z); b.rotation.y = rot; // the gallery row faces the bay; the east column faces west
     const bf2 = new THREE.Mesh(new THREE.BoxGeometry(1.78, 1.28, 0.07), boardWood); bf2.position.set(0, 1.45, 0);
     const bs2 = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 1.15), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 })); bs2.position.set(0, 1.45, 0.037);
     const tr2 = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.12), boardWood); tr2.position.set(0, 0.8, 0.07);
@@ -447,13 +462,13 @@ export function buildHall(scene) {
     b.add(bf2, bs2, tr2, fl); b.scale.setScalar(1.3); scene.add(b); hall.colliders.push({ x, z, r: 0.75, h: 2.4 }); hall.boards.push(rec); return b;
   };
   // 1. how deep each support can go
-  makeBoard(6.8, 5.0, 'HOW DEEP CAN IT GO?', [
+  makeBoard(-8.0, GAL_Z, 'HOW DEEP CAN IT GO?', [
     ...Object.entries(FRAME_TYPES).map(([k, f]) => [`${f.name}`, `${fm(f.maxDepth)}   reach ${f.radius} m`]),
     ['Strut / Hydraulic Jack', `${STRUT_DEPTH.strut} m / ${STRUT_DEPTH.jack} m`],
   ], 'At 85% of its rating a support creaks. At 100% it breaks.\nWide rooms and long spans need more supports sharing the weight.');
   // 2. the air
   const fsp = (d) => { const s = fanSpacing(d); return isFinite(s) ? `a fan every ${s.toFixed(s < 10 ? 1 : 0)} m` : 'no fan needed'; };
-  makeBoard(7.6, 0.8, 'AIR AT DEPTH', [
+  makeBoard(-4.0, GAL_Z, 'AIR AT DEPTH', [
     `Past ${STALE_START} m the air in a tunnel goes stale.`,
     `Fresh enough to ${Math.round(STALE_START + STALE_OK * STALE_SPAN)} m. Then you cough.`,
     '#Support Fans: how many',
@@ -462,7 +477,7 @@ export function buildHall(scene) {
     `Rule: spacing = ${STALE_OK} x ${FAN_R} / stale. Needs power.`,
   ], 'Vent Fan: ' + VENT_R + ' m all around. Respirator: 20% less dust per level.\nCough = walk out. Pass out = you wake at a depot.');
   // 3. what to carry, by depth
-  makeBoard(1.4, 6.2, 'SURVIVING THE DEPTH', [
+  makeBoard(0.0, GAL_Z, 'SURVIVING THE DEPTH', [
     ['0 to 150 m', 'timber, struts, lantern, flares'],
     ['150 to 380 m', 'steel frames, Structural Survey'],
     ['375 m and up', 'Support Fans, Respirator'],
@@ -476,7 +491,7 @@ export function buildHall(scene) {
     ['Medkit, canister', 'first aid and 40 s of air'],
   ], 'The Survey shows depth, load and the fan spacing you need.');
   // 4. how to dig
-  makeBoard(6.6, -7.0, 'TUNNEL CRAFT', [
+  makeBoard(4.0, GAL_Z, 'TUNNEL CRAFT', [
     '1. Dig the 4 x 4 section out first.',
     '2. Set a frame. It never digs for you.',
     '3. Left and Right turn a frame: curves.',
@@ -488,6 +503,36 @@ export function buildHall(scene) {
     '8. Tamping adds 1.2 m of safe roof a level.',
     '9. A creaking roof is about to fall. Leave.',
   ], 'Remove supports and the tunnel comes down.');
+
+  // 6 and 7. the controls: short versions of the pause menu's Controls tab (a test checks every key named here is a real control)
+  hall.controlBoards = [
+    ['CONTROLS: MOVING AND HANDS', [
+      '#Moving', ['W A S D', 'walk'], ['Shift', 'sprint'], ['Space', 'jump (hold: punch up)'], ['C or Ctrl', 'crouch'],
+      '#Hands', ['Left click', 'grab (hold) / throw'], ['Z', 'throw one'], ['Right click or P', 'punch'], ['E', 'use what you aim at'],
+      ['F', 'flashlight'], ['K', 'medkit'], ['U', 'cart out / stow'], ['H (hold)', 'recall to depot'],
+    ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH']],
+    ['CONTROLS: TOOLS AND SCREENS', [
+      '#Tools and building', ['1 to 9, [ ]', 'pick a hotbar tool'], ['Q', 'tool away / out'], ['B (hold)', 'set down / lay belts'], ['Left Right', 'turn a frame'],
+      ['Down', 'frame back to grid'], ['X', 'take back what you aim at'], ['I', 'inventory'],
+      '#Crew and screens', ['V', 'crew panel'], ['T / Y', 'dig ahead / call home'], ['Tab', 'upgrade terminal'], ['N  L  J', 'dex, journal, awards'], ['Esc', 'pause menu'],
+    ], 'Wires: Left click a machine, then another.', ['Digit1', 'KeyQ', 'KeyB', 'ArrowLeft', 'ArrowDown', 'KeyX', 'KeyI', 'KeyV', 'KeyT', 'KeyY', 'Tab', 'KeyN', 'KeyL', 'KeyJ', 'Escape']],
+  ];
+  hall.controlBoards.forEach(([title, rows, foot], n) => makeBoard(8.8, -8.6 + n * 3.2, title, rows, foot, -Math.PI / 2));
+
+  // 5. the earth movers: what they dig, what they need, what stops them. Every number comes from the game data.
+  { const T0 = defaultTuning(), ex = earthTune(T0, 'excavator'), dz = earthTune(T0, 'dozer'), wh = earthTune(T0, 'wheel'), tk = earthTune(T0, 'truck'); const choke = Math.round(STALE_START + STALE_CHOKE * STALE_SPAN);
+    makeBoard(8.8, -2.2, 'EARTH MOVERS', [
+      ['Excavator', `${2 * ex.latHalf + 1} x ${ex.vert} face, ${ex.hopper} hopper`],
+      ['Bulldozer', `${dz.blade} wide blade, ${dz.vert} high`],
+      ['Bucket-Wheel', `${2 * wh.latHalf + 1} x ${wh.vert} face, ${wh.hopper} hopper`],
+      ['Haul Truck', `${tk.bed} plush, ${tk.range} m radio`],
+      '#Rules',
+      'Hopper full? A belt behind it, a truck, or E.',
+      'The canopy is rated like your best frame:',
+      '    too heavy for it and the machine halts.',
+      `Past ${choke} m stale air stops it: hang a fan.`,
+      'They leave The One where it is.',
+    ], `Power: Excavator ${EARTH_KW.excavator} kW, Dozer ${EARTH_KW.dozer}, Wheel ${EARTH_KW.wheel}, Truck ${EARTH_KW.truck}.\nTrucks sell at the bin or a Depot Beacon.`); }
 
   // EXIT door in +X wall
   const door = new THREE.Group();

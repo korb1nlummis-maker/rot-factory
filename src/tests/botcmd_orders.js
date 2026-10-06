@@ -48,11 +48,11 @@ export default async function (ctx) {
     for (const [t, nm] of mk) { b.deliver = null; aimTile(t, 2.2); const txt = act(); if (txt !== `E: Deliver plush to this ${nm} instead of the bin from now on`) out.push(`${t.type}: "${txt}"`); g.useKey(); if (b.deliver !== t.id) out.push(t.type + ' not set'); }
     return out.length === 0 || out.join('; ');
   });
-  await T('crew.botcmd-full-bot-hands-a-vault-everything-then-resumes-and-an-unpowered-belt-takes-one', async () => {
+  await T('crew.botcmd-full-bot-hands-a-vault-everything-then-resumes-and-an-unpowered-belt-crawls-and-keeps-taking-plush', async () => {
     fresh(upAll); const b = bot(); const v = rawTile('vault', ctx.toI(-3.4), 0, ctx.toK(3.0)); b.deliver = v.id; work(b, cellX(v.i) - 0.9, cellZ(v.k)); b.state = 'farm'; b.carry = mix(); b.timer = 5;
     const seen = seenStates(b, 60, 'goto'); if (v.stored.length !== 6 || b.carry.length || seen.includes('return') || b.state !== 'goto') return `vault ${v.stored.length} carry ${b.carry.length} states ${seen}`;
     const bt = rawTile('belt', ctx.toI(-3.4), 0, ctx.toK(5.4)); b.deliver = bt.id; work(b, cellX(bt.i) - 0.9, cellZ(bt.k)); b.state = 'farm'; b.carry = mix(); b.timer = 5; const s2 = seenStates(b, 60, 'unload');
-    return (bt.items.length === 1 && b.carry.length === 5 && s2.includes('dgive') && s2.includes('return')) || `belt ${bt.items.length} carry ${b.carry.length} states ${s2}`;
+    return (b.carry.length < 5 && s2.includes('dgive') && s2.includes('return')) || `belt ${bt.items.length} carry ${b.carry.length} states ${s2}`;
   });
   await T('crew.botcmd-floor-and-pile-start-a-dig-in-the-direction-you-face', async () => {
     fresh(upAll); const b = bot(); pick(b); let sp0 = null; for (const lane of [12, 8, 16, 20, 4]) { try { sp0 = spot(lane); break; } catch (e) { /* next lane */ } } if (!sp0) return true;

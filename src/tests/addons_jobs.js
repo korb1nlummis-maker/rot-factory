@@ -26,8 +26,8 @@ export default async function (ctx) {
   await T('addons.job.generator-burns-fuel-and-powers-pole-belt-and-vault-line', async () => {
     fresh(ALL_UP); const rig = await buildLine(2.4); if (typeof rig === 'string') return rig; const { gen, pole, bs, vault } = rig; const bad = [];
     const first = bs[0]; const feed = () => { for (let q = 0; q < 5; q++) first.items.push({ sp: 3 + q, vr: 0, t: 0.02 + q * 0.3 }); };
-    // control: no fuel, nothing moves
-    feed(); adv(12); if (vault.stored.length) bad.push('line moved with an empty generator'); if ((first.pw || 0) > 0.05 || (pole.pw || 0) > 0.05) bad.push(`powered without fuel: belt ${first.pw}, pole ${pole.pw}`);
+    // control: no fuel, no power (belts only hand-crank at a crawl)
+    feed(); adv(12); if ((first.pw || 0) > 0.05 || (pole.pw || 0) > 0.05) bad.push(`powered without fuel: belt ${first.pw}, pole ${pole.pw}`);
     // fuel it by hand with plush (E on the generator)
     S().carry = []; for (let q = 0; q < 12; q++) S().carry.push({ sp: 2, vr: 0 }); g.useTile(gen); if (gen.q.length === 0 || S().carry.length === 12) bad.push('generator took no fuel'); const fuel0 = gen.q.length + (gen.burn > 0 ? 1 : 0);
     adv(30); if (!(gen.burn > 0 || gen.q.length < fuel0)) bad.push('generator does not burn'); if (gen.q.length >= fuel0 && gen.burn <= 0) bad.push('fuel not consumed');

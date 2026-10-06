@@ -10,7 +10,8 @@ export const NEEDLE = 4099; // species id of The One
 export const BULK = 4098;   // bulkhead panel (player-built wall, never falls)
 export const REMAINS = 4097; // what is left of a past worker
 export const CACHE = 4096;   // a worker's supply cache
-export const isSpecialCell = (sp) => sp === BULK || sp === REMAINS || sp === CACHE;
+export const PAD = 4095;     // floor pad cell (Wave 3 build shell: a player built floor, catwalk plate or foundation that never falls). vr: low 4 bits = material index, bit 16 = thin (catwalk)
+export const isSpecialCell = (sp) => sp === BULK || sp === REMAINS || sp === CACHE || sp === PAD;
 
 export const ARCH_NAMES = [
   'Bean', 'Gatto', 'Squalo', 'Coccodrillo', 'Banana', 'Cappuccino', 'Rana',
@@ -40,10 +41,10 @@ export const PALETTES = [
 export const RARITY = [
   { id: 0, name: 'Common',    color: '#c9d1d9', css: 'common',    value: 1,   weight: 0.645 },
   { id: 1, name: 'Uncommon',  color: '#5fe08a', css: 'uncommon',  value: 2,   weight: 0.22 },
-  { id: 2, name: 'Rare',      color: '#4ba3ff', css: 'rare',      value: 5,   weight: 0.09 },
-  { id: 3, name: 'Epic',      color: '#b86bff', css: 'epic',      value: 18,  weight: 0.034 },
-  { id: 4, name: 'Legendary', color: '#ffb02e', css: 'legendary', value: 80,  weight: 0.0085 },
-  { id: 5, name: 'Mythic',    color: '#ff4d8d', css: 'mythic',    value: 500, weight: 0.0025 },
+  { id: 2, name: 'Rare',      color: '#4ba3ff', css: 'rare',      value: 4,   weight: 0.09 },
+  { id: 3, name: 'Epic',      color: '#b86bff', css: 'epic',      value: 12,  weight: 0.034 },
+  { id: 4, name: 'Legendary', color: '#ffb02e', css: 'legendary', value: 40,  weight: 0.0085 },
+  { id: 5, name: 'Mythic',    color: '#ff4d8d', css: 'mythic',    value: 150, weight: 0.0025 },
   { id: 6, name: 'THE ONE',   color: '#fff3a0', css: 'theone',    value: 0,    weight: 0 },
 ];
 
@@ -87,6 +88,7 @@ export const volatilePool = []; // Razzo plush: not part of the normal rarity po
   species[BULK] = { id: BULK, arch: ARCH_COUNT + 1, pal: 98, rarity: 0, name: 'Bulkhead Panel' };
   species[REMAINS] = { id: REMAINS, arch: ARCH_COUNT + 2, pal: 97, rarity: 0, name: 'Abandoned Gear' };
   species[CACHE] = { id: CACHE, arch: ARCH_COUNT + 7, pal: 94, rarity: 0, name: 'Supply Cache' };
+  species[PAD] = { id: PAD, arch: ARCH_COUNT + 8, pal: 93, rarity: 0, name: 'Floor Pad' };
   const fakes = [['Il Rotto Supremino', 0xffd24a], ['Il Rotto Suppremo', 0xf4c840], ['Rotto Supremo II', 0xffd860], ['Il Rotto Supremo (Replica)', 0xffcc3c]];
   DECOYS.forEach((id, n) => { species[id] = { id, arch: ARCH_COUNT + 3 + n, pal: 95, rarity: 5, name: fakes[n][0], hex: fakes[n][1], decoy: true }; pools[5].push(id); });
 })();

@@ -15,7 +15,7 @@ export const ALL_UP = {
 export const GATE = {
   'marker': { markers: 0 }, 'glow': { markers: 0 }, 'flare': { markers: 0 }, 'jack': { jacks: 0 }, 'strut': { struts: 0 }, 'medkit': { firstaid: 0 }, 'canister': { firstaid: 0 },
   'dynamite': { dynamite: 0 }, 'charge': { charges: 0 }, 'lantern': { lantern: 0 }, 'bulk': { bulkhead: 0 }, 'belt': { belts: 0 }, 'ramp': { belts: 0 }, 'splitter': { splitter: 0 }, 'gate': { detector: 0 },
-  'gen': { power: 0 }, 'pole': { power: 0 }, 'fan': { fans: 0 }, 'mfan': { mfan: 0 }, 'sorter': { sorter: 0 }, 'vault': { vault: 0 }, 'mech': { mech: 0 }, 'beacon': { depots: 0 }, 'claw': { claw: 0 }, 'borer': { borer: 0 },
+  'gen': { power: 0 }, 'pole': { power: 0 }, 'cable': { power: 0 }, 'fan': { fans: 0 }, 'mfan': { mfan: 0 }, 'sorter': { sorter: 0 }, 'vault': { vault: 0 }, 'mech': { mech: 0 }, 'beacon': { depots: 0 }, 'claw': { claw: 0 }, 'borer': { borer: 0 },
   'cart:1': { cart: 0 }, 'cart:2': { cart: 1 }, 'cart:3': { cart: 2 }, 'cart:4': { cart: 3 }, 'cart:5': { cart: 4 },
 };
 for (const k of FRAME_KEYS) { GATE['frame:' + k] = { [k]: 0 }; GATE['mat:' + k] = { [k]: 0 }; }

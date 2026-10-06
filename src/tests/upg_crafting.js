@@ -12,7 +12,20 @@ export default async function (ctx) {
   const GATE = (id) => {
     if (id.startsWith('frame:') || id.startsWith('mat:')) return [id.split(':')[1]];
     if (id.startsWith('cart:')) return ['cart'];
-    return ({ charger: ['crew'], rope: ['rope'], mfan: ['mfan'], marker: ['markers'], glow: ['markers'], flare: ['markers'], jack: ['jacks'], strut: ['struts'], medkit: ['firstaid'], canister: ['firstaid'], dynamite: ['dynamite'], charge: ['charges'], lantern: ['lantern'], bulk: ['bulkhead'], belt: ['belts'], ramp: ['belts'], splitter: ['splitter'], gate: ['detector'], gen: ['power'], pole: ['power'], fan: ['fans'], sorter: ['sorter'], vault: ['vault'], mech: ['mech'], beacon: ['depots'], claw: ['claw'], borer: ['borer'] })[id];
+    if (/^belt:[1-5]$/.test(id)) return ['beltMk' + (+id.slice(5) + 1)];   // wave 1A (src/catalog_belts.js): each belt mark brings its own belts, lifts and underground ends
+    if (/^(lift|ug):[1-5]$/.test(id)) return ['beltMk' + (+id.slice(id.indexOf(':') + 1) + 1)];
+    if (id === 'lift' || id === 'liftframe') return ['beltLift'];
+    if (id === 'ug') return ['beltUg'];
+    if (id.startsWith('pad:') || id === 'catwalk' || id === 'wall') return ['shellPads'];   // wave 3 build shell (src/catalog_build.js)
+    if (id === 'wramp' || id === 'wramp:haul' || id === 'stair') return ['shellRamps'];
+    if (id === 'levelpad') return ['shellLevel'];
+    if (['sign', 'dsign', 'psign'].includes(id)) return ['furnSigns'];   // wave 4 furnish (src/furnish.js)
+    if (id === 'locker' || id === 'pcrate') return ['furnStore'];
+    if (['clamp', 'strip', 'wbeacon'].includes(id)) return ['furnLamps'];
+    if (id === 'flood') return ['furnFlood'];
+    if (id === 'silo' || id === 'ovault') return ['furnSilo'];
+    if (id === 'dimdepot') return ['furnDepot'];
+    return ({ excavator: ['excavator'], dozer: ['dozer'], wheel: ['wheel'], truck: ['truck'], charger: ['crew'], rope: ['rope'], mfan: ['mfan'], marker: ['markers'], glow: ['markers'], flare: ['markers'], jack: ['jacks'], strut: ['struts'], medkit: ['firstaid'], canister: ['firstaid'], dynamite: ['dynamite'], charge: ['charges'], lantern: ['lantern'], bulk: ['bulkhead'], belt: ['belts'], ramp: ['belts'], hose: ['vac'], splitter: ['splitter'], gate: ['detector'], gen: ['power'], pole: ['power'], cable: ['power'], switch: ['power'], breaker: ['power'], meter: ['power'], 'battery:1': ['power'], 'battery:2': ['power'], 'battery:3': ['power'], pswitch: ['prioPower'], fan: ['fans'], sorter: ['sorter'], vault: ['vault'], mech: ['mech'], beacon: ['depots'], claw: ['claw'], borer: ['borer'], arch: ['archGate'], archBig: ['archGiant'] })[id];
   };
 
   // ---------------------------------------------------------------- recipes: price on the card is what is charged, output lands in the right place

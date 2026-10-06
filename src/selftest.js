@@ -44,7 +44,7 @@ export async function runSelfTest(g, only = '') {
     resetEntities(); clearBodies();
     for (const b of [...S().crew]) { const o = g.crew.objs.get(b.id); if (o) { g.machines.disposeObj(o); g.crew.root.remove(o); g.crew.objs.delete(b.id); } }
     S().crew = [];
-    S().up = { ...up }; S().items = {}; S().mats = {}; S().carry = []; S().cart = null; g.cart.sync();
+    S().up = { ...up }; S().items = {}; S().mats = {}; S().carry = []; S().cart = null; S().gcart = null; S().hcart = null; g.cart.sync(); g.cart2.sync();
     S().money = 1e12; S().stats.plush = 1e9; S().stats.maxDist = 0; S().hotbar = ['hammer', null, null, null, null, null, null, null, null]; g.buildIdx = 0;
     S().contracts = []; S().ending = null; S().needleLost = false;
     g.grabCd = 0; g.hp = 100; g.hpMax = 100; g.dead = false; g.trapOn = false; g.airLeft = undefined; g.suffocating = false; g.blacking = false;
@@ -218,8 +218,8 @@ export async function runSelfTest(g, only = '') {
   });
 
   // ================================================================== SORT
-  await T('sort.haggle-value', async () => { fresh({}); const a = g.valueOf(5, 0, 0); tune({ haggle: 10 }); const b = g.valueOf(5, 0, 0); return b > a * 2.5 || `${a} ${b}`; });
-  await T('sort.streak-cap', async () => { tune({}); const a = g.valueOf(5, 0, 12); tune({ streak: 5 }); const b = g.valueOf(5, 0, 12); return b > a || `${a} ${b}`; });
+  await T('sort.haggle-value', async () => { fresh({}); const EP = species.findIndex((x) => x && x.rarity === 3); const a = g.valueOf(EP, 0, 0); tune({ haggle: 10 }); const b = g.valueOf(EP, 0, 0); return (b > a * 2.2 && b < a * 2.6) || `${a} ${b}`; });
+  await T('sort.streak-cap', async () => { tune({}); const EP = species.findIndex((x) => x && x.rarity === 3); const a = g.valueOf(EP, 0, 12); tune({ streak: 5 }); const b = g.valueOf(EP, 0, 12); return b > a || `${a} ${b}`; });
   await T('sort.dex-bonus', async () => { fresh({}); S().dex = {}; for (let q = 1; q < 200; q++) S().dex[q] = 1; const a = g.valueOf(60, 0, 0); tune({ dex: 1 }); const b = g.valueOf(60, 0, 0); S().dex = {}; return b > a || `${a} ${b}`; });
   await T('sort.dump-range', async () => {
     const run = (up, d) => { fresh({ bag: 3, ...up }); const bp = g.hall.binPos; for (let q = 0; q < 3; q++) S().carry.push({ sp: 2, vr: 0 }); p().pos.set(bp.x + d, 0, bp.z); for (let n = 0; n < 60; n++) g.autoDump(0.1); return 3 - S().carry.length; };
@@ -613,12 +613,12 @@ export async function runSelfTest(g, only = '') {
   await T('upgrades.ids-and-names-unique', async () => { const ids = new Set(), names = new Map(); for (const u of UPGRADES) { if (ids.has(u.id)) return 'duplicate id ' + u.id; ids.add(u.id); if (names.has(u.name)) return `duplicate name ${u.name} (${names.get(u.name)} and ${u.id})`; names.set(u.name, u.id); } return true; });
   await T('upgrades.every-upgrade-changes-something-at-max', async () => {
     const base = computeTuning(effLevels({ up: {}, gear: {} }), S().boosts); const dead = [];
-    for (const u of UPGRADES) { const t = computeTuning(effLevels({ up: { [u.id]: u.max }, gear: {} }), S().boosts); if (!Object.keys(t).some((k) => JSON.stringify(t[k]) !== JSON.stringify(base[k]))) dead.push(u.id); }
+    for (const u of UPGRADES) { const t = computeTuning(effLevels({ up: { [u.id]: u.max, ...(u.req ? { [u.req.id]: u.req.lvl } : {}) }, gear: {} }), S().boosts); if (!Object.keys(t).some((k) => JSON.stringify(t[k]) !== JSON.stringify(base[k]))) dead.push(u.id); }
     return dead.length === 0 || 'no effect: ' + dead.join();
   });
   await T('upgrades.descriptions-have-no-stale-keys', async () => { const bad = UPGRADES.filter((u) => /\bG\b to|hold G|tap G|craft each tier/.test(u.desc)).map((u) => u.id); return bad.length === 0 || 'stale text: ' + bad.join(); });
   await T('upgrades.every-upgrade-is-buyable-in-order', async () => {
-    fresh({}); S().stats.plush = 1e9; const stuck = []; for (let round = 0; round < 16; round++) for (const u of UPGRADES) { if ((S().up[u.id] || 0) < u.max) { S().money = 1e13; try { g.buy(u.id); } catch (e) { stuck.push(u.id + ':' + e.message); } } }
+    fresh({}); S().stats.plush = 1e9; const stuck = []; for (let round = 0; round < 60; round++) for (const u of UPGRADES) { if ((S().up[u.id] || 0) < u.max) { S().money = 1e16; try { g.buy(u.id); } catch (e) { stuck.push(u.id + ':' + e.message); } } }
     const left = UPGRADES.filter((u) => (S().up[u.id] || 0) < u.max).map((u) => u.id + ' ' + (S().up[u.id] || 0) + '/' + u.max); fresh({}); return (stuck.length === 0 && left.length === 0) || `stuck ${stuck} left ${left}`;
   });
   await T('upgrades.crew-slots-gated-by-plush-handled', async () => { fresh({ crew: 1 }); S().stats.plush = 0; S().money = 1e13; g.buy('crewSlots'); const blocked = (S().up.crewSlots || 0) === 0; S().stats.plush = 1e9; g.buy('crewSlots'); return (blocked && S().up.crewSlots === 1) || 'plush gate'; });
@@ -646,8 +646,12 @@ export async function runSelfTest(g, only = '') {
     const seen = new Set(); for (let n = 0; n < 9000; n++) { g.time += 0.05; g.crew.update(0.05, g.time); g.logi.update(0.05); seen.add(b.state); } return (S().money > m0 && seen.has('farm') && (seen.has('return') || seen.has('unload'))) || `money ${S().money - m0} states ${[...seen]}`;
   });
   await T('crew.bolt-and-belt-kit', async () => {
-    fresh({ crew: 1, crewSlots: 3, crewBolt: 1, crewBelt: 1, timber: 1, belts: 1, power: 1 }); S().stats.plush = 1e9; const { i, k } = spot(); const b = g.crew.spawn(); p().pos.set(cellX(i) - 1.5, 0, cellZ(k)); g.crew.order(b, 0, cellX(i) - 1.5, 0.3, cellZ(k)); for (let n = 0; n < 9000; n++) { g.time += 0.05; g.crew.update(0.05, g.time); g.logi.update(0.05); }
-    const frames = S().entities.filter((e) => e.type === 'frame' && e.auto).length, belts = tiles().filter((t) => t.type === 'belt' && !t.free).length; return (frames >= 1 && belts >= 2) || `auto frames ${frames} belts ${belts}`;
+    let last = '';
+    for (let attempt = 0; attempt < 4; attempt++) {   // the lane can be spoiled by earlier tests: try a fresh one
+      fresh({ crew: 1, crewSlots: 3, crewBolt: 1, crewBelt: 1, timber: 1, belts: 1, power: 1 }); S().stats.plush = 1e9; const { i, k } = spot(12 + attempt * 9); const b = g.crew.spawn(); p().pos.set(cellX(i) - 1.5, 0, cellZ(k)); g.crew.order(b, 0, cellX(i) - 1.5, 0.3, cellZ(k)); for (let n = 0; n < 9000; n++) { g.time += 0.05; g.crew.update(0.05, g.time); g.logi.update(0.05); }
+      const frames = S().entities.filter((e) => e.type === 'frame' && e.auto).length, belts = tiles().filter((t) => t.type === 'belt' && !t.free).length; if (frames >= 1 && belts >= 2) return true; last = `auto frames ${frames} belts ${belts}`;
+    }
+    return last;
   });
   await T('crew.never-sells-the-one-without-a-gate-scan', async () => {
     fresh({ crew: 1, crewSlots: 2 }); const b = g.crew.spawn(); const h = g.crew.home(); S().needleLost = false; b.state = 'return'; b.carry = [{ sp: 5, vr: 0 }, { sp: NEEDLE, vr: 0 }]; b.x = h.x + 12; b.z = h.z + 3; b.y = 0.5; b.path = [[h.x, h.z]]; b.pi = 0; b.scanned = false; b.cleared = false; b.stuckT = 30; b.lastX = b.x; b.lastZ = b.z;

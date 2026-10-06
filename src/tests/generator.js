@@ -28,8 +28,8 @@ export default async function (ctx) {
     return (!a && !b && c && FUEL_MAX_RARITY === 3 && keptLegend && gen.q.length === 1) || `legendary ${a} mythic ${b} epic ${c} kept ${keptLegend} q ${gen.q.length}`;
   });
   await T('power.hand-feeding-fills-the-hopper-up-to-its-cap-and-says-so', async () => {
-    const gen = await mkGen(); S().carry = []; for (let n = 0; n < 12; n++) S().carry.push({ sp: sp(n % 3), vr: 0 }); g.T.carry = 12; g.useTile(gen); const cap = g.T.genBuffer; const hint = document.getElementById('hint') ? document.getElementById('hint').textContent : '';
-    return (gen.q.length === cap && S().carry.length === 12 - cap) || `hopper ${gen.q.length}/${cap}, left in hands ${S().carry.length}`;
+    const gen = await mkGen(); S().carry = []; for (let n = 0; n < 60; n++) S().carry.push({ sp: sp(n % 3), vr: 0 }); g.T.carry = 60; g.useTile(gen); const cap = g.T.genBuffer; const hint = document.getElementById('hint') ? document.getElementById('hint').textContent : '';
+    return (gen.q.length === cap && S().carry.length === 60 - cap) || `hopper ${gen.q.length}/${cap}, left in hands ${S().carry.length}`;
   });
   await T('power.thrown-plush-drop-into-the-generator', async () => {
     const gen = await mkGen(); gen.q.length = 0; const gx = cellX(gen.i), gz = cellZ(gen.k), gy = gen.j * 0.6;
@@ -40,7 +40,7 @@ export default async function (ctx) {
   await T('power.hover-readout-names-the-burning-plush-the-rate-and-the-hopper', async () => {
     const gen = await mkGen({ genBuffer: 1 }); g.T = g.tune(); gen.q.push({ sp: sp(2), vr: 0 }, { sp: sp(0), vr: 0 }, { sp: sp(3), vr: 0 }); run(gen, 5);
     const info = g.genInfo(gen); const t = info.lines.join('\n'); const cur = species[gen.cur.sp];
-    const bad = []; if (!info.lit) bad.push('not lit'); if (!t.includes(cur.name) || !t.includes('Rare')) bad.push('burning plush not named'); if (!/left of 10 min/.test(t)) bad.push('time left/total'); if (!/Output 8\.0 kW/.test(t)) bad.push('output'); if (!/Common \(1 plush per 1 min 30 s|1 min 30 s \(Common\)/.test(t)) bad.push('rate per rarity: ' + t); if (!/Hopper 2\/16: 1 Common, 1 Epic/.test(t)) bad.push('hopper: ' + t.split('\n')[3]); if (!/too valuable/.test(t)) bad.push('rule line');
+    const bad = []; if (!info.lit) bad.push('not lit'); if (!t.includes(cur.name) || !t.includes('Rare')) bad.push('burning plush not named'); if (!/left of 10 min/.test(t)) bad.push('time left/total'); if (!/Output 8\.0 kW/.test(t)) bad.push('output'); if (!/Common \(1 plush per 1 min 30 s|1 min 30 s \(Common\)/.test(t)) bad.push('rate per rarity: ' + t); if (!/Hopper 2\/100: 1 Common, 1 Epic/.test(t)) bad.push('hopper: ' + t.split('\n')[3]); if (!/too valuable/.test(t)) bad.push('rule line');
     return bad.length === 0 || bad.join(' | ');
   });
   await T('power.aiming-at-a-generator-shows-the-readout-on-screen', async () => {

@@ -23,7 +23,7 @@ export class Contracts {
     const tier = this.tier();
     const kinds = ['rarity', 'rarity', 'species', 'shape', 'shiny'];
     const kind = kinds[(rng() * kinds.length) | 0];
-    const prem = 1 + (S.stats.maxDist || 0) / 200;
+    const prem = 1 + (S.stats.maxDist || 0) / 700;
     const mult = g.T.sellMult;
     let c;
     if (kind === 'rarity') {

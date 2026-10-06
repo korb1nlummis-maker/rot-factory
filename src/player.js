@@ -29,6 +29,7 @@ export class Player {
     this.events = { land: null, step: null };
     this.shakeAmt = 0;
     this.footCell = null;
+    this.walk = null;   // (player) => true when standing on a ramp or stair; installed by build.js
   }
 
   offsets() { return this.crouch ? [0.3, 0.72] : [0.3, 0.82, 1.32]; }
@@ -146,6 +147,8 @@ export class Player {
       if (this.pos.y > hh) { this.pos.y = hh; if (this.vel.y > 0) this.vel.y = 0; }
       this.pos.x = clamp(this.pos.x, -HALL_HX + R, HALL_HX - R);
       this.pos.z = clamp(this.pos.z, -HALL_HZ + R, HALL_HZ - R);
+      // walkable surfaces that are not plush cells (build shell ramps and stairs, build.js): the hook lifts the feet onto the slope, keeps its sides solid and says whether you stand on it
+      if (this.walk && this.walk(this)) grounded = true;
       // static props
       if (sim) {
         for (const c of sim.colliders) {

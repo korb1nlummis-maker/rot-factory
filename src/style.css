@@ -227,7 +227,7 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 #trapBox b { display: block; font-size: 72px; line-height: 1; font-variant-numeric: tabular-nums; }
 #trapBox i { font-style: normal; font-size: 13px; opacity: 0.85; }
 
-#vitals { position: fixed; left: 18px; bottom: 96px; width: 210px; z-index: 12; pointer-events: none; display: grid; gap: 6px; }
+#vitals { position: fixed; left: 50%; transform: translateX(-50%); bottom: 168px; width: 260px; z-index: 12; pointer-events: none; display: grid; gap: 6px; }
 .vbar.hidden { display: none; }
 .vbar label { display: block; font-size: 10px; letter-spacing: 0.25em; color: var(--dim); margin-bottom: 2px; text-shadow: 0 1px 4px #000; }
 .vbar > div { height: 10px; border-radius: 6px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.18); overflow: hidden; }
@@ -347,3 +347,6 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 .ctlrow .cw { color: #dcd8c4; }
 @media (max-width: 560px) { .ctlrow { grid-template-columns: 1fr; gap: 4px; } }
 #howKeys .ctlrow { grid-template-columns: 170px 1fr; font-size: 12.5px; }
+
+/* on narrower screens the hotbar reaches the left edge, so the hint sits above it */
+@media (max-width: 1250px) { #hint { bottom: 130px; } }

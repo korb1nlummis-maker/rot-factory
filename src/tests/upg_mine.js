@@ -1,6 +1,8 @@
 // Audit tests for the Mining & Supports upgrade category: every level of every upgrade must do what its text says.
 import { fmt } from '../util.js';
 import { BULK } from '../plushdata.js';
+import { UPGRADES as CATALOG_UPGRADES } from '../catalog.js';
+const CATALOG_IDS = new Set(CATALOG_UPGRADES.map((u) => u.id));
 
 export default async function (ctx) {
   const { T, g, S, w, p, sim, fresh, tune, adv, stepSim, spot, dig, craft, selectTool, aimPoint, plan, placeNow, placeAtFloor, UPGRADES, FRAME_TYPES, computeTuning, effLevels, toI, toJ, toK, cellX, cellY, cellZ } = ctx;
@@ -31,7 +33,7 @@ export default async function (ctx) {
   // ------------------------------------------------------------------ table sanity
   await T('upg.mine.table-costs-req-and-frames', async () => {
     const bad = [];
-    if (mine.length !== 27) bad.push('expected 27 mine upgrades, got ' + mine.length);
+    { const own = mine.filter((u) => !CATALOG_IDS.has(u.id)); if (own.length !== 32) bad.push('expected 32 mine upgrades, got ' + own.length); }   // catalog_*.js parts are counted by their own tests
     for (const u of mine) {
       if (u.cost.length !== u.max) bad.push(`${u.id}: cost length ${u.cost.length} != max ${u.max}`);
       for (let l = 1; l < u.cost.length; l++) if (!(u.cost[l] > u.cost[l - 1])) bad.push(`${u.id}: cost not rising at level ${l + 1}`);

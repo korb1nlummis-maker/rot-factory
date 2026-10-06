@@ -52,8 +52,9 @@ export function fmt(n) {
   if (n < 10000) return n.toLocaleString('en-US');
   const u = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi'];
   let i = 0, v = n;
-  while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
-  return (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + u[i];
+  while (v >= 999.5 && i < u.length - 1) { v /= 1000; i++; }   // 999.6K rolls over to 1.00M instead of showing 1000K
+  if (v >= 999.5) return n.toExponential(2).replace('e+', 'e');   // past the last suffix: 1.00e21, never a seven digit number
+  return (v >= 99.95 ? v.toFixed(0) : v >= 9.995 ? v.toFixed(1) : v.toFixed(2)) + u[i];
 }
 
 // The pile gets denser and heavier the further from Sorting Bay 07: digging slows down.

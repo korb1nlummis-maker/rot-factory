@@ -1,6 +1,6 @@
 import { C, NX, NY, NZ, CS, CX, CY, CZ, HALL_H, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { h32, mulberry32, smoothstep, fbm2, vnoise2, clamp } from './util.js';
-import { pickSpecies, NEEDLE, BULK, REMAINS, CACHE, isSpecialCell } from './plushdata.js';
+import { pickSpecies, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell } from './plushdata.js';
 import { workingsNear, workingPlugged } from './remains.js';
 
 const NCX = NX >> 4, NCZ = NZ >> 4;
@@ -182,6 +182,18 @@ export class World {
     return best;
   }
 
+  // the n nearest remaining dig sites within range, nearest first (the Remains Radar marks several at once)
+  remainsNearN(x, z, range, n) {
+    const ci = toI(x), ck = toK(z), out = [];
+    for (const w of workingsNear(this.seed, ci, ck, Math.ceil(range / C) + 4)) {
+      if (this.get(w.ei, 0, w.ek) !== REMAINS) continue;
+      const dx = cellX(w.ei) - x, dz = cellZ(w.ek) - z, d = Math.hypot(dx, dz);
+      if (d < range) out.push({ x: cellX(w.ei), z: cellZ(w.ek), i: w.ei, k: w.ek, d });
+    }
+    out.sort((a, b) => a.d - b.d);
+    return out.slice(0, n);
+  }
+
   // the needle cell is never regenerated once the player has altered that column
   diffNeedleFree(n) {
     const d = this.diffCols.get(this.colKey(n.i >> 4, n.k >> 4));
@@ -343,7 +355,8 @@ export class World {
   // length (in cells) from this cavity cell to the nearest anchor, searching through the cavity; Infinity if none within maxD
   cavityLen(i, j, k, maxD) {
     const open = (ci, ck) => this.topAt(ci, ck) <= j;
-    const anchored = (ci, ck) => open(ci, ck) || this.supportBonus(cellX(ci), cellY(j), cellZ(ck)) > 0 || this.get(ci + 1, j, ck) === BULK || this.get(ci - 1, j, ck) === BULK || this.get(ci, j, ck + 1) === BULK || this.get(ci, j, ck - 1) === BULK;
+    const wall = (a, b) => { const q = this.get(a, j, b); return q === BULK || q === PAD; };   // a bulkhead or a floor pad cell at this height holds the roof edge (build shell: a pad is never a roof itself, see stress)
+    const anchored = (ci, ck) => open(ci, ck) || this.supportBonus(cellX(ci), cellY(j), cellZ(ck)) > 0 || wall(ci + 1, ck) || wall(ci - 1, ck) || wall(ci, ck + 1) || wall(ci, ck - 1);
     if (anchored(i, k)) return 0;
     const seen = new Set([k * 16384 + i]);
     let frontier = [[i, k]], visited = 1;
@@ -384,7 +397,7 @@ export class World {
           seen.add(key);
           const s = this.get(ni, j, nk);
           if (!s) continue;
-          if (s === BULK || this.solid(ni, j - 1, nk)) return d;
+          if (s === BULK || s === PAD || this.solid(ni, j - 1, nk)) return d;
           next.push([ni, nk]);
         }
       }
@@ -399,7 +412,7 @@ export class World {
     const base = this.chimney.get(k * 16384 + i);
     if (base !== undefined && j - base >= ARCH) return null; // arched: this part of the pile has already settled over the void
     const s0 = this.get(i, j, k);
-    if (!s0 || s0 === BULK || this.solid(i, j - 1, k)) return null;
+    if (!s0 || s0 === BULK || s0 === PAD || this.solid(i, j - 1, k)) return null;   // bulkheads and floor pads never fall
     const over = Math.max(0, this.topAt(i, k) - j - 1);
     const sup = this.supportBonus(cellX(i), cellY(j), cellZ(k));
     // safe length: shrinks with the weight above and the distance from the bay, grows with tamping and strong frames
@@ -413,7 +426,7 @@ export class World {
   // Returns { p, dx, dz } or null if buried/fully braced.
   slipChance(i, j, k, strength) {
     const s0 = this.get(i, j, k);
-    if (!s0 || s0 === BULK) return null;
+    if (!s0 || s0 === BULK || s0 === PAD) return null;
     // a tunnel floor or wall has a roof over it and is held by the pile: only open slopes slide
     if (this.solid(i, j + 2, k) || this.solid(i, j + 3, k) || this.solid(i, j + 4, k)) return null;
     let free = 0, dx = 0, dz = 0;

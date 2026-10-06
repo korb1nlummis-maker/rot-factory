@@ -2,6 +2,7 @@
 // For each item: the price charged equals the price shown on the bench, the item lands in the pack (S.items, or S.mats for building
 // material), shows in the inventory, takes a hotbar slot, can be taken out and put away, and cannot be crafted without its unlock.
 import { makeKit, ALL_UP, GATE, RECIPE_IDS, FRAME_KEYS } from './addons_lib.js';
+import { catalogRecipes } from '../catalog.js';
 
 export default async function (ctx) {
   const { T, g, S, fresh, recipes, MATERIALS, CART_CAP, FRAME_TYPES, UPGRADES } = ctx;
@@ -12,7 +13,7 @@ export default async function (ctx) {
 
   await T('addons.craft.full-recipe-list-matches-the-item-table', async () => {
     fresh(ALL_UP);
-    const have = recipes(g).map((r) => r.id), miss = RECIPE_IDS.filter((id) => !have.includes(id)), extra = have.filter((id) => !RECIPE_IDS.includes(id));
+    const have = recipes(g).map((r) => r.id), miss = RECIPE_IDS.filter((id) => !have.includes(id)), cat = new Set(catalogRecipes(g).map((r) => r.id)), extra = have.filter((id) => !RECIPE_IDS.includes(id) && !cat.has(id));   // Satisfactory catalog rows have their own tests (power_*.js and the other waves)
     if (miss.length) return 'recipes missing: ' + miss.join();
     if (extra.length) return 'recipes the audit does not know: ' + extra.join();
     const names = new Set(), icons = [];

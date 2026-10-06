@@ -1,5 +1,7 @@
 import { FRAME_TYPES, GEAR, UPGRADES } from './upgrades.js';
 import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
+import { EARTH, earthTune } from './earth.js';
+import { catalogRecipes } from './catalog.js';
 
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
@@ -15,19 +17,24 @@ const USE = {
   charge: 'Aim at the pile and press B, then run. 6 second fuse, bigger blast. It hurts if you stand close.',
   lantern: 'Aim at a wall or the floor and press B. It lights the tunnel for good.',
   bulk: 'Aim at an empty cell and press B. A solid wall cell that never falls. F takes it down.',
-  belt: 'Aim at the floor and press B (hold B to lay a line). Needs power from a generator and poles.',
+  belt: 'Aim at the floor and press B (hold B to lay a line, or press . for the Line Planner). Needs power from a generator and poles.',
   ramp: 'Like a belt, but it climbs or drops one step. R flips up or down while you hold it.',
   splitter: 'Aim at a belt (it converts it) or the floor and press B. Plush arriving from behind leave forward, left and right in turn: feed several sorters, vaults or lines from one belt. Outputs that are full or missing are skipped.',
   gate: 'Aim at a belt (it converts it) or the floor and press B. Everything that passes is scanned. Not within a bin\'s pull. Walk through it to scan your bag.',
   charger: 'Place it, then press E on it with plush in your hands (or throw plush in, or belt it in). Common 0.34, Uncommon 0.7, Rare 1.5 and Epic 4 of a bot battery each, up to 8. A bot that runs low walks to the nearest charger with charge instead of all the way home. Needs no power. Aim at a bot, press E, then E on a charger to send it there.',
   gen: 'Place it, then press E on it with plush in your hands to feed it fuel (or belt plush in). Powers machines through poles.',
   pole: 'Place it near generators and machines to link the grid.',
+  cable: 'Take it out, click a generator, pole or machine, and a wire follows your crosshair. Click a second one to attach it: the machine is on that grid at once, even beyond pole reach. Click empty air or press Q to cancel, click the same pair again (or hammer the wire) to take it down and get the cable back. Cables reach 25 m, more with Grid Range.',
   fan: 'Place it in a dusty tunnel. Needs power. Clears dust within about 14 m.',
   sorter: 'Place it in a belt line. Press E on it to change what it sells and what it keeps.',
   vault: 'Place it at the end of a belt line. Press E on it to empty it into your hands.',
   mech: 'Place it facing the pile wall. It digs and loads the belt behind it. Needs power.',
   claw: 'Plant it on the pile surface. It plucks and sells plush in reach. Needs power. It does NOT check for the One.',
   borer: 'Place it against the pile wall (look at the base of the wall). It bores a lined tunnel on its own. Needs power. It does NOT check for the One.',
+  excavator: 'Stand it on open floor facing the pile wall (look at the base of the wall) and press B. It swings across a wide face and fills its hopper. Empty the hopper onto a belt behind it, with a Haul Truck, or by hand (E). Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It leaves The One alone.',
+  dozer: 'Stand it on open floor facing the pile wall and press B. Its blade shoves the foot of the pile out in rows: onto a belt behind it at full value, or down its chute at 85%. Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It leaves The One alone.',
+  wheel: 'Stand it on open floor facing the pile wall and press B. The wheel eats a huge face into a big hopper. Empty it onto a belt, with Haul Trucks, or by hand (E). Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It leaves The One alone.',
+  truck: 'Park it on open floor near a pole and press B: that is its yard. When a digger\'s hopper fills it drives out, loads, hauls to the nearest bin or Depot Beacon, sells the load and drives home. Its drive needs power at the yard. E parks it or sends it back to work.',
   beacon: 'Place it anywhere: a remote bin, a fast travel point and a recall point.',
   cart: 'Press U to roll it out. It stays near you, plush you grab ride on it once your hands are full, and it unloads near the bin. U parks it or calls it back, X stows it when empty.',
   medkit: 'Press K to heal 50 health.',
@@ -79,6 +86,7 @@ export function recipes(g) {
   if (T.charges) list.push({ id: 'charge', kind: 'charge', icon: '🧨', name: 'Blasting Charge', short: 'Charge', desc: `Blows a hole about ${[0, 1.8, 2.4, 3.0][T.charges]} m in radius after 6 seconds. Run.`, price: 40 * T.charges, batch: [1, 3, 5] });
   if (T.lantern) list.push({ id: 'lantern', kind: 'lantern', icon: '🏮', name: 'Work Lantern', short: 'Lantern', desc: 'Hang it up to light a tunnel.', price: 6, batch: [1, 5, 10] });
   if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', name: 'Bulkhead Panel', short: 'Bulkhead', desc: 'A solid plank wall cell. Never falls. Hold the pile back.', price: 10, batch: [1, 10, 50], mat: 'timber', matN: 2 });
+  if (T.vac > 0) list.push({ id: 'hose', kind: 'belt', hose: true, icon: '🌀', name: 'Vacuum Hose', short: 'Hose', desc: 'A powered suction line. The open first piece pulls in loose plush within 3 m, and plush ride it at twice belt speed. It bends like a belt. Run it to the bin, a sorter or a vault.', price: 6, batch: [10, 50, 100] });
   if (T.machines.includes('belt')) {
     list.push({ id: 'belt', kind: 'belt', icon: '🛤️', name: 'Conveyor Belt', short: 'Belt', desc: 'Carries plush. Needs power. Place a line by holding B.', price: 3, batch: [10, 50, 100] });
     list.push({ id: 'ramp', kind: 'belt', ramp: true, icon: '📐', name: 'Belt Ramp', short: 'Ramp', desc: 'A belt that climbs or drops one step. R flips up/down.', price: 5, batch: [1, 5, 10] });
@@ -87,6 +95,7 @@ export function recipes(g) {
   if (T.machines.includes('gate')) list.push({ id: 'gate', kind: 'gate', icon: '🚨', name: 'Detector Gate', short: 'Gate', desc: 'Set it over a belt (or on bare floor). Scans everything passing through. Red alarm and a held item if it is The One. Crew bots check in at the nearest gate before unloading.', price: 25, batch: [1, 3, 5] });
   if (T.machines.includes('gen')) list.push({ id: 'gen', kind: 'gen', icon: '🔥', name: 'Generator', short: 'Generator', desc: 'Burns Common to Epic plush for power: at 8 kW a Common lasts 1.5 minutes, an Uncommon 4, a Rare 10 and an Epic 25 (turbine upgrades burn them faster). Hold it plush with E or throw plush into it.', price: g.genCost(), batch: [1, 2, 5] });
   if (T.machines.includes('charger')) list.push({ id: 'charger', kind: 'charger', icon: '🔋', name: 'Charging Station', short: 'Charger', desc: 'Bots recharge here instead of walking home. Feed it Common to Epic plush: a Common gives 0.34 of a bot battery, an Uncommon 0.7, a Rare 1.5 and an Epic 4 (holds 8). Needs no power.', price: g.chargerCost(), batch: [1, 2, 3] });
+  if (T.machines.includes('pole')) list.push({ id: 'cable', kind: 'cable', icon: '🔌', name: 'Power Cable', short: 'Cable', desc: 'A wire you run by hand from a generator or pole to any machine, or between two grids. Reaches 25 m (more with Grid Range) and powers what it joins even beyond pole reach.', price: 6, batch: [1, 5, 10] });
   if (T.machines.includes('pole')) list.push({ id: 'pole', kind: 'pole', icon: '⚡', name: 'Power Pole', short: 'Pole', desc: 'Links generators and feeds machines nearby.', price: 20, batch: [1, 5, 10] });
   if (T.machines.includes('fan')) list.push({ id: 'fan', kind: 'fan', icon: '🌬️', name: 'Vent Fan', short: 'Fan', desc: 'Clears dust within 14 m when powered.', price: 240, batch: [1, 2, 5] });
   if (T.rope) list.push({ id: 'rope', kind: 'rope', icon: '🪢', name: 'Rope Anchor', short: 'Rope', desc: 'A stake and a rope. Everything within 6 m is roped in: the slope will not give way under you.', price: 45, batch: [1, 3, 5] });
@@ -97,16 +106,22 @@ export function recipes(g) {
   if (T.depots) list.push({ id: 'beacon', kind: 'beacon', icon: '📡', name: 'Depot Beacon', short: 'Depot', desc: 'Remote sorting point, fast travel and recall point. Turns up clues.', price: g.beaconCost(), batch: [1, 1, 1] });
   if (T.machines.includes('claw')) list.push({ id: 'claw', kind: 'claw', icon: '🦾', name: 'Claw Rig', short: 'Claw Rig', desc: 'Plucks the highest plush in reach and sells it. Needs power.', price: g.rigCost(), batch: [1, 2, 3] });
   if (T.machines.includes('borer')) list.push({ id: 'borer', kind: 'borer', icon: '🚇', name: 'Tunnel Borer', short: 'Borer', desc: 'Bores a lined tunnel on its own. Needs power.', price: g.borerCost(), batch: [1, 1, 1] });
-  const cartTier = g.S.cart ? g.S.cart.tier : [5, 4, 3, 2, 1].find((t) => (g.S.items['cart:' + t] || 0) > 0) || 0;
+  for (const kind of ['excavator', 'dozer', 'wheel', 'truck']) if (T.machines.includes(kind)) {
+    const sp = EARTH[kind];
+    list.push({ id: kind, kind, icon: sp.icon, name: sp.name, short: sp.short, price: g.earthCost(kind), batch: [1, 1, 1], desc: kind === 'truck' ? 'Hauls plush from a digger\'s hopper to the bin or a Depot Beacon and back. Needs power at its yard.' : kind === 'dozer' ? 'Pushes the foot of the pile out in rows onto a belt, or down its chute. Needs power.' : kind === 'wheel' ? 'A huge wheel that eats an 11 wide, 6 high face into a big hopper. Needs power.' : 'Swings a bucket across a wide face and fills a hopper. Needs power.' });
+  }
+  { const have = new Set(list.map((r) => r.id)); for (const r of catalogRecipes(g)) if (!have.has(r.id)) list.push(r); }   // catalog_*.js bench rows (price gets the K multiplier below)
+  const cartTier = g.myCart() ? g.myCart().tier : [5, 4, 3, 2, 1].find((t) => (g.S.items['cart:' + t] || 0) > 0) || 0;
   const status = (r) => {
-    if (r.kind === 'cart') { const t = +r.id.split(':')[1]; return cartTier >= t ? (cartTier === t ? (g.S.cart ? `In use: rolled out (${g.S.cart.load.length}/${CART_CAP[t]})` : 'You have this one in your pack') : 'You already have a better cart') : (cartTier ? `Upgrade from your ${CART_NAMES[cartTier]}: +${CART_CAP[t] - CART_CAP[cartTier]} capacity` : 'You have no cart yet'); }
+    if (r.kind === 'cart') { const t = +r.id.split(':')[1]; return cartTier >= t ? (cartTier === t ? (g.myCart() ? `In use: rolled out (${g.myCart().load.length}/${CART_CAP[t]})` : 'You have this one in your pack') : 'You already have a better cart') : (cartTier ? `Upgrade from your ${CART_NAMES[cartTier]}: +${CART_CAP[t] - CART_CAP[cartTier]} capacity` : 'You have no cart yet'); }
     if (r.kind === 'frame') { const f = FRAME_TYPES[r.fk]; return `Rated to ${isFinite(f.maxDepth) ? f.maxDepth + ' m' : 'any'} depth. Reach ${f.radius} m: about one every ${Math.round(f.radius * 2 + 4)} m of tunnel near the surface, closer when deep. ${FRAME_NOTE[r.fk] || ''}`; }
     if (r.kind === 'claw') return `${g.machines.count('claw')} of ${g.T.rigMax} rigs placed`;
     if (r.kind === 'mech') return `${g.logi.count('mech')} of ${g.T.mechMax} mechs placed`;
     if (r.kind === 'borer') return `${g.machines.count('borer')} of ${g.T.borerMax} borers placed`;
-    return '';
+    if (EARTH[r.kind]) return `${g.machines.count(r.kind)} of ${earthTune(g.T, r.kind).max} ${EARTH[r.kind].short.toLowerCase()}s placed`;
+    return r.statusFn ? r.statusFn(g, r) : '';
   };
-  for (const r of list) { const rr = (r.kind === 'frame' || r.kind === 'mat') ? r : { ...r, price: Math.round(r.price * K) }; out.push({ ...rr, use: USE[r.id] || USE[r.kind] || '', status: status(r) }); }
+  for (const r of list) { const rr = (r.kind === 'frame' || r.kind === 'mat') ? r : { ...r, price: Math.round(r.price * K) }; out.push({ ...rr, use: USE[r.id] || r.use || USE[r.kind] || '', status: status(r) }); }
   return out;
 }
 
@@ -177,23 +192,24 @@ export function craft(g, id, n) {
   return true;
 }
 
-// You only ever run one cart. Crafting a better one upgrades it (in place if it is rolled out, keeping its load).
+// Every player runs one cart of their own (the host acting for a guest means the guest's). Crafting a better one upgrades it (in place if it is rolled out, keeping its load).
 function craftCart(g, r) {
   const S = g.S, tier = +r.id.split(':')[1];
-  const have = Math.max(S.cart ? S.cart.tier : 0, ...[1, 2, 3, 4, 5].filter((t) => (S.items['cart:' + t] || 0) > 0));
-  if (have >= tier) { g.sound.error(); g.ui.hint(`You already have a ${CART_NAMES[have]} (${CART_CAP[have]} plush). Craft a better cart to upgrade.`, 4); return false; }
+  const key = g.myCartKey(), mine = S[key];
+  const have = Math.max(mine ? mine.tier : 0, ...[1, 2, 3, 4, 5].filter((t) => (S.items['cart:' + t] || 0) > 0));
+  if (have >= tier) { g.sound.error(); g.cartSay(`You already have a ${CART_NAMES[have]} (${CART_CAP[have]} plush). Craft a better cart to upgrade.`, 4); return false; }
   if (S.money < r.price) { g.sound.error(); return false; }
   S.money -= r.price;
   for (let t = 1; t <= 5; t++) delete S.items['cart:' + t];
   if (Array.isArray(S.hotbar)) S.hotbar = S.hotbar.map((x) => (x && x.startsWith('cart:') ? 'cart:' + tier : x)); // an old cart slot follows the upgrade
-  if (S.cart) {
-    S.cart.tier = tier;
-    g.cart.sync();
-    g.ui.hint(`Cart upgraded to a <b>${CART_NAMES[tier]}</b>: now carries ${CART_CAP[tier]}. Its load stays.`, 6);
+  if (mine) {
+    mine.tier = tier;
+    g.cartInst(key).sync();
+    g.cartSay(`Cart upgraded to a <b>${CART_NAMES[tier]}</b>: now carries ${CART_CAP[tier]}. Its load stays.`, 6);
   } else {
     S.items['cart:' + tier] = 1;
     const slot = g.assignHotbar('cart:' + tier);
-    g.ui.hint(`<b>${CART_NAMES[tier]}</b> crafted (${CART_CAP[tier]} plush)${slot >= 0 ? ` and put on hotbar slot <kbd>${slot + 1}</kbd>` : ''}. ${USE.cart}`, 8);
+    g.cartSay(`<b>${CART_NAMES[tier]}</b> crafted (${CART_CAP[tier]} plush)${slot >= 0 ? ` and put on hotbar slot <kbd>${slot + 1}</kbd>` : ''}. ${USE.cart}`, 8);
   }
   g.ui.setMoney(S.money); g.sound.place(); g.rebuildTools();
   return true;

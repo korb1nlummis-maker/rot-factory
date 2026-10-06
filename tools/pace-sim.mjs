@@ -5,7 +5,9 @@ import { RARITY } from '../src/plushdata.js';
 
 const avgBase = RARITY.slice(0, 6).reduce((a, r) => a + r.weight * r.value, 0) * (1 + 4 / 140);
 const comp = (d) => Math.pow(1 + d / 100, 1.4);
-const SKIP = new Set(['hardhat', 'creak', 'stress', 'lantern', 'assay', 'plan', 'compass', 'springs', 'knees', 'boots', 'reach', 'shinyEye', 'throw', 'magnet', 'dump', 'repeat', 'streak', 'vac', 'depots', 'scan']);
+// the belt marks, lifts and undergrounds (wave 1A) move plush faster once a line exists; this model digs by hand, mech and borer and never builds a belt line, so they are skipped like the other automation
+const BELT_MARKS = ['beltMk2', 'beltMk3', 'beltMk4', 'beltMk5', 'beltMk6', 'beltLift', 'beltUg'];
+const SKIP = new Set([...BELT_MARKS, 'hardhat', 'creak', 'stress', 'lantern', 'assay', 'plan', 'compass', 'springs', 'knees', 'boots', 'reach', 'shinyEye', 'throw', 'magnet', 'dump', 'repeat', 'streak', 'vac', 'depots', 'scan']);
 
 function run(target, opts = {}) {
   let t = 0, money = 0, d = 0, L = {}, dex = 0;

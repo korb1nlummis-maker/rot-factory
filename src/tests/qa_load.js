@@ -13,7 +13,7 @@ export default async function (ctx) {
     fresh({ timber: 1 }); clearQ(); const ids = [];
     for (let n = 0; n < 9; n++) { const r = room(400 + n * 30, 8, 10 + (n % 2) * 0); ids.push(frame('timber', r.x, r.z).id); }
     g.time += 5; clearQ(); for (const e of S().entities) if (e.type === 'frame') g.queueLoad(e.cx, 1, e.cz);
-    if (g.loadQ.size !== 9) return 'queue holds ' + g.loadQ.size; pump(8);
+    if (g.loadQ.size !== 9) return 'queue holds ' + g.loadQ.size; pump(8); pump(20);  // the warning runs 3 to 5 s before each one drops
     const left = ids.filter(alive).length; const unweighed = w().supports.filter((s) => s.load === undefined).length;
     return (left === 0 && g.loadQ.size === 0) || `${left} of 9 overloaded frames still stand, ${unweighed} never weighed, queue ${g.loadQ.size}`;
   });
@@ -22,7 +22,7 @@ export default async function (ctx) {
     fresh({ timber: 1 }); clearQ(); const r = room(400, 8); const e = frame('timber', r.x, r.z); g.queueLoad(e.cx, 1, e.cz); g._loadT = 0;
     pump(3, 0.4);   // 1.2 s after it was born
     if (!alive(e.id)) return 'buckled inside the 1.5 s grace';
-    g.queueLoad(e.cx, 1, e.cz); pump(3, 0.4); return !alive(e.id) || 'overloaded frame never buckled after the grace period';
+    g.queueLoad(e.cx, 1, e.cz); pump(3, 0.4); if (!alive(e.id)) return 'dropped with no warning'; if (!g.pendFail || !g.pendFail.has(e.id)) return 'no warning countdown started'; pump(20, 0.4); return !alive(e.id) || 'overloaded frame never buckled after the warning';
   });
 
   await T('qa.load.save-reload-keeps-a-sound-structure-standing', async () => {
@@ -128,5 +128,12 @@ export default async function (ctx) {
     const ms = performance.now() - t0; const frames = S().entities.filter((q) => q.type === 'frame' && q.auto); const phantom = w().supports.filter((s) => !String(s.id).startsWith('shield') && !S().entities.some((q) => q.id === s.id));
     const stillLoaded = frames.filter((f) => !alive(f.id)).length;
     return (frames.length > 10 && phantom.length === 0 && stillLoaded === 0) || `done ${e.done} after ${n} steps, ${frames.length} linings, phantom supports ${phantom.length}, lost linings ${stillLoaded}, ${ms.toFixed(0)} ms`;
+  });
+  await T('qa.load.an-overloaded-roof-warns-for-3-to-5-seconds-then-falls-and-a-prop-saves-it', async () => {
+    fresh({ timber: 1 }); clearQ(); const r = room(400, 8); const e = frame('timber', r.x, r.z); g.time += 5; g.queueLoad(e.cx, 1, e.cz); g._loadT = 0; pump(2, 0.4);
+    const p = g.pendFail && g.pendFail.get(e.id); if (!p) return 'no countdown'; const bad = []; if (!(p.t >= 1.4 && p.t <= 5)) bad.push('countdown ' + p.t);
+    const start = g.time; let n = 0; while (alive(e.id) && n++ < 40) { g.time += 0.1; g._loadT = 0; g.updateLoads(0.1); if (alive(e.id)) { g.queueLoad(e.cx, 1, e.cz); } }
+    const took = g.time - start + 0.8; if (alive(e.id)) bad.push('never fell'); if (took < 2.5 || took > 5.6) bad.push('fell after ' + took.toFixed(1) + ' s');
+    return bad.length === 0 || bad.join('; ');
   });
 }

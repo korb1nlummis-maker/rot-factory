@@ -9,6 +9,7 @@ export function newState(seed) {
     ach: {},
     dex: {},
     entities: [],
+    cables: [],    // hand-wired power cables: { id, a, b } with entity ids
     carry: [],
     ending: null,
     player: null,
@@ -30,6 +31,7 @@ export function newState(seed) {
     gameMin: 0,
     name: '',
     cart: null,
+    gcart: null,   // the co-op guest's cart, kept with the host's world (S.hcart on a guest is only a view of the host's cart)
     clues: [],
     clueLevel: 0,
   };
@@ -91,7 +93,7 @@ export function applyDiff(world, d) {
 export function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
 
 // One-time fresh start for every player. Bump WIPE_TOKEN to wipe all saved games again on the next load.
-const WIPE_TOKEN = 'fresh-start-2026-10-08';
+const WIPE_TOKEN = 'fresh-start-2026-10-06b';
 try {
   if (localStorage.getItem('rotfactory.wipe') !== WIPE_TOKEN) { localStorage.removeItem(SAVE_KEY); localStorage.setItem('rotfactory.wipe', WIPE_TOKEN); }
 } catch (e) { /* storage unavailable */ }

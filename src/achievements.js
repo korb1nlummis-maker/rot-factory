@@ -1,5 +1,6 @@
 // Achievements. check(S) returns true when earned. S is the game state.
 import { SPECIAL_MIN, DECOYS, speciesCount } from './plushdata.js';
+import { UPGRADES, CATS } from './upgrades.js';
 const A = (id, name, desc, check, icon = '★', secret = false) => ({ id, name, desc, check, icon, secret });
 
 export const ACHIEVEMENTS = [
@@ -133,3 +134,162 @@ export const ACHIEVEMENTS = [
   A('exit', 'Daylight', 'Dig your way out of the warehouse.', (S) => S.ending === 'exit', '🚪'),
   A('speed', 'Needle Speedrun', 'Find The One in under 30 minutes of play.', (S) => S.ending === 'plush' && S.stats.playSecs < 1800, '⚡', true),
 ];
+
+// ---- The long tail: tiers of 10 / 100 / 1,000 / 10,000 and up for the things you do all game, the earth movers, and every new upgrade line.
+// ACH_TABLE lists how each of these is earned (id, the number it needs, and a setter) so the self test can prove every one is reachable.
+export const ACH_TABLE = [];
+const fmtN = (n) => n.toLocaleString('en-US');
+// a counter in S.stats (key) that has to reach each number in turn. rows: [id, n, name, text]; text may use {n}
+const stat = (key, icon, rows) => { for (const [id, n, name, text] of rows) { const get = (S) => (S.stats[key] || 0); ACHIEVEMENTS.push(A(id, name, text.replace('{n}', fmtN(n)), (S) => get(S) >= n, icon)); ACH_TABLE.push({ id, n, kind: 'stat', key }); } };
+// anything else that reduces to a number: get(S) reads it, set(S, v) writes it for the test
+const calc = (icon, get, set, rows) => { for (const [id, n, name, text] of rows) { ACHIEVEMENTS.push(A(id, name, text.replace('{n}', fmtN(n)), (S) => get(S) >= n, icon)); ACH_TABLE.push({ id, n, kind: 'calc', get, set }); } };
+const ents = (type) => (S) => S.entities.filter((e) => e.type === type && !e.done).length;
+const addEnts = (type) => (S, v) => { S.entities = S.entities.filter((e) => e.type !== type); for (let i = 0; i < v; i++) S.entities.push({ id: 9000 + i, type, i: i * 9, j: 0, k: 0 }); };
+
+stat('plush', '🧸', [
+  ['p10m', 1e7, 'Avalanche Season', 'Pick up {n} plush.'], ['p100m', 1e8, 'Pile Eater', 'Pick up {n} plush.'],
+  ['p1b', 1e9, 'Billion Club', 'Pick up {n} plush.'], ['p10b', 1e10, 'The Pile Remembers', 'Pick up {n} plush.'],
+]);
+stat('sold', '💰', [
+  ['sold10', 10, 'Open for Business', 'Sell {n} plush.'], ['sold100', 100, 'Regular Hours', 'Sell {n} plush.'], ['sold1k', 1e3, 'Steady Trade', 'Sell {n} plush.'],
+  ['sold10k', 1e4, 'Volume Seller', 'Sell {n} plush.'], ['sold100k', 1e5, 'Wholesale', 'Sell {n} plush.'], ['sold1m', 1e6, 'Fluff Warehouse', 'Sell {n} plush.'],
+  ['sold10m', 1e7, 'Bulk Buyer\'s Dream', 'Sell {n} plush.'], ['sold100m', 1e8, 'Market Mover', 'Sell {n} plush.'],
+]);
+stat('thrown', '⚾', [
+  ['toss1k', 1e3, 'Bullpen', 'Throw {n} plush.'], ['toss10k', 1e4, 'Closer', 'Throw {n} plush.'], ['toss100k', 1e5, 'Hall of Fame Arm', 'Throw {n} plush.'], ['toss1m', 1e6, 'Throwing Machine', 'Throw {n} plush.'],
+]);
+stat('walked', '👟', [
+  ['walk10k', 1e4, 'Long Shift', 'Walk {n} meters.'], ['walk100k', 1e5, 'Marathon Man', 'Walk {n} meters.'], ['walk1m', 1e6, 'Around the World', 'Walk {n} meters.'],
+]);
+calc('⛏️', (S) => S.stats.cells * 0.6 / 6, (S, v) => { S.stats.cells = v * 10; }, [
+  ['dig10k', 1e4, 'Subway Builder', 'Dig {n} meters of tunnel in total (10 km).'], ['dig100k', 1e5, 'Continental', 'Dig {n} meters of tunnel in total (100 km).'], ['dig1m', 1e6, 'Through the Earth', 'Dig {n} meters of tunnel in total (1,000 km).'],
+]);
+stat('props', '🪵', [
+  ['prop500', 500, 'Forest Floor', 'Place {n} support frames.'], ['prop2k', 2500, 'Scaffolder', 'Place {n} support frames.'], ['prop10k', 1e4, 'Cathedral Builder', 'Place {n} support frames.'], ['prop100k', 1e5, 'Steelworks', 'Place {n} support frames.'],
+]);
+stat('collapses', '💥', [
+  ['collapse100', 100, 'Unlucky Charm', 'Witness {n} collapses.'], ['collapse1k', 1e3, 'Disaster Area', 'Witness {n} collapses.'], ['collapse10k', 1e4, 'Plate Tectonics', 'Witness {n} collapses.'],
+]);
+stat('buried', '⚰️', [
+  ['buried25', 25, 'Mole Hill', 'Get buried {n} times.'], ['buried100', 100, 'Pile Magnet', 'Get buried {n} times.'], ['buried500', 500, 'Compost', 'Get buried {n} times.'],
+]);
+stat('deaths', '💀', [
+  ['die25', 25, 'Nine Lives, Nearly Three Times', 'Die {n} times.'], ['die100', 100, 'Revolving Door', 'Die {n} times.'],
+]);
+calc('🪙', (S) => S.totalEarned, (S, v) => { S.totalEarned = v; }, [
+  ['earn1b', 1e9, 'Fluff Billionaire', 'Earn {n} Fluff in total.'], ['earn100b', 1e11, 'Plush Empire', 'Earn {n} Fluff in total.'],
+  ['earn10t', 1e13, 'Beyond Money', 'Earn {n} Fluff in total.'], ['earn1qa', 1e15, 'Economy of One', 'Earn {n} Fluff in total.'],
+]);
+stat('upgrades', '🛒', [
+  ['up100', 100, 'Well Equipped', 'Buy {n} upgrade levels.'], ['up200', 200, 'Serious Hardware', 'Buy {n} upgrade levels.'], ['up300', 300, 'Nearly Everything', 'Buy {n} upgrade levels.'], ['up400', 400, 'Tech Tree Climber', 'Buy {n} upgrade levels.'], ['up500', 500, 'Five Hundred Club', 'Buy {n} upgrade levels.'],
+]);
+stat('shiny', '✨', [
+  ['shiny100', 100, 'Glitter Bomb', 'Find {n} shiny plush.'], ['shiny1k', 1e3, 'Disco Pile', 'Find {n} shiny plush.'], ['shiny10k', 1e4, 'Supernova', 'Find {n} shiny plush.'],
+]);
+// rarity tiers live in S.stats.rar[tier]
+const rar = (tier, icon, rows) => { for (const [id, n, name, text] of rows) { ACHIEVEMENTS.push(A(id, name, text.replace('{n}', fmtN(n)), (S) => ((S.stats.rar || [])[tier] || 0) >= n, icon)); ACH_TABLE.push({ id, n, kind: 'rar', tier }); } };
+rar(2, '🔷', [['rare100', 100, 'Blue Chip', 'Find {n} Rare plush.'], ['rare1k', 1e3, 'Sapphire Vein', 'Find {n} Rare plush.'], ['rare10k', 1e4, 'Deep Blue', 'Find {n} Rare plush.']]);
+rar(3, '🟣', [['epic100', 100, 'Amethyst', 'Find {n} Epic plush.'], ['epic1k', 1e3, 'Royal Purple', 'Find {n} Epic plush.']]);
+rar(4, '🟠', [['leg10', 10, 'Gold Rush', 'Find {n} Legendary plush.'], ['leg100', 100, 'Dragon Hoard', 'Find {n} Legendary plush.']]);
+rar(5, '🌸', [['myth3', 3, 'Rare Air', 'Find {n} Mythic plush.'], ['myth10', 10, 'Mythbuster', 'Find {n} Mythic plush.'], ['myth100', 100, 'Beyond Legend', 'Find {n} Mythic plush.']]);
+calc('⏱️', (S) => S.stats.playSecs / 3600, (S, v) => { S.stats.playSecs = v * 3600; }, [
+  ['hour10', 10, 'Double Shift', 'Play for {n} hours.'], ['hour100', 100, 'Company Man', 'Play for {n} hours.'], ['hour500', 500, 'Part of the Furniture', 'Play for {n} hours.'],
+]);
+calc('📅', (S) => Math.floor((S.gameMin || 0) / 1440) + 1, (S, v) => { S.gameMin = (v - 1) * 1440; }, [
+  ['day365', 365, 'Anniversary', 'Work through {n} days.'], ['day1000', 1000, 'Warehouse Lore', 'Work through {n} days.'],
+]);
+stat('bestStreak', '🔥', [
+  ['combo50', 50, 'Fire Alarm', 'Reach a x{n} sell streak.'], ['combo100', 100, 'Infinite Combo', 'Reach a x{n} sell streak.'], ['combo250', 250, 'Never Stop', 'Reach a x{n} sell streak.'],
+]);
+stat('bestSwish', '🏀', [
+  ['swish30', 30, 'Downtown', 'Throw a plush into the bin from {n}m away.'], ['swish50', 50, 'Buzzer Beater', 'Throw a plush into the bin from {n}m away.'],
+]);
+stat('goldenSales', '🌟', [
+  ['gold100', 100, 'Golden Touch', 'Make {n} sales during Golden Hours.'], ['gold1k', 1e3, 'Midas Hour', 'Make {n} sales during Golden Hours.'], ['gold10k', 1e4, 'Gilded Age', 'Make {n} sales during Golden Hours.'],
+]);
+stat('contracts', '📋', [
+  ['contract100', 100, 'Preferred Vendor', 'Complete {n} contracts.'], ['contract500', 500, 'Trusted Partner', 'Complete {n} contracts.'], ['contract2k', 2000, 'Exclusive Supplier', 'Complete {n} contracts.'],
+]);
+stat('botLevels', '📈', [
+  ['botlv100', 100, 'Mentor', 'Level bots up {n} times.'], ['botlv1k', 1e3, 'Headhunter', 'Level bots up {n} times.'], ['botlv5k', 5e3, 'Academy', 'Level bots up {n} times.'],
+]);
+calc('🤖', (S) => (S.crew || []).length, (S, v) => { S.crew = Array.from({ length: v }, (_, i) => ({ id: 8000 + i })); }, [
+  ['crew9', 9, 'Full Roster', 'Own {n} Scrapper Bots.'], ['crew15', 15, 'Foundry Floor', 'Own {n} Scrapper Bots.'],
+]);
+stat('scans', '🛂', [
+  ['scan20k', 2e4, 'Border Control', 'Scan {n} plush through detector gates.'], ['scan200k', 2e5, 'Surveillance State', 'Scan {n} plush through detector gates.'], ['scan2m', 2e6, 'Omniscient Gate', 'Scan {n} plush through detector gates.'],
+]);
+stat('botScans', '🤖', [
+  ['botscan500', 500, 'Daily Commute', 'Scan robots through a gate {n} times.'], ['botscan5k', 5e3, 'Rush Hour', 'Scan robots through a gate {n} times.'],
+]);
+stat('splitters', '🔱', [
+  ['split100', 100, 'Spaghetti Belts', 'Build {n} Belt Splitters.'], ['split500', 500, 'Interchange', 'Build {n} Belt Splitters.'],
+]);
+stat('built', '🏭', [
+  ['belts1k', 1e3, 'Assembly Line', 'Build {n} belts, machines and gates.'], ['belts5k', 5e3, 'Megafactory', 'Build {n} belts, machines and gates.'],
+  ['belts25k', 25e3, 'Industrial Complex', 'Build {n} belts, machines and gates.'], ['belts100k', 1e5, 'Rot City', 'Build {n} belts, machines and gates.'],
+]);
+stat('blasts', '🧨', [
+  ['blast100', 100, 'Demolition Crew', 'Set off {n} charges.'], ['blast1k', 1e3, 'Mountain Remover', 'Set off {n} charges.'], ['blast10k', 1e4, 'Big Bang', 'Set off {n} charges.'],
+]);
+stat('caches', '📦', [['cache50', 50, 'Hoarder', 'Open {n} supply caches.'], ['cache250', 250, 'Pack Rat', 'Open {n} supply caches.']]);
+stat('medkits', '🩹', [['medic10', 10, 'Field Nurse', 'Use {n} medkits.'], ['medic100', 100, 'Paramedic', 'Use {n} medkits.']]);
+stat('mfans', '🌀', [['fan10', 10, 'Ventilation Engineer', 'Hang {n} Support Fans.'], ['fan50', 50, 'Wind Tunnel', 'Hang {n} Support Fans.']]);
+stat('turnedFrames', '↪️', [['curve50', 50, 'Winding Road', 'Set {n} frames at a free angle.'], ['curve500', 500, 'Spiral Staircase', 'Set {n} frames at a free angle.']]);
+stat('brokenSupports', '💥', [['buckle10', 10, 'Stress Test', 'Lose {n} supports to the weight of the mountain.'], ['buckle100', 100, 'Structural Failure', 'Lose {n} supports to the weight of the mountain.']]);
+stat('cartCatch', '🏀', [['cartshot500', 500, 'Hoops', 'Land {n} plush in your cart.'], ['cartshot5k', 5e3, 'Dunk Contest', 'Land {n} plush in your cart.']]);
+stat('slides', '⛰️', [['slide50k', 5e4, 'Scree Slope', 'Set off {n} plush slipping.'], ['slide1m', 1e6, 'Mountain on the Move', 'Set off {n} plush slipping.']]);
+stat('bigSlides', '🏔️', [['bigslide25', 25, 'Avalanche Chaser', 'Set off {n} real slides.'], ['bigslide250', 250, 'Avalanche Magnet', 'Set off {n} real slides.']]);
+stat('creaks', '😬', [['creak100', 100, 'Light Sleeper', 'Hear {n} roofs creak.'], ['creak1k', 1e3, 'Haunted Roof', 'Hear {n} roofs creak.']]);
+stat('ropes', '🪢', [['rope1', 1, 'On a Rope', 'Plant a Rope Anchor.'], ['rope25', 25, 'Belay Team', 'Plant {n} Rope Anchors.'], ['rope250', 250, 'Rope Bridge', 'Plant {n} Rope Anchors.']]);
+stat('bulk', '🪧', [['bulk25', 25, 'Wall Builder', 'Build {n} bulkheads.'], ['bulk250', 250, 'Great Wall', 'Build {n} bulkheads.']]);
+stat('lanterns', '🏮', [['lantern25', 25, 'Light Show', 'Hang {n} Work Lanterns.'], ['lantern250', 250, 'Lighthouse Keeper', 'Hang {n} Work Lanterns.']]);
+stat('rigs', '🦾', [['rig100', 100, 'Claw Dynasty', 'Place {n} Claw Rigs in total.']]);
+stat('borers', '🚇', [['borer5', 5, 'Drilling Team', 'Launch {n} Tunnel Borers.'], ['borer25', 25, 'Bore Hole Industries', 'Launch {n} Tunnel Borers.']]);
+calc('🦾', ents('claw'), addEnts('claw'), [['rig30', 30, 'Claw Empire', 'Run {n} Claw Rigs at the same time.']]);
+calc('🤖', ents('mech'), addEnts('mech'), [['mech10', 10, 'Mech Platoon', 'Run {n} Mech Scoopers at the same time.'], ['mech30', 30, 'Mech Division', 'Run {n} Mech Scoopers at the same time.']]);
+calc('🔥', ents('gen'), addEnts('gen'), [['gen5', 5, 'Power Plant', 'Run {n} generators at the same time.'], ['gen25', 25, 'Grid Operator', 'Run {n} generators at the same time.']]);
+
+// ---- Earth movers (src/earth.js)
+stat('excavators', '🏗️', [['exc1', 1, 'Dig Site', 'Place an Excavator.'], ['exc10', 10, 'Quarry Boss', 'Place {n} Excavators in total.']]);
+stat('dozers', '🚜', [['doz1', 1, 'Push It', 'Place a Bulldozer.'], ['doz10', 10, 'Blade Runner', 'Place {n} Bulldozers in total.']]);
+stat('wheels', '⚙️', [['whl1', 1, 'Wheel of Fortune', 'Place a Bucket-Wheel Excavator.'], ['whl5', 5, 'Strip Mine', 'Place {n} Bucket-Wheel Excavators in total.']]);
+stat('trucks', '🚛', [['trk1', 1, 'Long Haul', 'Place a Haul Truck.'], ['trk10', 10, 'Convoy', 'Place {n} Haul Trucks in total.']]);
+calc('🏗️', ents('excavator'), addEnts('excavator'), [['excf4', 4, 'Dig Crew', 'Run {n} Excavators at the same time.'], ['excf8', 8, 'Excavation Army', 'Run {n} Excavators at the same time.']]);
+calc('🚜', ents('dozer'), addEnts('dozer'), [['dozf4', 4, 'Dozer Line', 'Run {n} Bulldozers at the same time.'], ['dozf8', 8, 'Bulldozer Brigade', 'Run {n} Bulldozers at the same time.']]);
+calc('⚙️', ents('wheel'), addEnts('wheel'), [['whlf3', 3, 'Triple Wheel', 'Run {n} Bucket-Wheel Excavators at the same time.'], ['whlf6', 6, 'Wheel Works', 'Run {n} Bucket-Wheel Excavators at the same time.']]);
+calc('🚛', ents('truck'), addEnts('truck'), [['trkf6', 6, 'Haulage Firm', 'Run {n} Haul Trucks at the same time.'], ['trkf14', 14, 'Logistics Empire', 'Run {n} Haul Trucks at the same time.']]);
+calc('🏗️', (S) => ['excavator', 'dozer', 'wheel', 'truck'].filter((t) => S.entities.some((e) => e.type === t && !e.done)).length, (S, v) => { S.entities = S.entities.filter((e) => !['excavator', 'dozer', 'wheel', 'truck'].includes(e.type)); ['excavator', 'dozer', 'wheel', 'truck'].slice(0, v).forEach((t, i) => S.entities.push({ id: 9100 + i, type: t, i: i * 9, j: 0, k: 0 })); }, [['fleet4', 4, 'Full Fleet', 'Have one of each earth mover standing: Excavator, Bulldozer, Bucket-Wheel and Haul Truck.']]);
+stat('earthBuilt', '🏗️', [['earth100', 100, 'Heavy Equipment Dealer', 'Place {n} earth movers in total.']]);
+stat('earthDug', '⛏️', [
+  ['ed10', 10, 'First Bite', 'Dig {n} plush out with earth movers.'], ['ed100', 100, 'Scoop and Dump', 'Dig {n} plush out with earth movers.'], ['ed1k', 1e3, 'Moving Earth', 'Dig {n} plush out with earth movers.'],
+  ['ed10k', 1e4, 'Crater Maker', 'Dig {n} plush out with earth movers.'], ['ed100k', 1e5, 'Open Pit', 'Dig {n} plush out with earth movers.'], ['ed1m', 1e6, 'Landscape Architect', 'Dig {n} plush out with earth movers.'],
+  ['ed10m', 1e7, 'Mountain Removal', 'Dig {n} plush out with earth movers.'],
+]);
+stat('hauled', '🚛', [
+  ['hl100', 100, 'First Load', 'Haul {n} plush to the bin with Haul Trucks.'], ['hl1k', 1e3, 'Truckload', 'Haul {n} plush to the bin with Haul Trucks.'], ['hl10k', 1e4, 'Freight Day', 'Haul {n} plush to the bin with Haul Trucks.'],
+  ['hl100k', 1e5, 'Supply Chain', 'Haul {n} plush to the bin with Haul Trucks.'], ['hl1m', 1e6, 'Million Mile Club', 'Haul {n} plush to the bin with Haul Trucks.'], ['hl10m', 1e7, 'Rail Baron', 'Haul {n} plush to the bin with Haul Trucks.'],
+]);
+stat('hauls', '🚛', [
+  ['trip1', 1, 'Delivery', 'Finish a Haul Truck trip.'], ['trip10', 10, 'Regular Route', 'Finish {n} Haul Truck trips.'], ['trip100', 100, 'Commuter', 'Finish {n} Haul Truck trips.'],
+  ['trip1k', 1e3, 'Road Warrior', 'Finish {n} Haul Truck trips.'], ['trip10k', 1e4, 'Eternal Highway', 'Finish {n} Haul Truck trips.'],
+]);
+stat('earthPress', '🛑', [['press1', 1, 'Hard Hat Area', 'Have an earth mover halted because the mountain was too heavy for your best frame.']]);
+stat('earthChoke', '😮‍💨', [['choke1', 1, 'Need a Fan', 'Have an earth mover choke on stale air.']]);
+
+// ---- Every new upgrade line, and every category: take each to its top
+export const MAXED = [];
+for (const u of UPGRADES) {
+  if (!u.fresh) continue;
+  const id = 'max_' + u.id;
+  ACHIEVEMENTS.push(A(id, `Maxed: ${u.name}`, u.max === 1 ? `Buy ${u.name}.` : `Take ${u.name} to level ${u.max}.`, (S) => (S.up[u.id] || 0) >= u.max, '🏅'));
+  MAXED.push({ id, upgrade: u.id, max: u.max });
+}
+export const MASTERS = [];
+for (const c of CATS) {
+  if (c.special) continue;
+  const id = 'master_' + c.id;
+  ACHIEVEMENTS.push(A(id, `${c.name} Master`, `Take every ${c.name} upgrade to its top level.`, (S) => UPGRADES.filter((u) => u.cat === c.id).every((u) => (S.up[u.id] || 0) >= u.max), c.icon));
+  MASTERS.push({ id, cat: c.id });
+}
+ACHIEVEMENTS.push(A('upall', 'Fully Upgraded', 'Take every upgrade in the game to its top level.', (S) => UPGRADES.every((u) => (S.up[u.id] || 0) >= u.max), '👑'));

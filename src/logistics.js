@@ -4,6 +4,7 @@ import { species, RARITY, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushda
 import { compaction } from './util.js';
 import { FUEL_MAX_RARITY } from './power.js';
 import { buildMountFan } from './mountfan.js';
+import { TIER_MUL, TIER_COLOR, SPACING, HOP_MAX, tierOf, lenOf, capOf, framesNeeded, FRAME_REACH, LIFT_FREE } from './beltdata.js';
 
 export const DX = [1, 0, -1, 0];
 export const DZ = [0, 1, 0, -1];
@@ -13,6 +14,9 @@ export const CHARGE_PER = [0.34, 0.7, 1.5, 4.0];
 export const CHARGER_CAP = 8, CHARGER_HOPPER = 12, CHARGE_RATE = 0.5, CHARGER_RANGE = 400, CHARGER_MAX_RARITY = 3;
 const YAW = [Math.PI / 2, 0, -Math.PI / 2, Math.PI]; // model +Z -> dir
 const MAXBELT = 4500;
+const NO_FRAMES = { ok: true, need: 0, have: 0 };
+export const HAND_CRANK = 0.35; // an unpowered belt still creeps along, so a line can always reach the bin
+const nearBinDir = (game, a) => { const bp = game.hall && game.hall.binPos; if (!bp) return null; const dx = bp.x - cellX(a.i), dz = bp.z - cellZ(a.k); if (Math.hypot(dx, dz) > 4 || Math.hypot(dx, dz) < 0.9) return null; return Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 0 : 2) : (dz > 0 ? 1 : 3); };
 
 const arrowTex = (() => {
   const c = document.createElement('canvas'); c.width = 64; c.height = 128;
@@ -28,7 +32,7 @@ const arrowTex = (() => {
 
 const M = {
   bed: new THREE.MeshStandardMaterial({ map: arrowTex, roughness: 0.85, metalness: 0.2 }),
-  rail: new THREE.MeshStandardMaterial({ color: 0xe0b020, roughness: 0.45, metalness: 0.5 }),
+  rail: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.5 }),   // tinted per instance by the belt mark (Mk1 is the old yellow)
   steel: new THREE.MeshStandardMaterial({ color: 0x59636e, roughness: 0.4, metalness: 0.85 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x1d2024, roughness: 0.6, metalness: 0.6 }),
   yellow: new THREE.MeshStandardMaterial({ color: 0xe8b81c, roughness: 0.5, metalness: 0.35 }),
@@ -50,9 +54,12 @@ export class Logistics {
     // belts are instanced
     const bedG = new THREE.BoxGeometry(0.5, 0.05, 0.6);
     const railG = new THREE.BoxGeometry(0.04, 0.1, 0.6);
-    this.bedMesh = new THREE.InstancedMesh(bedG, M.bed, MAXBELT);
-    this.railMesh = new THREE.InstancedMesh(railG, M.rail, MAXBELT * 2);
+    this.bedMesh = new THREE.InstancedMesh(bedG, M.bed, MAXBELT * 3);     // a corner arc is 3 beds and 6 rails
+    this.railMesh = new THREE.InstancedMesh(railG, M.rail, MAXBELT * 6);
+    this.railMesh.setColorAt(0, new THREE.Color(1, 1, 1));               // allocates the per instance color
     for (const m of [this.bedMesh, this.railMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
+    this._liftCache = new WeakMap(); this.lifts = new Set(); this.beltOrder = [];
+    this.cols = new Map();   // lift shaft cells (above the base tile) -> the lift tile that owns them
     this.dirty = true;
     this.visualOnly = false; // a guest only draws what the host simulates
     this.byId = new Map();
@@ -63,6 +70,7 @@ export class Logistics {
   clear() {
     this.tiles.clear();
     this.byId.clear();
+    this.cols.clear(); this.lifts.clear();
     for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); }
     this.objs.clear();
     this.dirty = true;
@@ -75,7 +83,7 @@ export class Logistics {
   canPlace(i, j, k) {
     const w = this.game.world;
     if (!w.inside(i, j, k) || w.solid(i, j, k)) return 'Blocked';
-    if (this.tiles.has(idx(i, j, k))) return 'Occupied';
+    if (this.tiles.has(idx(i, j, k)) || this.cols.has(idx(i, j, k))) return 'Occupied';
     if (j > 0 && !w.solid(i, j - 1, k)) return 'Needs a floor';
     // do not place inside the player
     const p = this.game.player.pos;
@@ -103,9 +111,27 @@ export class Logistics {
     const a = this.aimCell(eye, dir);
     if (!a) return { ok: false, why: 'Aim at the floor' };
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    const d = Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 0 : 2) : (fz > 0 ? 1 : 3);
+    let d = Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 0 : 2) : (fz > 0 ? 1 : 3);
+    if (kind === 'belt' && !rise) { const nb = nearBinDir(this.game, a); if (nb != null) d = nb; }
     const why = this.canPlace(a.i, a.j, a.k);
-    return { ok: !why, why, ent: { type: kind, i: a.i, j: a.j, k: a.k, dir: d, rise: kind === 'belt' ? rise : 0 } };
+    const ent = { type: kind, i: a.i, j: a.j, k: a.k, dir: d, rise: kind === 'belt' ? rise : 0 };
+    if (kind === 'belt' && !rise) { const tp = this.railTurn(a, d); if (tp) { ent.turnPrev = { id: tp.id, dir: tp.dir }; ent.dir = tp.dir; } }
+    return { ok: !why, why, ent };
+  }
+
+  // Minecraft rail rule: a new belt set beside the open end of a line turns that end toward it, and carries on the same way
+  railTurn(a, d) {
+    let best = null;
+    for (let m = 0; m < 4; m++) {
+      const n = this.tiles.get(idx(a.i - DX[m], a.j, a.k - DZ[m]));
+      if (!n || n.type !== 'belt' || n.rise || n.detector || n.splitter || n.lift || n.ug || n.dir === m || ((n.dir + 2) & 3) === m) continue;
+      if (this.nextOf(n)) continue;
+      let fed = false;
+      for (let q = 0; q < 4 && !fed; q++) { const f = this.tiles.get(idx(n.i - DX[q], n.j, n.k - DZ[q])); if (f && f.type === 'belt' && f.dir === q && !f.rise) fed = true; }
+      const score = (fed ? 2 : 0) + (n.dir === d ? 1 : 0);
+      if (!best || score > best.score) best = { id: n.id, dir: m, score };
+    }
+    return best;
   }
 
   pick(eye, dir, maxD = 3.6) {
@@ -115,6 +141,7 @@ export class Logistics {
         const e = this.tiles.get(idx(i, j + dj, k));
         if (e) return e;
       }
+      const lc = this.cols.get(idx(i, j, k)); if (lc) return lc;   // anywhere up a lift shaft
     }
     return null;
   }
@@ -131,9 +158,12 @@ export class Logistics {
     this.tiles.set(key, ent);
     this.byId.set(ent.id, ent);
     this.game.world.reserved.add(key);
+    if (ent.type === 'belt' && ent.lift) { const up = Math.sign(ent.lift.h); for (let q = 1; q <= Math.abs(ent.lift.h); q++) { const ck = idx(ent.i, ent.j + up * q, ent.k); this.cols.set(ck, ent); this.game.world.reserved.add(ck); } }   // the shaft (above the tile for an up lift, below it for a down lift): nothing else is built in it
     if (ent.type !== 'belt') this.buildObj(ent);
     if (ent.type === 'belt' && ent.detector) this.buildGate(ent);
     if (ent.type === 'belt' && ent.splitter) this.buildSplitter(ent);
+    if (ent.type === 'belt' && ent.lift) { this.buildLift(ent); this.lifts.add(ent); }
+    if (ent.type === 'belt' && ent.ug) { this.buildUg(ent); this.linkUg(ent); }
     this.dirty = true;
     if (!ent.view) this.game.netEnt(ent);
   }
@@ -143,6 +173,8 @@ export class Logistics {
     this.tiles.delete(key);
     this.byId.delete(ent.id);
     this.game.world.reserved.delete(key);
+    this.lifts.delete(ent); if (ent.type === 'belt' && ent.ug) this.unlinkUg(ent);
+    if (ent.type === 'belt' && ent.lift) { const up = Math.sign(ent.lift.h); for (let q = 1; q <= Math.abs(ent.lift.h); q++) { const ck = idx(ent.i, ent.j + up * q, ent.k); if (this.cols.get(ck) === ent) { this.cols.delete(ck); this.game.world.reserved.delete(ck); } } }
     const o = this.objs.get(ent.id);
     if (o) { this.game.machines.disposeObj(o); this.root.remove(o); this.objs.delete(ent.id); }
     this.dirty = true;
@@ -231,38 +263,82 @@ export class Logistics {
 
   rebuildBelts() {
     this.dirty = false;
-    let n = 0, r = 0;
-    const bm = this.bedMesh.instanceMatrix.array, rm = this.railMesh.instanceMatrix.array;
-    const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc;
+    let n = 0, r = 0, nb = 0;
+    const bm = this.bedMesh.instanceMatrix.array, rm = this.railMesh.instanceMatrix.array, rc = this.railMesh.instanceColor.array;
+    const bedMax = this.bedMesh.instanceMatrix.count, railMax = this.railMesh.instanceMatrix.count;
+    const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc, off = this._off || (this._off = new THREE.Vector3());
+    const tierCols = this._tierCols || (this._tierCols = TIER_COLOR.map((h) => new THREE.Color(h)));
+    const feeders = new Map(); let maxMul = 1;
     for (const t of this.tiles.values()) {
-      if (t.type !== 'belt' || n >= MAXBELT) continue;
+      if (t.type !== 'belt') continue;
+      maxMul = Math.max(maxMul, TIER_MUL[tierOf(t)] * (t.hose ? 2 : 1));
+      const nx = this.nextOf(t);
+      if (nx && nx.type === 'belt' && ((nx.dir + 2) & 3) !== t.dir) { const l = feeders.get(nx.id) || []; l.push(t.dir); feeders.set(nx.id, l); }
+    }
+    const putRail = (tc) => { m.toArray(rm, r * 16); rc[r * 3] = tc.r; rc[r * 3 + 1] = tc.g; rc[r * 3 + 2] = tc.b; r++; };
+    for (const t of this.tiles.values()) {
+      if (t.type !== 'belt') continue;
+      const fl = feeders.get(t.id) || []; t.fed = fl.length > 0;
+      const shaped = !!(t.lift || t.ug);   // lifts and underground ends are drawn as their own meshes
+      t.cd = (!shaped && !t.rise && fl.length === 1 && fl[0] !== t.dir) ? fl[0] : null;
+      if (shaped || n >= MAXBELT || nb + 3 > bedMax || r + 6 > railMax) continue;
+      const tc = tierCols[tierOf(t)];
       const ang = YAW[t.dir];
       const tilt = t.rise * Math.PI / 4;
-      e.set(-tilt, ang, 0, 'YXZ'); q.setFromEuler(e);
       const len = t.rise ? 1.414 : 1;
       const y = t.j * C + 0.045 + (t.rise ? 0.3 : 0);
+      const cx = cellX(t.i), cz = cellZ(t.k);
+      if (t.cd != null) {
+        // a corner is a quarter arc: three short beds along the same curve the items ride (a quadratic Bezier through the cell's middle)
+        const ax = cx - DX[t.cd] * C * 0.5, az = cz - DZ[t.cd] * C * 0.5, bx = cx + DX[t.dir] * C * 0.5, bz = cz + DZ[t.dir] * C * 0.5;
+        const at = (s, o) => { const u = 1 - s; return o === 0 ? u * u * ax + 2 * u * s * cx + s * s * bx : u * u * az + 2 * u * s * cz + s * s * bz; };
+        for (let a = 0; a < 3; a++) {
+          const s0 = a / 3, s1 = (a + 1) / 3, x0 = at(s0, 0), z0 = at(s0, 1), x1 = at(s1, 0), z1 = at(s1, 1);
+          const dx = x1 - x0, dz = z1 - z0, chord = Math.hypot(dx, dz), yaw = Math.atan2(dx, dz);
+          e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); sc.set(1, 1, chord / C * 1.1);
+          v.set((x0 + x1) / 2, y, (z0 + z1) / 2); m.compose(v, q, sc); m.toArray(bm, nb * 16); nb++;
+          for (const sd of [-1, 1]) { off.set(sd * 0.27, 0.04, 0).applyQuaternion(q); v.set((x0 + x1) / 2 + off.x, y + off.y, (z0 + z1) / 2 + off.z); m.compose(v, q, sc); putRail(tc); }
+        }
+        n++; continue;
+      }
+      e.set(-tilt, ang, 0, 'YXZ'); q.setFromEuler(e);
       sc.set(1, 1, len);
-      v.set(cellX(t.i), y, cellZ(t.k)); m.compose(v, q, sc);
-      m.toArray(bm, n * 16);
+      v.set(cx, y, cz); m.compose(v, q, sc);
+      m.toArray(bm, nb * 16); nb++;
       for (const s of [-1, 1]) {
-        const off = new THREE.Vector3(s * 0.27, 0.04, 0).applyQuaternion(q);
-        v.set(cellX(t.i) + off.x, y + off.y, cellZ(t.k) + off.z); m.compose(v, q, sc);
-        m.toArray(rm, r * 16); r++;
+        off.set(s * 0.27, 0.04, 0).applyQuaternion(q);
+        v.set(cx + off.x, y + off.y, cz + off.z); m.compose(v, q, sc);
+        putRail(tc);
       }
       n++;
     }
-    this.bedMesh.count = n; this.railMesh.count = r;
-    this.bedMesh.instanceMatrix.needsUpdate = true; this.railMesh.instanceMatrix.needsUpdate = true;
+    this.maxMul = maxMul; this.bedMesh.count = nb; this.railMesh.count = r;
+    // update order: the tiles nearest the end of their line first, so a plush handed forward finds the next tile already moved (positions are all of one instant)
+    const rank = new Map(), belts = [];
+    for (const t of this.tiles.values()) if (t.type === 'belt') belts.push(t);
+    const depth = (t) => {
+      let cur = t; const chain = [], seen = new Set();
+      while (cur && cur.type === 'belt' && !rank.has(cur.id) && !seen.has(cur.id)) { chain.push(cur); seen.add(cur.id); cur = this.nextOf(cur); }   // (a ring ends where it closes)
+      let base = cur && cur.type === 'belt' && rank.has(cur.id) ? rank.get(cur.id) + 1 : 0;
+      for (let q = chain.length - 1; q >= 0; q--) { rank.set(chain[q].id, base); base++; }
+    };
+    for (const t of belts) if (!rank.has(t.id)) depth(t);
+    this.beltOrder = belts.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+    let corners = 0; for (const t of this.tiles.values()) if (t.type === 'belt' && t.cd != null) corners++;
+    this.cornerN = corners;
+    this.bedMesh.instanceMatrix.needsUpdate = true; this.railMesh.instanceMatrix.needsUpdate = true; this.railMesh.instanceColor.needsUpdate = true;
   }
 
   // ---------------------------------------------------------------- simulation
-  accept(n, item, fromDir) {
+  // t0 is how far into the next tile the item already is (the part of this frame's move that went past the end), so the rate does not depend on the frame time
+  accept(n, item, fromDir, t0 = 0) {
     if (!n) return false;
     if (n.type === 'belt') {
       if (fromDir != null && ((n.dir + 2) & 3) === fromDir) return false; // head-on
-      const last = n.items[n.items.length - 1];
-      if (n.items.length >= 3 || (last && last.t < 0.34)) return false;
-      n.items.push({ sp: item.sp, vr: item.vr, t: 0 });
+      if (n.ug && n.ug.role === 'out' && fromDir !== 'ug') return false;  // an underground exit only takes what its own entry sends
+      const len = lenOf(n), last = n.items[n.items.length - 1], at = Math.max(0, Math.min(t0, len));
+      if (n.items.length >= capOf(len) || (last && last.t < SPACING + at - 1e-6)) return false;   // the epsilon: a dense line sits exactly at the spacing
+      n.items.push({ sp: item.sp, vr: item.vr, t: at });
       return true;
     }
     if (n.type === 'sorter') {
@@ -293,53 +369,107 @@ export class Logistics {
   vaultCap() { return 120; }
 
   nextOf(t) {
+    if (t.lift) return this.tiles.get(idx(t.i + DX[t.dir], t.j + t.lift.h, t.k + DZ[t.dir]));   // a lift sets its plush down h cells higher, one cell ahead
+    if (t.ug && t.ug.role === 'in') return t.ug.pair != null ? this.byId.get(t.ug.pair) : undefined;   // an underground entry hands over to its exit, wherever that is
     return this.tiles.get(idx(t.i + DX[t.dir], t.j + (t.rise || 0), t.k + DZ[t.dir]));
   }
 
+  // does this lift have the Lift Frames its height asks for (one per started 8 cells above 8)? { ok, need, have }
+  liftSupport(t) {
+    const need = framesNeeded(Math.abs(t.lift.h));
+    if (!need) return NO_FRAMES;
+    const items = this.game.machines.items, now = this.game.time;
+    let c = this._liftCache.get(t);
+    if (c && c.h === t.lift.h && c.n === items.size && Math.abs(now - c.at) < 1.5) return c;
+    let have = 0; const x = cellX(t.i), z = cellZ(t.k);
+    for (const it of items.values()) { const e = it.ent; if (e.type === 'liftframe' && Math.hypot(e.x - x, e.z - z) <= FRAME_REACH) have++; }
+    c = { ok: have >= need, need, have, at: now, n: items.size, h: t.lift.h };
+    this._liftCache.set(t, c);
+    return c;
+  }
+
   update(dt) {
-    const g = this.game, T = g.T, S = g.S;
+    const g = this.game, T = g.T;
     if (this.dirty) this.rebuildBelts();
     const spd = T.beltSpeed;
     const tick = this.game.time;
-    let moving = 0;
+    this._moving = 0;
     arrowTex.offset.y = (arrowTex.offset.y - dt * spd * 0.5) % 1;
+    for (const t of this.lifts) this.liftLook(t, tick);
+    // belts run in equal sub steps when the fastest tile would move a plush more than 0.8 of a tile in one go, so a Mk6 line at full upgrades still moves
+    // exactly as printed and does not depend on the frame time (one sub step at every speed the game had before)
+    const sub = Math.max(1, Math.min(8, Math.ceil(spd * (this.maxMul || 1) * dt / 0.8)));
+    const order = this.beltOrder || [];
+    for (let s = 0; s < sub; s++) for (const t of order) this.updateBelt(t, dt / sub, spd, s === 0);
     for (const t of this.tiles.values()) {
-      if (t.type === 'belt') {
-        const its = t.items;
-        if (!its.length) continue;
-        const pw = t.halt ? 0 : (t.pw ?? 0);
-        if (pw > 0.02) moving++;
-        if (t.detector && !this.visualOnly) {
-          for (let n = its.length - 1; n >= 0; n--) {
-            const it = its[n];
-            if (!it.sc && it.t >= 0.5) { it.sc = true; if (this.scanItem(t, it)) its.splice(n, 1); }
-          }
-          if (!its.length) continue;
-        }
-        for (let n = 0; n < its.length; n++) {
-          const it = its[n];
-          const limit = n === 0 ? 1 : its[n - 1].t - 0.34;
-          it.t = Math.min(it.t + spd * pw * dt, Math.max(it.t, limit));
-        }
-        const f = its[0];
-        if (f.t >= 1 && pw > 0.02 && !this.visualOnly && t.splitter) {
-          const outs = this.splitOuts(t);
-          for (let q = 0; q < outs.length; q++) { const o = outs[((t.rr || 0) + q) % outs.length]; if (this.accept(o.tile, f, o.dir)) { its.shift(); t.rr = ((t.rr || 0) + q + 1) % outs.length; break; } }
-        } else if (f.t >= 1 && pw > 0.02 && !this.visualOnly) {
-          const nx = this.nextOf(t);
-          if (nx && this.accept(nx, f, t.dir)) its.shift();
-          else if (!nx && this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C)) { its.shift(); this.game.sellAuto(f.sp, f.vr, 1); }
-          else if (!nx && this.game.world.get(t.i + DX[t.dir], t.j, t.k + DZ[t.dir]) === 0 && this.dropEnd(t, f)) its.shift();
-        }
-      } else if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
+      if (t.type === 'belt') continue;
+      else if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
       else if (t.type === 'mech') { if (!this.visualOnly) this.updateMech(t, dt); }
       else if (t.type === 'gen') this.updateGen(t, dt, tick);
       else if (t.type === 'charger') this.updateCharger(t, dt);
       else if (t.type === 'fan') { const o = this.objs.get(t.id); const b = o && o.getObjectByName('blades'); if (b) b.rotation.z += dt * 14 * (t.pw ?? 0); }
       else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.glowR; }
     }
-    this.hum = moving;
+    this.hum = this._moving;
     this.gateTick(dt);
+  }
+
+  // one belt tile for dt: the plush on it move at the tile's own speed, then the first one is handed on
+  updateBelt(t, dt, spd, count) {
+    if (t.hose && !this.visualOnly && !t.fed && (t.pw ?? 0) > 0.05) this.hoseIntake(t, dt);
+    const its = t.items;
+    if (!its.length) return;
+    const pw = t.halt ? 0 : Math.max(t.pw ?? 0, HAND_CRANK);
+    if (count && (t.pw ?? 0) > 0.02 && !t.halt) this._moving++;
+    if (t.detector && !this.visualOnly) {
+      for (let n = its.length - 1; n >= 0; n--) {
+        const it = its[n];
+        if (!it.sc && it.t >= 0.5) { it.sc = true; if (this.scanItem(t, it)) its.splice(n, 1); }
+      }
+      if (!its.length) return;
+    }
+    // every tile runs at its own mark: a line is only as fast as its slowest tile. A lift without its frames stands still.
+    const len = lenOf(t), live = !t.lift || this.liftSupport(t).ok;
+    const step = live ? spd * TIER_MUL[tierOf(t)] * pw * (t.hose ? 2 : 1) * dt : 0;
+    for (let n = 0; n < its.length; n++) {
+      const it = its[n];
+      it.t = Math.min(it.t + step, Math.max(it.t, n === 0 ? Infinity : its[n - 1].t - SPACING));
+    }
+    // the first plush crosses the end of the tile: hand it over with what is left of this move (a fast tile may pass a few per step)
+    const canHand = pw > 0.02 && !this.visualOnly && live;
+    for (let hop = 0; hop < HOP_MAX && its.length && its[0].t >= len; hop++) {
+      if (!canHand || !this.handOff(t, its[0], its[0].t - len)) break;
+      its.shift();
+    }
+    if (its.length && its[0].t > len) { its[0].t = len; for (let n = 1; n < its.length; n++) its[n].t = Math.min(its[n].t, its[n - 1].t - SPACING); }
+  }
+
+  // move the first plush of tile t on to whatever it feeds. t0 = how far past the end it already is. Returns true when it left.
+  handOff(t, f, t0) {
+    if (t.splitter) {
+      const outs = this.splitOuts(t);
+      for (let q = 0; q < outs.length; q++) { const o = outs[((t.rr || 0) + q) % outs.length]; if (this.accept(o.tile, f, o.dir, t0)) { t.rr = ((t.rr || 0) + q + 1) % outs.length; return true; } }
+      return false;
+    }
+    if (t.ug && t.ug.role === 'in') { const out = t.ug.pair != null ? this.byId.get(t.ug.pair) : null; return !!(out && this.accept(out, f, 'ug', t0)); }
+    const nx = this.nextOf(t);
+    if (nx && this.accept(nx, f, t.dir, t0)) return true;
+    if (t.lift || t.ug) return false;   // a lift or an underground end never spills: it waits for something to take the plush
+    if (!nx && (this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C) || this.game.sinkNear(cellX(t.i), cellZ(t.k)))) { this.game.sellAuto(f.sp, f.vr, 1); return true; }
+    if (!nx && this.game.world.get(t.i + DX[t.dir], t.j, t.k + DZ[t.dir]) === 0 && this.dropEnd(t, f)) return true;
+    return false;
+  }
+
+  // the open mouth of a vacuum hose pulls loose plush (not The One, not specials) off the floor
+  hoseIntake(t, dt) {
+    t.suck = (t.suck || 0) - dt; if (t.suck > 0 || t.items.length >= 3) return;
+    const sim = this.game.sim, gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
+    for (let i = sim.n - 1; i >= 0; i--) {
+      if (sim.flag[i] !== 1) continue;
+      const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 9 || sim.y[i] > gy + 1.8) continue;
+      if (sim.sp[i] >= 4090) continue;
+      if (this.accept(t, { sp: sim.sp[i], vr: sim.vr[i] }, null)) { sim.remove(i); t.suck = 0.25; this.game.fx.sparkle(gx, gy + 0.4, gz, 2, 0.4, 0.9, 1); break; }
+    }
   }
 
   // a belt that ends in the open spills its plush onto the floor
@@ -372,6 +502,80 @@ export class Logistics {
     const lit = t.burn > 0;
     if (win) win.material = lit ? M.glowO : M.dark;
     if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18, t.j * C + 1.1, cellZ(t.k) - 0.15);
+  }
+
+  // ---- lifts and underground ends (belt tiles that are drawn as their own meshes) ----
+  // a new exit tells its entry where it is (the host announces the entry's new state to a guest)
+  linkUg(ent) {
+    if (ent.ug.role !== 'out' || ent.ug.pair == null) return;
+    const p = this.byId.get(ent.ug.pair);
+    if (!p || !p.ug || p.ug.role !== 'in' || p.ug.pair != null) return;
+    p.ug.pair = ent.id; p.ug.span = ent.ug.span;
+    this.buildUg(p);
+    if (!p.view) { this.game.netSend({ t: 'ent-', id: p.id }); this.game.netSend({ t: 'ent+', ent: this.game.stripEnt(p) }); }
+  }
+
+  // taking one end down leaves the other one unpaired
+  unlinkUg(ent) {
+    if (ent.ug.pair == null) return;
+    const p = this.byId.get(ent.ug.pair);
+    if (!p || !p.ug || p.ug.pair !== ent.id) return;
+    p.ug.pair = null;
+    this.buildUg(p);
+    if (!p.view) { this.game.netSend({ t: 'ent-', id: p.id }); this.game.netSend({ t: 'ent+', ent: this.game.stripEnt(p) }); }
+  }
+
+  tierMat(tier) {
+    const c = this._tierMats || (this._tierMats = []);
+    return c[tier] || (c[tier] = new THREE.MeshStandardMaterial({ color: TIER_COLOR[tier], roughness: 0.45, metalness: 0.5 }));
+  }
+
+  buildLift(ent) {
+    const old = this.objs.get(ent.id); if (old) { this.game.machines.disposeObj(old); this.root.remove(old); }
+    const h = Math.abs(ent.lift.h), H = h * C, tint = this.tierMat(tierOf(ent));
+    const g = new THREE.Group();
+    g.position.set(cellX(ent.i), (ent.j + (ent.lift.h < 0 ? ent.lift.h : 0)) * C, cellZ(ent.k));   // a down lift stands below its tile
+    g.rotation.y = YAW[ent.dir || 0];
+    const sway = new THREE.Group(); sway.name = 'sway'; g.add(sway);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.58), M.steel); base.position.y = 0.035; sway.add(base);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, H, 0.05), tint); post.position.set(sx * 0.26, H / 2, sz * 0.26); sway.add(post); }
+    for (const sx of [-1, 1]) { const panel = new THREE.Mesh(new THREE.BoxGeometry(0.03, H, 0.46), M.dark); panel.position.set(sx * 0.24, H / 2, 0); sway.add(panel); }
+    for (let y = 1.2; y < H - 0.1; y += 1.2) for (const sz of [-1, 1]) { const brace = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.035, 0.035), M.steel); brace.position.set(0, y, sz * 0.26); sway.add(brace); }
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.08, 0.58), M.yellow); cap.position.y = H; sway.add(cap);
+    const arr = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 4), M.glowG); arr.rotation.x = Math.PI / 2; arr.position.set(0, H + 0.1, 0.18); sway.add(arr);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M.glowO); lamp.position.set(0.2, H + 0.12, -0.2); lamp.name = 'lamp'; sway.add(lamp);
+    g.userData.sway = sway; g.userData.lamp = lamp;
+    this.root.add(g);
+    this.objs.set(ent.id, g);
+  }
+
+  // the lamp shows power and support; a lift that lacks its frames sways and stands still
+  liftLook(t, time) {
+    const o = this.objs.get(t.id); if (!o) return;
+    const sup = this.liftSupport(t), sw = o.userData.sway, lamp = o.userData.lamp;
+    const want = !sup.ok ? M.glowR : (t.pw ?? 0) > 0.05 ? M.glowG : M.glowO;
+    if (lamp && lamp.material !== want) lamp.material = want;
+    if (!sw) return;
+    if (!sup.ok) { const a = 0.012 + Math.abs(t.lift.h) * 0.0012; sw.rotation.z = Math.sin(time * 1.9 + t.i) * a; sw.rotation.x = Math.cos(time * 1.3 + t.k) * a * 0.7; }
+    else if (sw.rotation.z !== 0 || sw.rotation.x !== 0) sw.rotation.set(0, 0, 0);
+  }
+
+  buildUg(ent) {
+    const old = this.objs.get(ent.id); if (old) { this.game.machines.disposeObj(old); this.root.remove(old); }
+    const isIn = ent.ug.role === 'in', tint = this.tierMat(tierOf(ent));
+    const g = new THREE.Group();
+    g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
+    g.rotation.y = YAW[ent.dir || 0];
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.06, 0.58), M.steel); plate.position.y = 0.03; g.add(plate);
+    for (const s of [-1, 1]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.58), tint); rail.position.set(s * 0.27, 0.1, 0); g.add(rail); }
+    // the hood is the tunnel mouth: at the front of an entry (plush ride in under it), at the back of an exit (they come out of it)
+    const hz = isIn ? 0.15 : -0.15;
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.36, 0.28), M.dark); hood.position.set(0, 0.24, hz); g.add(hood);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.32), tint); top.position.set(0, 0.44, hz); g.add(top);
+    const arr = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.18, 4), M.glowG); arr.rotation.x = Math.PI / 2; arr.position.set(0, 0.52, hz); g.add(arr);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), ent.ug.pair != null ? M.glowG : M.glowO); lamp.position.set(0.2, 0.52, hz); lamp.name = 'lamp'; g.add(lamp);
+    this.root.add(g);
+    this.objs.set(ent.id, g);
   }
 
   // ---- splitters: a belt piece that deals plush out forward, left and right in turn ----
@@ -607,12 +811,35 @@ export class Logistics {
   }
 
   // ---------------------------------------------------------------- items rendering
+  // where an item stands on a corner: a quadratic Bezier from the feeder's edge through the middle of the cell to the exit edge (the same curve the arc mesh follows)
+  cornerPoint(t, s, out) {
+    const cx = cellX(t.i), cz = cellZ(t.k), u = 1 - s, h = C * 0.5;
+    const ax = cx - DX[t.cd] * h, az = cz - DZ[t.cd] * h, bx = cx + DX[t.dir] * h, bz = cz + DZ[t.dir] * h;
+    out.x = u * u * ax + 2 * u * s * cx + s * s * bx; out.z = u * u * az + 2 * u * s * cz + s * s * bz;
+  }
+
   forEachItem(cb) {
+    const pt = this._pt || (this._pt = { x: 0, z: 0 });
     for (const t of this.tiles.values()) {
       if (t.type === 'belt') {
+        const cx = cellX(t.i), cz = cellZ(t.k);
+        if (t.lift) {
+          // in over the back edge, up the shaft, out over the front edge of the top: the next tile's first plush starts where this one ends
+          const h = Math.abs(t.lift.h), dn = t.lift.h < 0 ? -1 : 1, y0 = t.j * C + 0.2;
+          for (const it of t.items) {
+            const u = it.t; let off = 0, y = y0;
+            if (u < 0.5) off = (u - 0.5) * C; else if (u <= h + 0.5) y = y0 + dn * (u - 0.5) * C; else { off = (u - h - 0.5) * C; y = y0 + dn * h * C; }
+            cb(it, cx + DX[t.dir] * off, y, cz + DZ[t.dir] * off, 0.4);
+          }
+          continue;
+        }
+        const ugIn = t.ug && t.ug.role === 'in' && t.ug.pair != null, ugOut = t.ug && t.ug.role === 'out';
         for (const it of t.items) {
+          if (ugIn && it.t > 0.5) continue;    // under the hatch
+          if (ugOut && it.t < 0.5) continue;   // not out of it yet
           const u = it.t - 0.5;
-          const x = cellX(t.i) + DX[t.dir] * u * C, z = cellZ(t.k) + DZ[t.dir] * u * C;
+          let x = cx + DX[t.dir] * u * C, z = cz + DZ[t.dir] * u * C;
+          if (t.cd != null) { this.cornerPoint(t, Math.max(0, Math.min(1, it.t)), pt); x = pt.x; z = pt.z; }
           const y = t.j * C + 0.2 + (t.rise ? (u + 0.5) * t.rise * C : 0) + (t.rise ? 0.3 : 0);
           cb(it, x, y, z, 0.4);
         }

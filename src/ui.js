@@ -329,7 +329,7 @@ export class UI {
     if (was && this.game) this.game.onModalClosed(was);
   }
   open(id) {
-    this.closeModalsSilently();
+    this.closeModalsSilently(); if (this.game && this.game.clearKeys) this.game.clearKeys();
     $(id).classList.remove('hidden');
     this.openModal = id;
     if (id === 'shop') this.renderShop();
@@ -358,8 +358,8 @@ export class UI {
     for (const u of list) {
       const lvl = g.S.up[u.id] || 0;
       const maxed = lvl >= u.max;
-      const unlocked = isUnlocked(u, g.S.up, g.S);
-      const nt = needsText(u, g.S);
+      const unlocked = isUnlocked(u, g.S.up, g.shopStats());
+      const nt = needsText(u, g.shopStats());
       const cost = maxed ? 0 : u.cost[lvl];
       const can = unlocked && !maxed && g.S.money >= cost;
       const el = document.createElement('div');

@@ -5,6 +5,9 @@ import { capacityOf, loadOn } from './loadtrace.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { buildMountFan, MOUNT_FAN } from './mountfan.js';
+import { catalogType } from './catalog.js';
+import { furnishLights, LIGHT_CAP } from './furnish.js';
+import { isEarth, planEarth as planEarthMachine, makeEarth, addEarth, updateEarth, guestEarth } from './earth.js';
 
 const woodTex = (() => {
   const c = document.createElement('canvas'); c.width = 128; c.height = 128;
@@ -386,6 +389,9 @@ export class Machines {
     return { ok: true, ent: { i, j, k, dx: ddx, dz: ddz, w: T.borerW, h: T.borerH, x: cellX(i), y: j * C, z: cellZ(k) } };
   }
 
+  // earth movers (src/earth.js): the same plan shape as a borer's, kept in one place
+  planEarth(kind, eye, dir, yaw) { return planEarthMachine(this, kind, eye, dir, yaw); }
+
   // ---------- ghost ----------
   setGhost(obj, key = '') {
     if (this.ghost) { this.root.remove(this.ghost); this.ghost = null; }
@@ -406,6 +412,7 @@ export class Machines {
       else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack', 'rope'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
+      else if (isEarth(tool.kind)) { key = `e${tool.kind}${e.dx}${e.dz}${plan.ok}`; make = () => ghostify(makeEarth(tool.kind, e, this.game.T).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
     if (key !== this.ghostKey) { this.setGhost(make(), key); this.addReach(tool, plan); }
     const e = plan.ent;
@@ -413,7 +420,7 @@ export class Machines {
     else if (tool.kind === 'mfan') { this.ghost.position.set(e.px, e.py, e.pz); this.ghost.rotation.y = e.fyaw; }
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack', 'rope'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
-    else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
+    else if (tool.kind === 'borer' || isEarth(tool.kind)) { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
   }
 
   // a faint wire sphere and floor ring showing how far this support holds the roof (frames, struts and jacks)
@@ -612,6 +619,11 @@ export class Machines {
       it.shield = { x: ent.x, y: ent.y + 0.9, z: ent.z, r: 3.6, b: 6, id: 'shield' + ent.id };
       w.supports.push(it.shield);
       it.timer = 0.5;
+    } else if (isEarth(ent.type)) {
+      Object.assign(it, addEarth(this, ent));
+    } else if (catalogType(ent.type)) {   // catalog_*.js types: TYPES[type].add(machines, ent) => { obj, ... }
+      const ct = catalogType(ent.type); Object.assign(it, ct.add ? ct.add(this, ent) : {});
+      if (!it.obj) it.obj = new THREE.Group();
     }
     this.root.add(it.obj);
     this.items.set(ent.id, it);
@@ -627,8 +639,9 @@ export class Machines {
       const d = (it.ent.x - camPos.x) ** 2 + (it.ent.y - camPos.y) ** 2 + (it.ent.z - camPos.z) ** 2;
       if (d < 40 * 40) arr.push([d, it.ent]);
     }
+    furnishLights(this.game, camPos, arr);   // lamps, floodlights, strips and beacons from furnish.js (weighted by their radius), at most LIGHT_CAP real lights
     arr.sort((a, b) => a[0] - b[0]);
-    return arr.slice(0, out).map((a) => a[1]);
+    return arr.slice(0, Math.min(out, LIGHT_CAP)).map((a) => a[1]);
   }
 
   count(type) { let n = 0; for (const it of this.items.values()) if (it.ent.type === type && !it.ent.done) n++; return n; }
@@ -640,6 +653,7 @@ export class Machines {
       const e = it.ent;
       if (e.type === 'claw') this.guestRig(it, dt);
       else if (e.type === 'borer') { const k = Math.min(1, dt * 6); const tx = cellX(e.i) + (e.dz !== 0 && e.w % 2 === 0 ? C / 2 : 0), tz = cellZ(e.k) + (e.dx !== 0 && e.w % 2 === 0 ? C / 2 : 0); it.obj.position.x += (tx - it.obj.position.x) * k; it.obj.position.z += (tz - it.obj.position.z) * k; if (it.borer) it.borer.teeth.rotation.z += dt * 7; }
+      else if (isEarth(e.type)) guestEarth(this, it, dt, time);
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
       else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
       else if (e.type === 'flare') { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); }
@@ -667,6 +681,7 @@ export class Machines {
       const e = it.ent;
       if (e.type === 'claw') this.updateRig(it, dt, time);
       else if (e.type === 'borer') this.updateBorer(it, dt, time);
+      else if (isEarth(e.type)) updateEarth(this, it, dt, time);
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
       else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
       else if (e.type === 'flare') { if (game.S.stats.playSecs - e.born > (e.glow ? 600 : 240)) this.expire.push(e); else { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); } }

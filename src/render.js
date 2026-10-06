@@ -7,12 +7,12 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { C, NX, NY, NZ, CS, CX, CY, CZ, QUALITY, cellX, cellY, cellZ } from './config.js';
 import { h32, quatFromHash } from './util.js';
-import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, ARCH_COUNT } from './plushdata.js';
+import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, PAD, ARCH_COUNT } from './plushdata.js';
 import { makeArchGeometry } from './plushgeo.js';
 import { U, makePlushMaterial, ghostVert, ghostFrag, gradeShader } from './shaders.js';
 
-const NA = ARCH_COUNT + 8; // every shape + The One + bulkhead + gear + 4 fakes + cache
-const A_NEEDLE = ARCH_COUNT, A_BULK = ARCH_COUNT + 1, A_REMAINS = ARCH_COUNT + 2;
+const NA = ARCH_COUNT + 10; // every shape + The One + bulkhead + gear + 4 fakes + cache + floor pad + catwalk plate
+const A_NEEDLE = ARCH_COUNT, A_BULK = ARCH_COUNT + 1, A_REMAINS = ARCH_COUNT + 2, A_PAD = ARCH_COUNT + 8, A_PADTHIN = ARCH_COUNT + 9;
 const CAP_HI = 1100, CAP_LO = 3200, CAP_DYN = 700;
 const hexCache = new Map();
 function colOf(s0) {
@@ -30,6 +30,8 @@ const remainsLin = [1, 1, 1];
 const cacheLin = (() => { const c = new THREE.Color(0xb98a4a); return [c.r, c.g, c.b]; })();
 const bulkLin = (() => { const c = new THREE.Color(0xa87a45); return [c.r, c.g, c.b]; })();
 const needleLin = (() => { const c = new THREE.Color(0xffd24a); return [c.r, c.g, c.b]; })();
+// floor pad colors by material index (vr & 15): timber, steel, concrete, rebar, titan, carbon, plasma, void, neutron, horizon (the order of FRAME_TYPES)
+const padLin = [0x9a6b3a, 0x77879a, 0xb9b7ac, 0x8a6a58, 0xb7c3d0, 0x2b2f36, 0x7ad7ff, 0xb078ff, 0xfff0b0, 0x14141e].map((h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; });
 
 
 const _q4 = [0, 0, 0, 0];
@@ -102,8 +104,8 @@ export class Renderer {
       const gh = makeArchGeometry(a, 1), gl = makeArchGeometry(a, 0), gd = makeArchGeometry(a, 1);
       this.hiGeo = this.hiGeo || [];
       this.hiGeo[a] = gh;
-      const capH = a === A_NEEDLE ? 4 : a === A_BULK ? 2500 : a === A_REMAINS ? 600 : a > A_REMAINS ? 300 : CAP_HI;
-      const capL = a === A_NEEDLE ? 4 : a === A_BULK ? 3000 : a === A_REMAINS ? 800 : a > A_REMAINS ? 400 : CAP_LO;
+      const capH = a === A_PAD ? 7000 : a === A_PADTHIN ? 3000 : a === A_NEEDLE ? 4 : a === A_BULK ? 2500 : a === A_REMAINS ? 600 : a > A_REMAINS ? 300 : CAP_HI;
+      const capL = a === A_PAD ? 9000 : a === A_PADTHIN ? 4000 : a === A_NEEDLE ? 4 : a === A_BULK ? 3000 : a === A_REMAINS ? 800 : a > A_REMAINS ? 400 : CAP_LO;
       const capD = a === A_NEEDLE ? 16 : a >= A_BULK ? 120 : CAP_DYN;
       const mh = makeInstMesh(gh, capH, this.material), ml = makeInstMesh(gl, capL, this.material), md = makeInstMesh(gd, capD, this.material);
       this.scene.add(mh, ml, md);
@@ -275,12 +277,21 @@ export class Renderer {
           const v = w.getVr(i, j, k);
           cellPose(i, j, k, v, pose);
           const s0 = species[s];
-          const arch = s0 ? s0.arch : 0;
+          let arch = s0 ? s0.arch : 0;
           let col, shade = 0.9 + ((v & 127) / 127) * 0.2, flag = (v & 128) ? 1 : 0;
           if (s === NEEDLE) { col = needleLin; shade = 1; flag = 2; }
-          else if (s === BULK) { col = bulkLin; shade = 0.9 + ((v & 127) / 127) * 0.15; flag = 0; }
+          else if (s === BULK) {
+            col = bulkLin; shade = 0.9 + ((v & 127) / 127) * 0.15; flag = 0;
+            if (v & 128) { pose[0] = cellX(i); pose[1] = cellY(j); pose[2] = cellZ(k); pose[3] = 0; pose[4] = 0; pose[5] = 0; pose[6] = 1; pose[7] = 1; }   // a wall section piece (build.js): panels set square and flush, not tumbled like loose bulkheads
+          }
           else if (s === REMAINS) { col = remainsLin; shade = 1; flag = 0; }
           else if (s === CACHE) { col = cacheLin; shade = 0.9 + ((v & 127) / 127) * 0.2; flag = 0; }
+          else if (s === PAD) {
+            // a floor pad is a flat, upright, exactly cell sized slab (no random tilt or size like a plush); a catwalk plate (vr bit 16) is the thin deck
+            col = padLin[Math.min(padLin.length - 1, v & 15)]; shade = 0.8; flag = 0;   // the flat top takes the full hall light, so it is set a little darker than the frame of the same material
+            pose[0] = cellX(i); pose[1] = cellY(j); pose[2] = cellZ(k); pose[3] = 0; pose[4] = 0; pose[5] = 0; pose[6] = 1; pose[7] = 1; pose[8] = 0.5;
+            arch = (v & 16) ? A_PADTHIN : A_PAD;
+          }
           else col = colOf(s0);
           out.push(
             pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6], pose[7],

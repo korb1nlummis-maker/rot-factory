@@ -532,6 +532,7 @@ function plank(w, h, d, px, py, pz, tint) {
 }
 
 export const ARCH_NEEDLE = ARCH_COUNT, ARCH_BULK = ARCH_COUNT + 1, ARCH_REMAINS = ARCH_COUNT + 2, ARCH_DECOY0 = ARCH_COUNT + 3, ARCH_CACHE = ARCH_COUNT + 7;
+export const ARCH_PAD = ARCH_COUNT + 8, ARCH_PADTHIN = ARCH_COUNT + 9;   // Wave 3 build shell: a floor pad cell and a catwalk plate (see render.js for the colors)
 
 export function makeArchGeometry(arch, lod) {
   if (arch === ARCH_REMAINS) {
@@ -558,6 +559,20 @@ export function makeArchGeometry(arch, lod) {
   if (arch === ARCH_CACHE) {
     // a battered crate with straps
     const parts = [plank(0.5, 0.4, 0.5, 0, 0, 0, [1, 1, 1]), plank(0.54, 0.05, 0.54, 0, 0.2, 0, [0.7, 0.62, 0.5]), plank(0.06, 0.42, 0.52, -0.14, 0, 0, [0.35, 0.35, 0.4]), plank(0.06, 0.42, 0.52, 0.14, 0, 0, [0.35, 0.35, 0.4]), plank(0.12, 0.08, 0.04, 0, 0.05, 0.26, [0.8, 0.75, 0.3])];
+    const g = mergeGeometries(parts, false);
+    g.computeBoundingSphere();
+    return g;
+  }
+  if (arch === ARCH_PAD) {
+    // floor pad: a full cell slab, darker rim and a lighter inlay on top so every cell shows a grid line
+    const g = mergeGeometries([plank(0.6, 0.6, 0.6, 0, 0, 0, [0.8, 0.8, 0.8]), plank(0.52, 0.024, 0.52, 0, 0.292, 0, [1.12, 1.12, 1.12])], false);
+    g.computeBoundingSphere();
+    return g;
+  }
+  if (arch === ARCH_PADTHIN) {
+    // catwalk plate: a thin deck at the top of the cell with four grating bars across it
+    const parts = [plank(0.6, 0.07, 0.6, 0, 0.255, 0, [0.7, 0.7, 0.7])];
+    for (let q = 0; q < 4; q++) parts.push(plank(0.6, 0.03, 0.05, 0, 0.285, -0.225 + q * 0.15, [1.1, 1.1, 1.1]));
     const g = mergeGeometries(parts, false);
     g.computeBoundingSphere();
     return g;

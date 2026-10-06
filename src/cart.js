@@ -52,8 +52,11 @@ function buildMesh(t) {
 }
 
 export class Cart {
-  constructor(game) {
+  // slot 'cart' is the local player's own cart (S.cart; on a guest that is the guest's own cart). Slot 'other' is the friend's cart:
+  // on the host S.gcart (simulated here, follows the remote player), on a guest S.hcart (a render-only view of the host's cart).
+  constructor(game, slot = 'cart') {
     this.game = game;
+    this.slot = slot;
     this.root = new THREE.Group();
     game.renderer.scene.add(this.root);
     this.obj = null;
@@ -62,7 +65,15 @@ export class Cart {
     this.wheelSpin = 0;
   }
 
-  get c() { return this.game.S.cart; }
+  get key() { return this.slot === 'other' ? this.game.otherCartKey() : 'cart'; }
+  get c() { return this.game.S[this.key]; }
+  // who the cart trails: the local player, or (the guest's cart on the host) the remote friend. null = nobody to follow right now.
+  followTarget() {
+    const g = this.game;
+    if (this.key !== 'gcart') return g.player;
+    const r = g.remote;
+    return r && g.net.open && r.pos.y > -40 ? r : null;
+  }
   cap() { return this.c ? CART_CAP[this.c.tier] : 0; }
   room() { return this.c ? Math.max(0, this.cap() - this.c.load.length) : 0; }
 
@@ -82,12 +93,13 @@ export class Cart {
 
   deploy(tier, at) {
     const g = this.game, p = at || { pos: g.player.pos, yaw: g.player.yaw };
-    g.S.cart = { tier, x: p.pos.x + Math.sin(p.yaw) * 1.4, y: Math.max(0, p.pos.y), z: p.pos.z + Math.cos(p.yaw) * 1.4, yaw: p.yaw, mode: 'follow', load: [] };
+    g.S[this.key] = { tier, x: p.pos.x + Math.sin(p.yaw) * 1.4, y: Math.max(0, p.pos.y), z: p.pos.z + Math.cos(p.yaw) * 1.4, yaw: p.yaw, mode: 'follow', load: [] };
     this.sync();
-    g.fx.dust(g.S.cart.x, g.S.cart.y + 0.1, g.S.cart.z, 6, 0.6, 0.6);
+    const c = g.S[this.key];
+    g.fx.dust(c.x, c.y + 0.1, c.z, 6, 0.6, 0.6);
   }
 
-  stow() { this.game.S.cart = null; this.clear(); }
+  stow() { this.game.S[this.key] = null; this.clear(); }
 
   guestUpdate(dt) {
     const c = this.c;
@@ -103,7 +115,9 @@ export class Cart {
     const c = this.c;
     if (!c) return;
     if (!this.obj || this.builtTier !== c.tier) this.sync();
-    const g = this.game, p = g.player, w = g.world;
+    const g = this.game, w = g.world;
+    const p = this.followTarget();
+    if (!p) return; // the friend's cart waits where it is while they are away
     const px = p.pos.x, pz = p.pos.z;
     let tx = c.x, tz = c.z;
     const dist = Math.hypot(px - c.x, pz - c.z);

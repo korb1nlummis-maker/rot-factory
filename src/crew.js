@@ -368,7 +368,7 @@ export class Crew {
     if (tgt.k === 'bin') return { act: 'home', ok: true, text: 'Go home and unload', toast: 'Heading home.' };
     if (tgt.k === 'feet') return { act: 'follow', ok: true, text: 'Follow you', toast: 'Following you.' };
     if (tgt.k === 'cart') {
-      const c = g.S.cart;
+      const c = g.myCart();   // the guest ordering a haul means the guest's cart
       if (!c || !c.load.length) return no('Your cart is empty');
       return { act: 'haul', ok: true, text: 'Haul the cart to the bin', toast: 'Fetching the cart load.' };
     }
@@ -389,7 +389,7 @@ export class Crew {
       case 'dig': ran = this.order(b, it.dir, tgt.x, tgt.y, tgt.z); break;
       case 'home': this.sendHome(b); break;
       case 'follow': this.follow(b); break;
-      case 'haul': b.state = 'haulgo'; b.origin = null; b.trail = []; break;
+      case 'haul': b.state = 'haulgo'; b.haulKey = g.myCartKey(); b.origin = null; b.trail = []; break;
     }
     if (!ran) return { ok: false, act: null, msg: 'It could not do that' };
     if (!quiet) { g.sound.chirp(1.0 + Math.random() * 0.4); g.ui.toast({ icon: '🤖', title: b.name, text: it.toast, ms: 2500 }); }
@@ -486,27 +486,31 @@ export class Crew {
 
   // a full cart gets emptied by a free bot: it takes a load, walks it through the detector gate and sells it at the bin
   assignHaul(dt) {
-    const g = this.game, c = g.S.cart;
+    const g = this.game;
     this._haulT = (this._haulT || 0) - dt;
-    if (this._haulT > 0 || !c || !c.load.length) return;
-    this._haulT = 1.5;
-    const cap = CART_CAP[c.tier];
-    if (!c.load.length) { c.hauling = false; return; }
-    if (!c.hauling && c.load.length < cap * 0.9) return; // a full cart starts a haul, bots then keep hauling until it is empty
-    c.hauling = true;
-    const h = this.home();
-    if (Math.hypot(c.x - h.x, c.z - h.z) < 14) return; // near the bin the cart dumps itself
-    const busy = this.bots.some((b) => b.state === 'haulgo');
-    if (busy) return;
-    let best = null, bd = 60;
-    for (const b of this.bots) {
-      if (!['idle', 'follow'].includes(b.state) || b.carry.length > 0 || b.battery < 0.3) continue;
-      const d = Math.hypot(b.x - c.x, b.z - c.z);
-      if (d < bd) { bd = d; best = b; }
+    if (this._haulT > 0) return;
+    // the host's cart first, then the friend's: each is emptied by its own free bot
+    for (const key of ['cart', 'gcart']) {
+      const c = g.S[key];
+      if (!c || !c.load.length) continue;
+      this._haulT = 1.5;
+      const cap = CART_CAP[c.tier];
+      if (!c.hauling && c.load.length < cap * 0.9) continue; // a full cart starts a haul, bots then keep hauling until it is empty
+      c.hauling = true;
+      const h = this.home();
+      if (Math.hypot(c.x - h.x, c.z - h.z) < 14) continue; // near the bin the cart dumps itself
+      const busy = this.bots.some((b) => b.state === 'haulgo' && (b.haulKey || 'cart') === key);
+      if (busy) continue;
+      let best = null, bd = 60;
+      for (const b of this.bots) {
+        if (!['idle', 'follow'].includes(b.state) || b.carry.length > 0 || b.battery < 0.3) continue;
+        const d = Math.hypot(b.x - c.x, b.z - c.z);
+        if (d < bd) { bd = d; best = b; }
+      }
+      if (!best) continue;
+      best.state = 'haulgo'; best.haulKey = key; best.origin = null; best.trail = [];
+      g.ui.hint(`<b>${best.name}</b> is coming to haul ${key === 'cart' ? 'your' : "your friend's"} full cart to the bin.`, 4);
     }
-    if (!best) return;
-    best.state = 'haulgo'; best.origin = null; best.trail = [];
-    g.ui.hint(`<b>${best.name}</b> is coming to haul your full cart to the bin.`, 4);
   }
 
   update(dt, time) {
@@ -527,7 +531,7 @@ export class Crew {
     b.battery = clamp(b.battery, 0, 1);
     switch (b.state) {
       case 'haulgo': {
-        const c = g.S.cart;
+        const c = g.S[b.haulKey || 'cart'];
         if (!c || !c.load.length) { this.stand(b); break; }
         b.tx = c.x; b.tz = c.z;
         if (Math.hypot(c.x - b.x, c.z - b.z) < 1.7) {

@@ -3,6 +3,8 @@ import { ENERGY_KJ } from '../power.js';
 // Run in the browser: `await __selftest('upg.machine.')`
 import { fmt, compaction } from '../util.js';
 import { isUnlocked, defaultTuning } from '../upgrades.js';
+import { UPGRADES as CATALOG_UPGRADES } from '../catalog.js';
+const CATALOG_IDS = new Set(CATALOG_UPGRADES.map((u) => u.id));
 
 export default async function (ctx) {
   const { g, S, w, p, L, fresh, tune, T, tiles, UPGRADES, computeTuning, craft, selectTool, plan, placeNow, placeAtFloor, aimPoint, lookEast, newWorld, spot, cellX, cellZ, toI, toK, species, recipes, FRAME_TYPES } = ctx;
@@ -20,7 +22,7 @@ export default async function (ctx) {
   const withReq = (u, extra = {}) => { const up = { ...extra }; if (u.req) up[u.req.id] = Math.max(up[u.req.id] || 0, u.req.lvl); return up; };
 
   await T('upg.machine.catalog-costs-and-requirements-are-sane', async () => {
-    if (MU.length !== 28) return 'expected 28 machine upgrades, found ' + MU.length;
+    { const own = MU.filter((u) => !CATALOG_IDS.has(u.id)); if (own.length !== 61) return 'expected 61 machine upgrades, found ' + own.length; }   // 33, the 9 endgame perks counted among them, plus 28 added later (earth movers and top levels, see levels_machine.js); catalog_*.js parts are counted by their own tests
     for (const u of MU) {
       if (u.cost.length !== u.max) return `${u.id}: ${u.cost.length} costs for max ${u.max}`;
       for (let l = 0; l < u.max; l++) { if (!(u.cost[l] > 0) || !Number.isInteger(u.cost[l])) return `${u.id}: bad cost ${u.cost[l]} at ${l}`; if (l && u.cost[l] <= u.cost[l - 1]) return `${u.id}: cost not rising at level ${l + 1}`; }
@@ -180,13 +182,13 @@ export default async function (ctx) {
 
   await T('upg.machine.fuel-hoppers-capacity-per-level', async () => {
     for (let l = 0; l <= 3; l++) {
-      fresh({ power: 1, genBuffer: l }); const cap = [8, 16, 32, 64][l];
+      fresh({ power: 1, genBuffer: l }); const cap = [50, 100, 200, 400][l];
       if (g.T.genBuffer !== cap) return `L${l}: genBuffer ${g.T.genBuffer}`;
       const gen = mk('gen', I0(), 0, K0()); let n = 0;
-      while (L().accept(gen, { sp: spOf(0), vr: 0 }, null) && n < 200) n++;
+      while (L().accept(gen, { sp: spOf(0), vr: 0 }, null) && n < 500) n++;
       if (n !== cap) return `L${l}: belt-fed generator took ${n}, expected ${cap}`;
       if (L().accept(gen, { sp: spOf(5), vr: 0 }, null)) return 'generator took a Mythic';
-      gen.q.length = 0; S().carry = []; for (let q = 0; q < 100; q++) S().carry.push({ sp: spOf(1), vr: 0 });
+      gen.q.length = 0; S().carry = []; for (let q = 0; q < 450; q++) S().carry.push({ sp: spOf(1), vr: 0 });
       g.useTile(gen); if (gen.q.length !== cap) return `L${l}: hand-fed generator took ${gen.q.length}, expected ${cap}`;
       g.power.update(0.01); if (gen.fuelCap !== cap) return `L${l}: fuelCap ${gen.fuelCap}`;
     }
