@@ -688,12 +688,28 @@ export class Machines {
     e.steps = (e.steps || 0) + 1;
     game.fx.dust(cellX(nx) + e.dx * 0.8, e.j * C + 0.8, cellZ(nk) + e.dz * 0.8, 6, 0.8, 1);
     if (e.steps % 2 === 0) {
-      // concrete lining behind the cutter
-      const id = game.nextId();
-      const ent = { id, type: 'frame', kind: 'concrete', axis: e.dx !== 0 ? 'x' : 'z', cx: cellX(e.i - e.dx), cz: cellZ(e.k - e.dz), y0: e.j * C, w: e.w * C - 0.04, h: e.h * C - 0.02, auto: true };
-      if (e.w % 2 === 0) { if (e.dx !== 0) ent.cz += C / 2; else ent.cx += C / 2; }
-      game.S.entities.push(ent);
-      this.add(ent);
+      // lining behind the cutter: concrete where it holds, a stronger (paid) tier where the mountain presses too hard, and the borer
+      // stops when nothing it can use would hold, exactly as a player's supports would buckle
+      const mk = (kind) => { const ent = { id: game.nextId(), type: 'frame', kind, axis: e.dx !== 0 ? 'x' : 'z', cx: cellX(e.i - e.dx), cz: cellZ(e.k - e.dz), y0: e.j * C, w: e.w * C - 0.04, h: e.h * C - 0.02, auto: true }; if (e.w % 2 === 0) { if (e.dx !== 0) ent.cz += C / 2; else ent.cx += C / 2; } return ent; };
+      const order = Object.keys(FRAME_TYPES); const usable = order.filter((k) => k === 'concrete' || (T.frames.includes(k) && order.indexOf(k) > order.indexOf('concrete')));
+      let chosen = null, why = '';
+      for (const kind of usable) {
+        const ft = FRAME_TYPES[kind], cost = kind === 'concrete' ? 0 : ft.cost; if (game.S.money < cost) { why = `it needs ${ft.name} here and cannot afford it`; continue; }
+        const ent = mk(kind); const cap = capacityOf(kind);
+        if (isFinite(cap)) {
+          // weigh the new lining and the linings of the same kind around it with the new one in place: a dense line only holds if all of it holds
+          const hyp = { x: ent.cx, y: ent.y0 + ent.h / 2, z: ent.cz, r: ft.radius, kind, cap, id: ent.id };
+          w.supports.push(hyp); let worst = 0;
+          for (const q of w.supports) if (q.kind === kind && q.cap !== undefined && Math.hypot(q.x - hyp.x, q.z - hyp.z) < ft.radius * 2) worst = Math.max(worst, loadOn(w, q) / q.cap);
+          w.supports.pop();
+          if (worst > 1) { why = `${ft.name} would buckle under the mountain here`; continue; }
+        }
+        chosen = { ent, cost }; break;
+      }
+      if (!chosen) { e.done = true; game.ui.toast({ icon: '🚇', title: 'Borer stopped', text: `The mountain presses too hard: ${why || 'no lining it has would hold'}. Better supports, or a narrower bore.` }); return; }
+      if (chosen.cost) { game.S.money -= chosen.cost; game.ui.setMoney(game.S.money); }
+      game.S.entities.push(chosen.ent);
+      this.add(chosen.ent);
     }
     void eaten; void time;
   }

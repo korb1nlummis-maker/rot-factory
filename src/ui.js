@@ -173,7 +173,11 @@ export class UI {
   }
   setDanger(v) { $('vig').style.boxShadow = `inset 0 0 220px 40px rgba(255,60,30,${(v * 0.45).toFixed(3)})`; }
   hurt(v) { const h = $('hurt'); h.style.opacity = v; setTimeout(() => (h.style.opacity = 0), 60); }
-  setAssay(on, v) { $('assay').classList.toggle('hidden', !on); if (on) $('assayBar').style.transform = `scaleX(${Math.max(0.03, v).toFixed(3)})`; }
+  setAssay(on, v, ptr) {
+    $('assay').classList.toggle('hidden', !on); if (on) $('assayBar').style.transform = `scaleX(${Math.max(0.03, v).toFixed(3)})`;
+    const pe = $('assayPtr'); pe.classList.toggle('hidden', !on || !ptr);
+    if (on && ptr) { $('assayArrow').style.transform = `rotate(${ptr.rel.toFixed(0)}deg)`; $('assayTxt').textContent = ptr.text; }
+  }
   setPower(on, frac, txt) { const e = $('power'); e.classList.toggle('hidden', !on); if (on) { $('pwFill').style.width = (frac * 100).toFixed(0) + '%'; $('pwTxt').textContent = txt; } }
   setAir(on, dust, lung, txt) { const e = $('air'); e.classList.toggle('hidden', !on); if (on) { $('airFill').style.width = Math.min(100, dust * 100).toFixed(0) + '%'; $('lungFill').style.width = Math.min(100, lung * 100).toFixed(0) + '%'; $('airTxt').textContent = txt; } }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
@@ -211,6 +215,12 @@ export class UI {
     $('clockTxt').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     const st = $('clockState'); st.textContent = open ? 'OPEN' : 'CLOSED'; st.style.color = open ? '#7ef0c4' : '#ff8a7a';
   }
+  // the big morning card: DAY n, with a line under it
+  dayCard(n, sub) {
+    const c = $('dayCard'); $('dcDay').textContent = 'Day ' + n; $('dcSub').textContent = sub || '';
+    c.classList.remove('show'); void c.offsetWidth; c.classList.add('show');
+  }
+  setDay(n) { const e = $('clockDay'); if (e) e.textContent = 'DAY ' + n; }
   setDepth(txt) { $('depth').textContent = txt; }
   setTrap(on, secs, frac, pulse, dying) {
     const e = $('trap');

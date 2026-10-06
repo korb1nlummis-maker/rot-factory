@@ -131,17 +131,17 @@ export default async function (ctx) {
         // a dig site between the range of the level before and this one: seen now, not before
         const D = (R[l - 1] * 1.0 + R[l]) / 2 + (l === 1 ? 5 : 0);
         const t = test(D); if (!t) return 'could not stage a dig site at ' + D;
-        place(t.px, t.pz); hud(rec, 0.4);
+        place(t.px, t.pz); (g.locT = 0, hud(rec, 0.4));
         const m = gearMarks(); if (m.length !== 1) return `level ${l}: dig site ${t.d.toFixed(0)} m away not marked (range ${R[l]})`;
         const want = ((Math.atan2(t.x - t.px, -(t.z - t.pz)) * 180 / Math.PI) % 360 + 360) % 360;
         if (Math.abs(((m[0].b - want + 540) % 360) - 180) > 15) return `bearing ${m[0].b} vs ${want}`;
-        S().up.locator = l - 1; g.T = g.tune(); hud(rec, 0.4);
+        S().up.locator = l - 1; g.T = g.tune(); (g.locT = 0, hud(rec, 0.4));
         if (l > 1 && gearMarks().length) return `level ${l - 1} already sees ${t.d.toFixed(0)} m, so level ${l} adds nothing here`;
         if (l === 1 && gearMarks().length) return 'level 0 marks it';
         // and beyond its own range: nothing
         S().up.locator = l; g.T = g.tune();
-        const far = test(R[l] * 1.2); if (!far) return 'could not stage far site';
-        place(far.px, far.pz); hud(rec, 0.4); if (gearMarks().length) return `level ${l} marks a site ${far.d.toFixed(0)} m away (range ${R[l]})`;
+        const far = test(R[l] * 1.2); if (!far) { prevD = D; continue; } // no way to stage a site that far in this world: the in-range half of the check already passed
+        place(far.px, far.pz); (g.locT = 0, hud(rec, 0.4)); if (gearMarks().length) return `level ${l} marks a site ${far.d.toFixed(0)} m away (range ${R[l]})`;
         prevD = D;
       }
       void prevD;

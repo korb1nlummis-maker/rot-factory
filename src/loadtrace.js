@@ -9,6 +9,7 @@ import { FRAME_TYPES, STRUT_DEPTH } from './upgrades.js';
 export const BASE_LOAD = 2150;   // a frame is rated for a standard 4 wide tunnel (about 32 roof cells under 60 cells of pile) at its rated depth
 export const PRESS = 150;        // metres of depth that add 100% to the weight of the pile
 export const MAX_OVER = 64;      // cells of pile above a roof cell that still add weight
+export const MAX_SHARE = 2;     // however many supports stand around, a roof plush still presses at least half its weight on each of the two nearest
 export const WARN_AT = 0.85;
 
 export const pressure = (x, z) => 1 + Math.hypot(x, z) / PRESS;
@@ -39,7 +40,7 @@ export function loadOn(w, s, others = []) {
       const y = cellY(j);
       if (!inside(s, x, y, z)) continue;
       let n = 1; for (const o of near) if (inside(o, x, y, z)) n++;
-      load += (Math.min(MAX_OVER, Math.max(0, top - j - 1)) + 1) * pr / n;
+      load += (Math.min(MAX_OVER, Math.max(0, top - j - 1)) + 1) * pr / Math.min(MAX_SHARE, n);
     }
   }
   return load;

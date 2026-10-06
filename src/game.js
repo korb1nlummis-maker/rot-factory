@@ -22,6 +22,7 @@ import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
+import { playIntro } from './intro.js';
 import { capacityOf, loadOn, WARN_AT } from './loadtrace.js';
 import { UPGRADES, FRAME_TYPES, STRUT_DEPTH, supportDepth, betterThan, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
 import { Cart, CART_CAP, CART_NAMES, dims as cartDims } from './cart.js';
@@ -220,8 +221,14 @@ export class Game {
 
   // ======================= UI wiring =======================
   wireUI() {
-    const start = (isNew) => this.startPlay(isNew);
-    $('btnNew').onclick = () => { this.sound.init(); this.sound.resume(); start(true); };
+    // a new local game starts with the welcome and the hiring form; continuing, joining and hosting skip it
+    const startNew = async () => {
+      this.sound.init(); this.sound.resume();
+      const intro = await playIntro();
+      this.startPlay(true, undefined, () => { this.S.name = intro.name; intro.close(); this.ui.dayCard(1, `Employee: ${intro.name}`); this._dayShown = 1; });
+    };
+    const start = (isNew) => (isNew ? startNew() : this.startPlay(isNew));
+    $('btnNew').onclick = () => { start(true); };
     $('btnContinue').onclick = () => { this.sound.init(); this.sound.resume(); start(false); };
     $('btnResume').onclick = () => this.ui.closeModals();
     $('btnSave').onclick = () => { const ok = this.save(); this.ui.toast(ok ? { icon: '💾', title: 'Saved', text: 'Your shift is safe.' } : { icon: '⚠️', title: 'Save failed', text: 'Browser storage is full.' }); };
@@ -1705,6 +1712,13 @@ export class Game {
 
   // ======================= the working day =======================
   // 1 game minute = 2 real seconds. The hall is lit from 07:00 to 19:00. At closing there is a chime and then it is dark.
+  dayNumber() { return Math.floor((this.S.gameMin || 0) / 1440) + 1; }
+  dayLine(n) {
+    const special = { 2: 'Still here.', 3: 'You are getting the hang of it.', 5: 'A full work week, nearly.', 7: 'One week on the job.', 10: 'Ten days. The pile has not noticed.', 14: 'Two weeks. Management has forgotten your name.', 30: 'A month in the warehouse.', 50: 'Fifty days. You know the sounds now.', 100: 'One hundred days. Nobody remembers who hired you.' };
+    if (special[n]) return special[n];
+    const pool = ['The lights are back on.', 'Another shift.', 'The bin is hungry.', 'Mind the pile.', 'Good morning, Warehouse 07.', 'Same mountain, new day.', 'Your lamp can rest.'];
+    return pool[n % pool.length];
+  }
   dayMinute() { return ((7 * 60 + (this.S.gameMin || 0)) % 1440 + 1440) % 1440; }
   isOpen() { const m = this.dayMinute(); return m >= 420 && m < 1140; }
 
@@ -1718,6 +1732,7 @@ export class Game {
       if (open) {
         this.sound.dingDong(true);
         this.ui.toast({ icon: '🌅', title: 'Warehouse open', text: 'Morning shift. The lights come back on.', ms: 6000 });
+        { const dn = this.dayNumber(); if (dn !== this._dayShown) { this._dayShown = dn; this.ui.dayCard(dn, this.dayLine(dn)); } }
         this._shift = { earn: this.S.totalEarned || 0, plush: this.S.stats.plush || 0, dug: this.S.stats.cells || 0, deaths: this.S.stats.deaths || 0 };
       } else {
         this.sound.dingDong(false);
@@ -1739,7 +1754,7 @@ export class Game {
     this.lightLevel += (target - this.lightLevel) * k;
     if (Math.abs(this.hall.level - this.lightLevel) > 0.004) this.hall.setLevel(this.lightLevel);
     this._clkT = (this._clkT || 0) - dt;
-    if (this._clkT <= 0) { this._clkT = 0.5; this.ui.setClock(this.dayMinute(), open, this.S.gear && this.S.gear.helmet > 0); }
+    if (this._clkT <= 0) { this._clkT = 0.5; this.ui.setClock(this.dayMinute(), open, this.S.gear && this.S.gear.helmet > 0); this.ui.setDay(this.dayNumber()); }
   }
 
   // ======================= golden hour =======================
@@ -3055,7 +3070,16 @@ export class Game {
       let v = 0;
       const ci = toI(p.pos.x), cj = toJ(p.pos.y + 1), ck = toK(p.pos.z);
       for (const [a, b, c] of [[0, 0, 0], [4, 0, 0], [-4, 0, 0], [0, 0, 4], [0, 0, -4], [0, 3, 0]]) v = Math.max(v, w.veinAt(ci + a, cj + b, ck + c));
-      this.ui.setAssay(true, Math.min(1, Math.max(0, (v - 0.55) / 0.4)));
+      let ptr = null;
+      if (T.assayLvl >= 2) {
+        if (!(this._veinNext > this.time)) { this._veinNext = this.time + 1; this._vein = w.nearestVein(p.pos.x, p.pos.y + 1, p.pos.z, T.assayRange); }
+        const vn = this._vein;
+        if (vn) {
+          const rel = (p.yaw - Math.atan2(vn.x - p.pos.x, vn.z - p.pos.z)) * 180 / Math.PI - 90; const dy = vn.y - (p.pos.y + 1);
+          ptr = { rel, text: `${Math.round(Math.hypot(vn.x - p.pos.x, vn.z - p.pos.z))} m` + (T.assayLvl >= 3 && Math.abs(dy) > 1.5 ? (dy > 0 ? `  ▲ ${Math.round(dy)}` : `  ▼ ${Math.round(-dy)}`) : '') };
+        } else ptr = { rel: -90, text: 'no vein in range' };
+      }
+      this.ui.setAssay(true, Math.min(1, Math.max(0, (v - 0.55) / 0.4)), ptr);
     } else this.ui.setAssay(false, 0);
     // needle scanner
     const np = this.needlePos();

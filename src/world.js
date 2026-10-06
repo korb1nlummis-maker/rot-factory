@@ -9,6 +9,7 @@ const COLSZ = 256 * NY;
 // an anchor is the open mouth of the cavity (no roof over it), or ground held by a frame, prop, strut, jack or bulkhead.
 // SAFE_LEN shrinks the heavier the pile above (overburden) and the further from the bay (denser plush), and grows with
 // Pile Tamping. Past that length the unsupported roof creaks, then comes down. Nothing else collapses a tunnel.
+export const VEIN_T = 0.8;      // veinAt above this is a rich vein
 export const SAFE_LEN = 12;     // cells (7.2 m) of tunnel you can dig unsupported near the surface
 export const OB = 14;           // every 14 cells of plush above the roof costs one cell of safe length
 export const MIN_SAFE = 3;      // never less than 1.8 m
@@ -71,6 +72,22 @@ export class World {
 
   // rich veins: drifting blobs ~10 m across where rarer plush gather
   veinAt(i, j, k) { return vnoise2(i / 16 + j / 23, k / 16 - j / 19, this.seed + 99); }
+  // the closest rich vein (veinAt above VEIN_T) to a spot, looking at the heights around j; null if none within `range` metres
+  nearestVein(x, y, z, range) {
+    const ci = toI(x), ck = toK(z), cj = toJ(y), R = Math.ceil(range / C), step = 3;
+    let best = null, bd = 1e9;
+    for (const dj of [0, -8, 8]) {
+      const j = cj + dj; if (j < 1 || j > NY - 2) continue;
+      for (let dk = -R; dk <= R; dk += step) for (let di = -R; di <= R; di += step) {
+        const d2 = di * di + dk * dk; if (d2 > R * R || d2 >= bd) continue;
+        const i = ci + di, k = ck + dk; if (!this.inside(i, j, k)) continue;
+        if (this.veinAt(i, j, k) > VEIN_T) { bd = d2 + dj * dj * 0.25; best = { i, j, k }; }
+      }
+    }
+    if (!best) return null;
+    const bx = cellX(best.i), by = cellY(best.j), bz = cellZ(best.k);
+    return { x: bx, y: by, z: bz, d: Math.hypot(bx - x, by - y, bz - z) };
+  }
 
   colKey(cx, cz) { return cz * NCX + cx; }
 
@@ -89,7 +106,7 @@ export class World {
           const h1 = h32(i, j, k, sd);
           const h2 = Math.imul(h1, 0x9e3779b1) ^ (h1 >>> 15);
           const b = (j * 16 + lk) * 16 + li;
-          col.sp[b] = pickSpecies(h1 >>> 4, h2 >>> 0, this.veinAt(i, j, k) > 0.8);
+          col.sp[b] = pickSpecies(h1 >>> 4, h2 >>> 0, this.veinAt(i, j, k) > VEIN_T);
           col.vr[b] = ((h1 >>> 1) & 127) | ((h2 >>> 0) % 140 === 0 ? 128 : 0);
         }
       }

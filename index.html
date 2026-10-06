@@ -15,14 +15,14 @@
   <div id="topleft">
     <div class="logo-mini">ROT<span>FACTORY</span></div>
     <div id="money"><span class="coin">◈</span><b id="moneyVal">0</b><i id="moneyDelta"></i></div>
-    <div id="assay" class="hidden"><span>VEIN ASSAY</span><div class="bar"><i id="assayBar"></i></div></div>
+    <div id="assay" class="hidden"><span>VEIN ASSAY</span><div class="bar"><i id="assayBar"></i></div><div id="assayPtr" class="hidden"><b id="assayArrow">➤</b> <em id="assayTxt"></em></div></div>
     <div id="streak" class="hidden"><span id="streakVal">x1</span><div class="bar"><i id="streakBar"></i></div></div>
   </div>
   <div id="topcenter">
     <div id="compass" class="hidden"><canvas id="compassCv" width="560" height="64"></canvas><div id="compassTxt"></div></div>
     <div id="depth"></div>
   </div>
-  <div id="topright"><div id="clock" class="hidden"><canvas id="clockCv" width="168" height="92"></canvas><div class="clock-row"><b id="clockTxt">07:00</b><span id="clockState">OPEN</span></div></div><div id="toasts"></div></div>
+  <div id="topright"><div id="clock" class="hidden"><canvas id="clockCv" width="168" height="92"></canvas><div id="clockDay"></div><div class="clock-row"><b id="clockTxt">07:00</b><span id="clockState">OPEN</span></div></div><div id="toasts"></div></div>
   <div id="brim"></div>
 
   <div id="center">
@@ -48,6 +48,7 @@
   <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Tap F or left click on the plush around you, or punch with R.</span></div>
   <div id="vig"></div>
   <div id="blackout"></div>
+  <div id="dayCard"><div class="dc-day" id="dcDay">DAY 1</div><div class="dc-sub" id="dcSub"></div></div>
   <div id="trap" class="hidden"><div id="trapVig"></div><div id="trapBox"><span id="trapLabel">AIR</span><b id="trapNum">60</b><i>punch: R or right click, hold Space to punch up</i></div></div>
   <div id="vitals"><div id="hpBar" class="vbar"><label>HEALTH</label><div><i id="hpFill"></i></div></div><div id="airBar" class="vbar hidden"><label>AIR</label><div><i id="airFill2"></i></div></div><i id="lungBar" style="display:none"></i></div>
   <div id="hurt"></div>

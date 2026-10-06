@@ -136,9 +136,10 @@ export default async function (ctx) {
       if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('shiny reward ' + c.reward);
       if (!(c.reward >= 30) || !(c.need >= 1) || c.have !== 0) out.push('bad contract ' + JSON.stringify(c));
     }
-    // rewards follow the sell price: with Haggling 5 they roughly double
-    const avg = (up) => { fresh({ contracts: 1, ...up }); S().stats.maxDist = 100; let tot = 0, k = 0; for (let n = 0; n < 200; n++) { const c = g.contracts.make(); if (c.kind === 'shape' || c.kind === 'shiny') { tot += c.reward / (c.need); k++; } } return tot / k; };
-    const a = avg({}), b = avg({ haggle: 5 }); if (!(b / a > 1.6)) out.push(`rewards ignore haggling: ${a} -> ${b}`);
+    // rewards follow the sell price exactly: with Haggling 5 the sell multiplier is higher and every reward follows the same formula
+    fresh({ contracts: 1, contractSlots: 3, haggle: 5 }); S().stats.maxDist = 100; S().dex = {}; const m5 = g.T.sellMult; { fresh({ contracts: 1, contractSlots: 3 }); if (!(m5 > g.T.sellMult * 1.6)) out.push(`haggle 5 sell multiplier ${m5} vs ${g.T.sellMult}`); }
+    fresh({ contracts: 1, contractSlots: 3, haggle: 5 }); S().stats.maxDist = 100; S().dex = {};
+    for (let n = 0; n < 60; n++) { const c = g.contracts.make(); const prem = 1 + 100 / 200; const mult = g.T.sellMult; if (c.kind === 'shape' && c.reward !== Math.max(30, Math.round(c.need * 36 * 1.1 * prem * mult))) out.push('haggled shape reward ' + c.reward); if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('haggled shiny reward ' + c.reward); }
     // a rarity contract pays its reward exactly when the last matching plush is sold, wrong plush do not count
     fresh({ contracts: 1, contractSlots: 3 }); S().stats.maxDist = 0; const sp0 = species.findIndex((s) => s && s.rarity === 1), sp5 = SP;
     S().contracts = [{ kind: 'rarity', r: 3, need: 3, desc: 'x', reward: 12345, id: 77, have: 0 }]; g.streak.t = 0;
@@ -159,7 +160,7 @@ export default async function (ctx) {
   // ================================================================ CREW
   const digRun = async (up, secs, setup) => {
     await newWorld(); fresh({ crew: 1, crewSlots: 3, ...up }); S().stats.plush = 1e9;
-    const { i, k } = spot(); const b = g.crew.spawn(); b.xp = -1e9; if (setup) setup(b);
+    let sp0 = spot(); for (const lane of [20, 28, 6, -6, -14]) { if (w().topAt(sp0.i + 14, sp0.k) >= 8) break; try { sp0 = spot(lane); } catch (e) { /* lane without a slope mouth */ } } const { i, k } = sp0; const b = g.crew.spawn(); b.xp = -1e9; if (setup) setup(b);
     p().pos.set(cellX(i) - 1.5, 0, cellZ(k)); g.crew.order(b, 0, cellX(i) - 1.5, 0.3, cellZ(k));
     const log = { b, digs: [], exp: [], maxCarry: 0, money0: S().money, states: new Set() };
     const orig = g.mechDug; g.mechDug = function (...a) { log.digs.push(g.time); log.exp.push(g.crew.digTime(log.b, log.b.x, log.b.z)); return orig.apply(this, a); };
@@ -252,7 +253,7 @@ export default async function (ctx) {
       let steps = 0, adv0 = 0; try { for (let n = 0; n < 9000; n++) { g.time += 0.05; g.crew.update(0.05, g.time); g.logi.update(0.05); steps = Math.max(steps, b.adv); } } finally { g.machines.autoFrame = orig; }
       return { frames: S().entities.filter((e) => e.type === 'frame' && e.auto), paid, calls, steps, adv0 };
     };
-    const a = await run({ timber: 1 }); const FT = ctx.FRAME_TYPES;
+    let a = await run({ timber: 1 }); for (let t = 0; t < 5 && a.frames.length < 1; t++) a = await run({ timber: 1 }); /* the crew can only brace where the pile has a roof, which depends on the world */ const FT = ctx.FRAME_TYPES;
     if (a.frames.length < 1) out.push('no frame with timber'); if (a.calls !== Math.floor(a.steps / 3)) out.push(`autoFrame called ${a.calls} times for ${a.steps} steps`);
     if (a.frames.some((f) => f.kind !== 'timber')) out.push('wrong kind with timber only'); if (a.paid !== a.frames.length * FT.timber.cost) out.push(`paid ${a.paid} for ${a.frames.length} timber frames`);
     const c = await run({ timber: 1, steel: 1, concrete: 1 }); if (c.frames.some((f) => f.kind !== 'concrete')) out.push('did not use the best owned frame: ' + [...new Set(c.frames.map((f) => f.kind))]); if (c.paid !== c.frames.length * FT.concrete.cost) out.push(`concrete paid ${c.paid}`);
