@@ -16,9 +16,12 @@ export const pressure = (x, z) => 1 + Math.hypot(x, z) / PRESS;
 const press = (d) => 1 + d / PRESS;
 
 // capacity in load units. Derived from the depth rating so the two always agree.
+// Measured: the load a lone frame carries in a standard 4 wide tunnel (2r/0.6 cells long) at exactly its rated depth, under the full pile.
+// Dividing by it makes every tier hit 100% at its rating, so "rated to N m, breaks past it" is true for all of them.
+const CAL = { timber: 0.82, steel: 0.92, concrete: 0.98, rebar: 0.98, titan: 0.98, carbon: 0.99, plasma: 0.99, voidl: 0.99, neutron: 0.99 };
 export function capacityOf(kind) {
-  if (FRAME_TYPES[kind]) { const f = FRAME_TYPES[kind]; return isFinite(f.maxDepth) ? BASE_LOAD * (f.radius / 2.5) * press(f.maxDepth) : Infinity; } // a longer reach carries the roof of a longer stretch of tunnel
-  if (kind === 'jack') return 800 * press(STRUT_DEPTH.jack);
+  if (FRAME_TYPES[kind]) { const f = FRAME_TYPES[kind]; return isFinite(f.maxDepth) ? BASE_LOAD * (f.radius / 2.5) * press(f.maxDepth) * (CAL[kind] ?? 0.99) : Infinity; } // a longer reach carries the roof of a longer stretch of tunnel
+  if (kind === 'jack') return 2000 * press(STRUT_DEPTH.jack);   // a jack reaches 2.7 m (a strut 1.9): it must carry more than a strut wherever both can be set
   return 480 * press(STRUT_DEPTH.strut);
 }
 

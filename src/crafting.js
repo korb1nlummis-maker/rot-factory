@@ -4,6 +4,7 @@ import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
   frame: 'A 4x4 square (2.4 m) section. Aim at the floor, press B: it carves out its section and anchors the roof around it. Aim next to a frame and it snaps on any side (in line, beside, above, below) to build tunnels, junctions and chambers. The hammer takes it back.',
+  rope: 'Take it out and aim at the pile where you want to climb, press B. Within 6 m of it the footing holds and your steps barely loosen the slope. Plant one every few steps going up.',
   mfan: 'Take it out and aim at any frame (even one you turned): it clamps under the top beam and blows the way you are facing. One per frame. It needs power, like a Vent Fan: a pole or a generator in reach.',
   marker: 'Aim at the floor and press B. It shows on your compass so you can find your way back.',
   glow: 'Aim and press B. A soft green light for 10 minutes, no power needed.',
@@ -18,6 +19,7 @@ const USE = {
   ramp: 'Like a belt, but it climbs or drops one step. R flips up or down while you hold it.',
   splitter: 'Aim at a belt (it converts it) or the floor and press B. Plush arriving from behind leave forward, left and right in turn: feed several sorters, vaults or lines from one belt. Outputs that are full or missing are skipped.',
   gate: 'Aim at a belt (it converts it) or the floor and press B. Everything that passes is scanned. Not within a bin\'s pull. Walk through it to scan your bag.',
+  charger: 'Place it, then press E on it with plush in your hands (or throw plush in, or belt it in). Common 0.34, Uncommon 0.7, Rare 1.5 and Epic 4 of a bot battery each, up to 8. A bot that runs low walks to the nearest charger with charge instead of all the way home. Needs no power. Aim at a bot, press E, then E on a charger to send it there.',
   gen: 'Place it, then press E on it with plush in your hands to feed it fuel (or belt plush in). Powers machines through poles.',
   pole: 'Place it near generators and machines to link the grid.',
   fan: 'Place it in a dusty tunnel. Needs power. Clears dust within about 14 m.',
@@ -83,10 +85,12 @@ export function recipes(g) {
   }
   if (T.machines.includes('splitter')) list.push({ id: 'splitter', kind: 'splitter', icon: '🔱', name: 'Belt Splitter', short: 'Splitter', desc: 'Sends plush forward, left and right in turn.', price: 30, batch: [1, 3, 5] });
   if (T.machines.includes('gate')) list.push({ id: 'gate', kind: 'gate', icon: '🚨', name: 'Detector Gate', short: 'Gate', desc: 'Set it over a belt (or on bare floor). Scans everything passing through. Red alarm and a held item if it is The One. Crew bots check in at the nearest gate before unloading.', price: 25, batch: [1, 3, 5] });
-  if (T.machines.includes('gen')) list.push({ id: 'gen', kind: 'gen', icon: '🔥', name: 'Generator', short: 'Generator', desc: 'Burns Common to Rare plush for power.', price: g.genCost(), batch: [1, 2, 5] });
+  if (T.machines.includes('gen')) list.push({ id: 'gen', kind: 'gen', icon: '🔥', name: 'Generator', short: 'Generator', desc: 'Burns Common to Epic plush for power: at 8 kW a Common lasts 1.5 minutes, an Uncommon 4, a Rare 10 and an Epic 25 (turbine upgrades burn them faster). Hold it plush with E or throw plush into it.', price: g.genCost(), batch: [1, 2, 5] });
+  if (T.machines.includes('charger')) list.push({ id: 'charger', kind: 'charger', icon: '🔋', name: 'Charging Station', short: 'Charger', desc: 'Bots recharge here instead of walking home. Feed it Common to Epic plush: a Common gives 0.34 of a bot battery, an Uncommon 0.7, a Rare 1.5 and an Epic 4 (holds 8). Needs no power.', price: g.chargerCost(), batch: [1, 2, 3] });
   if (T.machines.includes('pole')) list.push({ id: 'pole', kind: 'pole', icon: '⚡', name: 'Power Pole', short: 'Pole', desc: 'Links generators and feeds machines nearby.', price: 20, batch: [1, 5, 10] });
   if (T.machines.includes('fan')) list.push({ id: 'fan', kind: 'fan', icon: '🌬️', name: 'Vent Fan', short: 'Fan', desc: 'Clears dust within 14 m when powered.', price: 240, batch: [1, 2, 5] });
-  if (T.machines.includes('mfan')) list.push({ id: 'mfan', kind: 'mfan', icon: '🌀', name: 'Support Fan', short: 'S.Fan', desc: 'Clamps under a frame and blows fresh air the way you face, clearing dust 20 m down the tunnel. Needs power.', price: 150, batch: [1, 2, 5] });
+  if (T.rope) list.push({ id: 'rope', kind: 'rope', icon: '🪢', name: 'Rope Anchor', short: 'Rope', desc: 'A stake and a rope. Everything within 6 m is roped in: the slope will not give way under you.', price: 45, batch: [1, 3, 5] });
+  if (T.machines.includes('mfan')) list.push({ id: 'mfan', kind: 'mfan', icon: '🌀', name: 'Support Fan', short: 'S.Fan', desc: 'Clamps under a frame and blows fresh air the way you face, 20 m down the tunnel. Deep tunnels go stale: past 375 m you need one every 0.25 x 20 / stale(d) metres (about 13 m at 500 m deep, 5 m at 1,000 m). Needs power.', price: 150, batch: [1, 2, 5] });
   if (T.machines.includes('sorter')) list.push({ id: 'sorter', kind: 'sorter', icon: '🗃️', name: 'Sorting Box', short: 'Sorter', desc: 'Sells or passes plush by rarity. Sucks in what you carry.', price: g.sorterCost(), batch: [1, 2, 5] });
   if (T.machines.includes('vault')) list.push({ id: 'vault', kind: 'vault', icon: '🧰', name: 'Vault Crate', short: 'Vault', desc: 'Stores plush at the end of a line.', price: 140, batch: [1, 2, 5] });
   if (T.machines.includes('mech')) list.push({ id: 'mech', kind: 'mech', icon: '🤖', name: 'Mech Scooper', short: 'Mech', desc: 'Digs the face ahead and loads the belt behind it.', price: g.mechCost(), batch: [1, 2, 3] });

@@ -91,7 +91,7 @@ export function applyDiff(world, d) {
 export function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
 
 // One-time fresh start for every player. Bump WIPE_TOKEN to wipe all saved games again on the next load.
-const WIPE_TOKEN = 'fresh-start-2026-10-07';
+const WIPE_TOKEN = 'fresh-start-2026-10-08';
 try {
   if (localStorage.getItem('rotfactory.wipe') !== WIPE_TOKEN) { localStorage.removeItem(SAVE_KEY); localStorage.setItem('rotfactory.wipe', WIPE_TOKEN); }
 } catch (e) { /* storage unavailable */ }

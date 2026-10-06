@@ -1,7 +1,8 @@
+import { escHtml } from './util.js';
 import { CATS, UPGRADES, GEAR, isUnlocked, needsText } from './upgrades.js';
 import { STATUS } from './crew.js';
 import { ACHIEVEMENTS } from './achievements.js';
-import { RARITY, species, speciesCount, NEEDLE, DECOYS } from './plushdata.js';
+import { RARITY, species, speciesCount, NEEDLE, DECOYS, SPECIAL_MIN } from './plushdata.js';
 import { speciesIcon, needleFrames } from './icons.js';
 import { fmt } from './util.js';
 import { describeBoosts } from './remains.js';
@@ -246,6 +247,23 @@ export class UI {
     const w = $('lungWarn'), v = $('lungVig'); w.classList.toggle('hidden', stage === 0); w.classList.remove('s1', 's2', 's3'); if (stage) w.classList.add('s' + stage);
     $('lungStage').textContent = label; $('lungEta').textContent = eta; v.style.opacity = vig.toFixed(3); v.classList.toggle('red', !!red);
   }
+  setSurvey(on, d) {
+    $('survey').classList.toggle('hidden', !on); if (!on) return;
+    $('svDepth').textContent = d.depth; $('svBest').textContent = d.best; $('svPress').textContent = d.press; $('svAir').textContent = d.air || '';
+    const l = $('svLoad'); l.textContent = d.load; l.className = d.cls || '';
+  }
+  // a small readout for whatever machine you are aiming at
+  setTileInfo(on, title = '', lines = [], good = false) {
+    const e = $('tileInfo'); e.classList.toggle('hidden', !on); if (!on) return;
+    e.classList.toggle('lit', !!good); $('tiTitle').textContent = title; $('tiLines').innerHTML = lines.map((l) => `<div>${escHtml(l)}</div>`).join('');
+  }
+  // the panel for the bot you have picked: what it is, what it is doing, and what the next E will do for what you aim at
+  setBotInfo(on, d) {
+    const e = $('botInfo'); if (!e) return;
+    e.classList.toggle('hidden', !on); if (!on) return;
+    $('biTitle').textContent = d.title; $('biLines').innerHTML = d.lines.map((l) => `<div>${escHtml(l)}</div>`).join('');
+    const a = $('biAct'); a.textContent = d.act; a.classList.toggle('bad', !d.ok);
+  }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
     const c = $('compass');
@@ -401,7 +419,7 @@ export class UI {
   renderDex() {
     const g = this.game;
     const grid = $('dexGrid');
-    $('dexCount').textContent = Object.keys(g.S.dex).filter((k) => +k < 990).length;
+    $('dexCount').textContent = Object.keys(g.S.dex).filter((k) => +k < SPECIAL_MIN).length;
     $('dexTotal').textContent = speciesCount;
     grid.innerHTML = '';
     const frag = document.createDocumentFragment();
@@ -434,21 +452,44 @@ export class UI {
   renderCrew() {
     const g = this.game, box = $('crewList');
     const bots = g.S.crew || [];
-    $('crewCount').textContent = `${bots.length} / ${g.T.crewMax}`;
+    $('crewCount').textContent = `${bots.length} / ${g.T.crewMax} bots`;
     box.innerHTML = '';
     if (!bots.length) { box.innerHTML = '<div class="jcard">No crew yet. Buy a Scrapper Bot in the Crew tab of the terminal.</div>'; return; }
+    const hasChg = [...g.logi.tiles.values()].some((t) => t.type === 'charger'), hasGen = [...g.logi.tiles.values()].some((t) => t.type === 'gen');
     for (const b of bots) {
       const need = g.crew.xpNeeded(b);
       const el = document.createElement('div');
-      el.className = 'crew-row';
-      el.innerHTML = `<div class="crew-head"><b>${b.name}</b><span>Lv ${b.level}</span><em>${STATUS[b.state] || b.state}</em></div>
-        <div class="bar" style="height:5px"><i style="width:${Math.min(100, (b.xp / need) * 100)}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div>
-        <div class="crew-stats">Load ${b.carry.length}/${g.crew.capacity(b)} · Battery ${Math.round(b.battery * 100)}% · ${Math.round(Math.hypot(b.x, b.z))} m out</div>
+      el.className = 'crew-row'; el.dataset.bot = b.id;
+      el.innerHTML = `<div class="crew-head"><b>${escHtml(b.name)}</b><span>Level ${b.level}</span><em>${escHtml(STATUS[b.state] || b.state)}</em></div>
+        <div class="crew-status" data-live="status"></div>
+        <div class="crew-bat" title="Battery. Below 25% the bot looks for a Charging Station."><span>Battery</span><div class="bar crew-batbar"><i data-live="bat"></i></div><b data-live="batpct"></b></div>
+        <div class="bar" style="height:5px" title="Experience to the next level"><i style="width:${Math.min(100, (b.xp / need) * 100)}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div>
+        <div class="crew-lbl">Orders</div>
         <div class="crew-btns">
-          <button data-d="3">▲ N</button><button data-d="0">▶ E</button><button data-d="1">▼ S</button><button data-d="2">◀ W</button>
-          <button data-a="follow">Follow me</button><button data-a="home">Home</button><button data-a="stay">Stay</button></div>`;
-      for (const btn of el.querySelectorAll('button')) btn.onclick = () => { g.crewCommand(b, btn.dataset); this.renderCrew(); };
+          <button data-a="follow" title="The bot walks with you and drops any dig order.">Follow me</button>
+          <button data-a="stay" title="The bot stops what it is doing and waits near the bin.">Stay at the bin</button>
+          <button data-a="home" title="The bot walks home along its trail, unloads at the bin and waits there.">Go home and unload</button>
+          ${hasChg ? '<button data-a="charge" title="Send the bot to the nearest Charging Station that has charge, then it carries on.">Recharge now</button>' : ''}
+          ${hasGen ? '<button data-a="fuel" title="The bot digs at the pile face nearest the generator and feeds it Common to Epic plush.">Keep generator fuelled</button>' : ''}
+        </div>
+        <div class="crew-lbl">Dig from where you aim (or stand if you aim at nothing)</div>
+        <div class="crew-btns">
+          <button data-d="3" title="Dig north from the spot you aim at, or from where you stand.">Dig north</button><button data-d="0" title="Dig east from the spot you aim at, or from where you stand.">Dig east</button><button data-d="1" title="Dig south from the spot you aim at, or from where you stand.">Dig south</button><button data-d="2" title="Dig west from the spot you aim at, or from where you stand.">Dig west</button>
+        </div>`;
+      for (const btn of el.querySelectorAll('button')) btn.onclick = () => { g.crewCommand(b, btn.dataset); this.updateCrewLive(); };
       box.appendChild(el);
+    }
+    this.updateCrewLive();
+  }
+  // refresh the status sentence and the battery bar of every row without rebuilding the buttons
+  updateCrewLive() {
+    const g = this.game;
+    for (const el of document.querySelectorAll('#crewList .crew-row')) {
+      const b = (g.S.crew || []).find((x) => x.id === +el.dataset.bot); if (!b) continue;
+      const pct = Math.round(b.battery * 100), low = b.battery < 0.25;
+      el.querySelector('[data-live=status]').textContent = g.crew.statusLine(b);
+      const i = el.querySelector('[data-live=bat]'); i.style.width = pct + '%'; i.style.background = low ? '#ff6a4a' : b.battery < 0.5 ? '#ffc247' : '#7ef0c4';
+      const t = el.querySelector('[data-live=batpct]'); t.textContent = pct + '%' + (low ? ' LOW' : ''); t.classList.toggle('low', low);
     }
   }
 
@@ -505,7 +546,7 @@ export class UI {
       ['Fluff earned', fmt(S.totalEarned)], ['Tunnel dug', (s.cells * 0.1).toFixed(0) + ' m'],
       ['Collapses', s.collapses], ['Times buried', s.buried],
       ['Frames placed', s.props], ['Best streak', 'x' + s.bestStreak],
-      ['Species found', Object.keys(S.dex).filter((k) => +k < 990).length + ' / ' + speciesCount],
+      ['Species found', Object.keys(S.dex).filter((k) => +k < SPECIAL_MIN).length + ' / ' + speciesCount],
       ['Deepest', s.maxDepth.toFixed(1) + ' m'], ['Distance walked', fmt(s.walked) + ' m'],
     ];
   }

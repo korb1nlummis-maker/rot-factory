@@ -9,17 +9,17 @@ export default async function (ctx) {
   });
   await T('dust.support-fan-clamps-to-the-frame-you-aim-at-and-blows-the-way-you-face', async () => {
     fresh(up); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const f = frameAt(i + 6, k + 1, Math.PI / 2); craft('mfan', 2); selectTool('mfan');
-    p().pos.set(cellX(i + 1), 0, cellZ(k + 1)); p().vel.set(0, 0, 0); p().yaw = Math.PI / 2; p().pitch = 0.1; aimPoint(f.cx, f.y0 + f.h - 0.42, f.cz, 4.0); let pl = await plan(); if (!pl.ok) return pl.why;
+    p().pos.set(cellX(i + 1), 0, cellZ(k + 1)); p().vel.set(0, 0, 0); p().yaw = Math.PI / 2; p().pitch = 0.1; aimPoint(f.cx, f.y0 + f.h - 0.3, f.cz, 4.0); let pl = await plan(); if (!pl.ok) return pl.why;
     if (!(pl.ent.fx > 0.9 && Math.abs(pl.ent.fz) < 0.1)) return `facing +x should blow +x: ${pl.ent.fx.toFixed(2)},${pl.ent.fz.toFixed(2)}`;
-    if (Math.abs(pl.ent.py - (f.y0 + f.h - 0.42)) > 1e-6 || Math.abs(pl.ent.px - f.cx) > 1e-6) return 'fan not under the top beam';
+    if (Math.abs(pl.ent.py - (f.y0 + f.h - 0.3)) > 1e-6 || Math.abs(pl.ent.px - f.cx) > 1e-6) return 'fan not under the top beam';
     const n = placeNow(); if (n !== 1) return 'not placed'; const tile = [...g.logi.tiles.values()].find((t) => t.mounted); if (!tile || tile.frameId !== f.id) return 'tile missing or not tied to the frame';
     const second = await plan(); if (second.ok) return 'a second fan on the same frame was allowed';
     // the other way: stand on the far side, face back along the tunnel, and a new frame's fan blows -x
-    const f2 = frameAt(i + 9, k + 1, Math.PI / 2); aimPoint(f2.cx, f2.y0 + f2.h - 0.42, f2.cz, -4.0); p().yaw = -Math.PI / 2; const back = await plan();
+    const f2 = frameAt(i + 9, k + 1, Math.PI / 2); aimPoint(f2.cx, f2.y0 + f2.h - 0.3, f2.cz, -4.0); p().yaw = -Math.PI / 2; const back = await plan();
     return (back.ok && back.ent.fx < -0.9) || 'blowing back: ' + JSON.stringify(back.ok ? back.ent.fx : back.why);
   });
   await T('dust.support-fan-clears-dust-in-front-of-it-faster-than-behind', async () => {
-    fresh(up); const { i, k } = spot(); dig(i, k - 1, 40, 5, 4, false); const f = frameAt(i + 20, k + 1, Math.PI / 2); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 15), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.42, f.cz, 3.0); const pl = await plan(); if (!pl.ok) return pl.why; placeNow();
+    fresh(up); const { i, k } = spot(); dig(i, k - 1, 40, 5, 4, false); const f = frameAt(i + 20, k + 1, Math.PI / 2); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 15), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.3, f.cz, 3.0); const pl = await plan(); if (!pl.ok) return pl.why; placeNow();
     const t = [...g.logi.tiles.values()].find((q) => q.mounted); t.pw = 1; g.dust.cells.clear(); const y = 1.2;
     g.dust.add(f.cx + 9, y, f.cz, 1.0); g.dust.add(f.cx - 9, y, f.cz, 1.0); const a0 = g.dust.at(f.cx + 9, y, f.cz);
     for (let n = 0; n < 12; n++) { g.dust.t = 0; g.dust.update(0.5); for (const q of g.logi.tiles.values()) if (q.mounted) q.pw = 1; }
@@ -27,17 +27,17 @@ export default async function (ctx) {
     return (front < behind * 0.5 && front < a0 * 0.2) || `dust after 6 s: in front ${front.toFixed(3)}, behind ${behind.toFixed(3)} (from ${a0})`;
   });
   await T('dust.unpowered-support-fan-does-nothing', async () => {
-    fresh(up); const { i, k } = spot(); dig(i, k - 1, 40, 5, 4, false); const f = frameAt(i + 20, k + 1, Math.PI / 2); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 15), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.42, f.cz, 3.0); await plan(); placeNow();
+    fresh(up); const { i, k } = spot(); dig(i, k - 1, 40, 5, 4, false); const f = frameAt(i + 20, k + 1, Math.PI / 2); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 15), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.3, f.cz, 3.0); await plan(); placeNow();
     const run = (pw) => { g.dust.cells.clear(); g.dust.add(f.cx + 9, 1.2, f.cz, 1.0); for (let n = 0; n < 12; n++) { g.dust.t = 0; for (const q of g.logi.tiles.values()) if (q.mounted) q.pw = pw; g.dust.update(0.5); } return g.dust.at(f.cx + 9, 1.2, f.cz); };
     const off = run(0), on = run(1); return (off > on * 3 && off > 0.25) || `dust 9 m ahead after 6 s: unpowered ${off.toFixed(3)}, powered ${on.toFixed(3)}`;
   });
   await T('dust.support-fan-goes-with-its-frame-and-comes-back-to-your-pack', async () => {
-    fresh(up); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const f = frameAt(i + 6, k + 1, 0); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 1), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.42, f.cz, 3.0); await plan(); placeNow();
+    fresh(up); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const f = frameAt(i + 6, k + 1, 0); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 1), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.3, f.cz, 3.0); await plan(); placeNow();
     if (![...g.logi.tiles.values()].some((t) => t.mounted)) return 'not placed'; S().items = {}; g.doDecon({ kind: 'mach', id: f.id });
     return (![...g.logi.tiles.values()].some((t) => t.mounted) && S().items.mfan === 1) || 'fan left behind or item lost: ' + JSON.stringify(S().items);
   });
   await T('dust.support-fan-survives-save-and-load-data', async () => {
-    fresh(up); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const f = frameAt(i + 6, k + 1, 0.4); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 1), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.42, f.cz, 3.0); await plan(); placeNow();
+    fresh(up); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const f = frameAt(i + 6, k + 1, 0.4); craft('mfan'); selectTool('mfan'); p().pos.set(cellX(i + 1), 0, cellZ(k + 1)); p().yaw = Math.PI / 2; aimPoint(f.cx, f.y0 + f.h - 0.3, f.cz, 3.0); await plan(); placeNow();
     const raw = JSON.parse(JSON.stringify(S().entities)).find((e) => e.mounted); return (raw && raw.frameId === f.id && Math.abs(raw.fyaw) <= Math.PI && raw.px !== undefined) || 'saved data ' + JSON.stringify(raw);
   });
 

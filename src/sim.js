@@ -324,12 +324,12 @@ export class Sim {
           if (d2 >= R * R) continue;
           const d = Math.sqrt(d2) || 1e-4, k = (R - d) / d;
           this.x[i] += dx * k; this.y[i] += dy * k; this.z[i] += dz * k;
-          const pv = this.player.vel;
+          const pv = sph.vel || this.player.vel;
           const nx = dx / d, ny = dy / d, nz = dz / d;
           const rv = (this.vx[i] - pv.x) * nx + (this.vy[i] - pv.y) * ny + (this.vz[i] - pv.z) * nz;
           if (rv < 0) {
             this.vx[i] -= 1.1 * rv * nx; this.vy[i] -= 1.1 * rv * ny; this.vz[i] -= 1.1 * rv * nz;
-            if (rv < -3 && this.hooks.onPlayerHit) this.hooks.onPlayerHit(-rv);
+            if (rv < -3 && this.hooks.onPlayerHit) this.hooks.onPlayerHit(-rv, !!sph.remote);
           }
         }
       }

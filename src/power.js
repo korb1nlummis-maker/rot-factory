@@ -8,8 +8,12 @@ import { species } from './plushdata.js';
 // ---------------------------------------------------------------------------------------------------
 const NET = Symbol('net');
 export const DEMAND = { belt: 0.03, sorter: 1.2, mech: 3.5, borer: 12, claw: 2.5, fan: 2, beacon: 0.6 };
-export const ENERGY_KJ = [100, 220, 500, 1200, 3000, 8000, 0]; // per plush by rarity
-export const FUEL_MAX_RARITY = 2;                                // generators only take Common..Rare
+// How long one plush burns at the base output of 8 kW. Turbine upgrades raise the output and burn each plush faster (energy / output).
+export const GEN_BASE_KW = 8;
+export const BURN_SECONDS = [90, 240, 600, 1500, 0, 0, 0];      // Common 1.5 min, Uncommon 4, Rare 10, Epic 25. Legendary and Mythic are too valuable to burn.
+export const ENERGY_KJ = BURN_SECONDS.map((sec) => sec * GEN_BASE_KW); // kJ per plush by rarity
+export const FUEL_MAX_RARITY = 3;                                // generators take Common to Epic
+export const burnTime = (rarity, outputKw) => (ENERGY_KJ[rarity] || 0) / outputKw;
 
 export class Power {
   constructor(game) {
@@ -99,11 +103,11 @@ export class Power {
       if (g.burn <= 0 && g.q.length) {
         const it = g.q.shift();
         const r = species[it.sp] ? species[it.sp].rarity : 0;
-        g.burn = ENERGY_KJ[Math.min(5, r)] / T.genOutput;
-        g.burnMax = g.burn;
+        g.burn = burnTime(Math.min(3, r), T.genOutput) || ENERGY_KJ[0] / T.genOutput;
+        g.burnMax = g.burn; g.cur = { sp: it.sp, vr: it.vr };
         this.dirty = true;
       }
-      if (g.burn <= 0 && g.lit) { g.lit = false; this.dirty = true; }
+      if (g.burn <= 0 && g.lit) { g.lit = false; g.cur = null; this.dirty = true; }
       if (g.burn > 0 && !g.lit) { g.lit = true; this.dirty = true; }
     }
   }

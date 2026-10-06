@@ -16,6 +16,7 @@
     <div class="logo-mini">ROT<span>FACTORY</span></div>
     <div id="money"><span class="coin">◈</span><b id="moneyVal">0</b><i id="moneyDelta"></i></div>
     <div id="assay" class="hidden"><span>VEIN ASSAY</span><div class="bar"><i id="assayBar"></i></div><div id="assayPtr" class="hidden"><b id="assayArrow">➤</b> <em id="assayTxt"></em></div></div>
+    <div id="survey" class="hidden"><span>STRUCTURAL SURVEY</span><b id="svDepth"></b><em id="svBest"></em><em id="svPress"></em><em id="svAir"></em><em id="svLoad"></em></div>
     <div id="streak" class="hidden"><span id="streakVal">x1</span><div class="bar"><i id="streakBar"></i></div></div>
   </div>
   <div id="topcenter">
@@ -48,6 +49,8 @@
   <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Tap F or left click on the plush around you, or punch with R.</span></div>
   <div id="vig"></div>
   <div id="blackout"></div>
+  <div id="tileInfo" class="hidden"><b id="tiTitle"></b><div id="tiLines"></div></div>
+  <div id="botInfo" class="hidden"><b id="biTitle"></b><div id="biLines"></div><div id="biAct"></div></div>
   <div id="lungVig"></div>
   <div id="lungWarn" class="hidden"><b id="lungStage"></b><span id="lungEta"></span></div>
   <div id="dayCard"><div class="dc-day" id="dcDay">DAY 1</div><div class="dc-sub" id="dcSub"></div></div>
@@ -84,15 +87,21 @@
 </div>
 <div id="dex" class="modal hidden">
   <div class="panel wide">
-    <header><h2>PLUSHDEX</h2><div class="bal"><b id="dexCount">0</b> / <span id="dexTotal">576</span> species</div><button class="x" data-close>✕</button></header>
+    <header><h2>PLUSHDEX</h2><div class="bal"><b id="dexCount">0</b> / <span id="dexTotal">1628</span> species</div><button class="x" data-close>✕</button></header>
     <div id="dexGrid"></div>
   </div>
 </div>
 <div id="crew" class="modal hidden">
   <div class="panel wide">
     <header><h2>CREW</h2><div class="bal" id="crewCount" style="font-size:14px"></div>
-      <button class="x" style="width:auto;padding:0 12px" id="crewAllHome">All home</button><button class="x" style="width:auto;padding:0 12px" id="crewAllFollow">All follow</button><button class="x" data-close>✕</button></header>
-    <div style="padding:10px 22px 0;color:var(--dim);font-size:12px;line-height:1.5">Orders start from where the bot stands. <b>T</b> in the field sends every bot digging the way you face, from where you stand. Bots grow as they work: more plush per trip, wider tunnels, faster hands.</div>
+      <button class="x" style="width:auto;padding:0 12px" id="crewAllHome" title="Call every bot home to unload (key Y)">Call all home (Y)</button><button class="x" style="width:auto;padding:0 12px" id="crewAllFollow" title="Every bot follows you">All follow me</button><button class="x" data-close>✕</button></header>
+    <div id="crewIntro" style="padding:10px 22px 0;color:var(--dim);font-size:12px;line-height:1.55">
+      <p style="margin:0 0 6px"><b>What the crew do.</b> Scrapper Bots dig tunnels into the pile, haul plush back to the bin and sell it. They grow as they work: more plush per trip, wider tunnels, faster hands.</p>
+      <p style="margin:0 0 6px"><b>Batteries.</b> Every bot runs on a battery. Below 25% it walks to the nearest <b>Charging Station</b> that has charge. Feed a station Common to Epic plush. With no station the bot waits at the bin and trickles up very slowly, so build one.</p>
+      <p style="margin:0 0 6px"><b>Keys.</b> <kbd>T</kbd> send the whole crew digging the way you face. <kbd>Y</kbd> call the whole crew home. <kbd>V</kbd> this panel. Or in the world: <b>aim at a bot</b> and press <kbd>E</kbd> to pick it, then aim at a target and press <kbd>E</kbd> (generator, charger, sorter, vault, belt, floor, bin, your feet to be followed, or your cart). <kbd>Esc</kbd> lets it go.</p>
+      <details open><summary style="cursor:pointer;font-weight:700">What the status words mean</summary>
+        <ul style="margin:4px 0 6px 18px;padding:0;line-height:1.5"><li><b>Digging</b>: at the face, taking plush. <b>Heading out</b>: walking to the face.</li><li><b>Hauling plush back</b>: full, walking to the bin (or its drop-off). <b>Unloading</b>: selling at the bin.</li><li><b>Walking to / Recharging at a Charging Station</b>: low battery, topping up from the station.</li><li><b>Waiting for a Charging Station</b>: out of power with no station that has charge. It trickles up at the bin.</li><li><b>Following you</b>, <b>Waiting at the bin</b>, <b>Taking plush to its drop-off</b>, <b>Blocked</b>: nothing more to dig that way.</li></ul></details>
+    </div>
     <div id="crewList" style="padding:14px 20px 20px;overflow:auto;display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));align-content:start;flex:1"></div>
   </div>
 </div>
@@ -100,7 +109,7 @@
   <div class="panel wide">
     <header><h2>HOW TO PLAY</h2><button class="x" data-close>&#10005;</button></header>
     <div id="howBody">
-      <section><h3>The goal</h3><p>The warehouse is full of millions of plush, and exactly one of them matters: <b>Il Rotto Supremo</b>. The Dossier computer shows what it looks like. Find it to win. Or give up and dig out of the exit, 3 km east.</p></section>
+      <section><h3>The goal</h3><p>The warehouse is full of millions of plush, and exactly one of them matters: <b>Il Rotto Supremo</b>. The Dossier computer shows what it looks like. Find it to win. Or give up and dig out of the exit, 4.9 km east.</p></section>
       <section><h3>Your first minutes</h3><ol><li>Walk to the pile and look at a plush. <kbd>F</kbd> or left click grabs it, instantly. Hold to keep grabbing until your hands are full.</li><li>Walk near the <b>SORT bin</b>. It eats what you carry and pays you. Click again while holding plush to throw one in (the bin sucks thrown plush in).</li><li><kbd>E</kbd> at the desk (or <kbd>Tab</kbd>) buys upgrades: a bigger bag, faster hands, tools, crew. <kbd>E</kbd> at the bench crafts things.</li></ol></section>
       <section><h3>Tools and the hotbar</h3><p>Open the inventory with <kbd>I</kbd>. Put tools and building items on the 9-slot hotbar and use <kbd>1</kbd>-<kbd>9</kbd> to take one out; <kbd>Q</kbd> puts it away. <b>An empty slot is your bare hands.</b> With a tool out, <kbd>F</kbd> or click (or <kbd>B</kbd>) uses it. The <b>hammer</b> in slot 1 knocks down anything you built and gives it back.</p></section>
       <section><h3>Digging and staying alive</h3><ul><li>Dig tunnels by grabbing plush straight ahead of you. A tunnel stands for about 7 m on its own; the deeper and heavier the pile above, the shorter. Past that the roof creaks and falls.</li><li><b>Frames</b> are 4x4 squares that carve their own section and hold the roof around them. Aim next to a frame and the next one snaps on any side. Struts and jacks are quick props.</li><li><b>Do not climb the piles.</b> The higher you go, the likelier the slope slides under you.</li><li>Buried? You have an air countdown. <kbd>R</kbd> or right click punches plush out of the way (hold <kbd>Space</kbd> to punch up). Run out of air or health and you die, then wake on the bay floor with your hands empty. <kbd>K</kbd> uses a medkit.</li><li>Dust builds in tunnels. A respirator, vent fans and clean air help.</li></ul></section>

@@ -72,6 +72,20 @@ export function ghostify(group, ok) {
   return group;
 }
 
+// frames may graze each other (posts side by side, a tight curve) but not cut through: more than this many metres of sink-in is refused
+const FRAME_CUT = 0.6;
+// how far two floor footprints (centre, yaw, half width, half depth) sink into each other; <= 0 when they do not touch (separating axis test)
+export function footprintOverlap(ax, az, ay, aw, ad, bx, bz, by, bw, bd) {
+  const dx = bx - ax, dz = bz - az; let least = Infinity;
+  const axesA = [[Math.cos(ay), -Math.sin(ay)], [Math.sin(ay), Math.cos(ay)]], axesB = [[Math.cos(by), -Math.sin(by)], [Math.sin(by), Math.cos(by)]];
+  for (const [ux, uz] of [...axesA, ...axesB]) {
+    const ra = aw * Math.abs(axesA[0][0] * ux + axesA[0][1] * uz) + ad * Math.abs(axesA[1][0] * ux + axesA[1][1] * uz);
+    const rb = bw * Math.abs(axesB[0][0] * ux + axesB[0][1] * uz) + bd * Math.abs(axesB[1][0] * ux + axesB[1][1] * uz);
+    least = Math.min(least, ra + rb - Math.abs(dx * ux + dz * uz));
+  }
+  return least;
+}
+
 export class Machines {
   constructor(game) {
     this.game = game;
@@ -191,6 +205,8 @@ export class Machines {
       const b = this.frameBlock(f);
       if (b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0) return { ok: false, why: 'Frame already here' };
     }
+    // a turned (free) frame already standing here must not be cut through by a grid frame either
+    for (const it of this.items.values()) { const f = it.ent; if (f.type !== 'frame' || !f.turned || Math.abs(f.y0 - e.y0) > e.h - 0.15) continue; if (footprintOverlap(e.cx, e.cz, e.yaw, e.w / 2, (C - 0.06) / 2, f.cx, f.cz, f.yaw, (f.w || e.w) / 2, (C - 0.06) / 2) > FRAME_CUT) return { ok: false, why: 'A turned frame is in the way: this would cut through it', ent: e }; }
     // a frame holds up a section that is already dug: it never digs for you
     if (e.clear.length) return { ok: false, why: `This tunnel is too tight for a 4x4 frame: dig out ${e.clear.length} more plush (a frame needs 4 wide and 4 high)`, ent: e };
     if (best) e.snap = best.side;
@@ -224,6 +240,13 @@ export class Machines {
     const e = { axis: Math.abs(Math.sin(fy)) > 0.7071 ? 'x' : 'z', yaw: fy, turned: true, kind, cx, cz, y0, w: wd, h };
     e.clear = this.orientedClear(cx, cz, fy, y0, wd, d, h);
     for (const it of this.items.values()) { const f = it.ent; if (f.type === 'frame' && Math.hypot(f.cx - cx, f.cz - cz) < 0.45 && Math.abs(f.y0 - y0) < 0.3) return { ok: false, why: 'A frame is already here', ent: e }; }
+    // two frames may touch, but not cut through each other: compare the two footprints (width x depth, turned) on the floor plan
+    for (const it of this.items.values()) {
+      const f = it.ent; if (f.type !== 'frame' || Math.abs(f.y0 - y0) > Math.min(h, f.h || h) - 0.15) continue;
+      if (Math.hypot(f.cx - cx, f.cz - cz) > wd + 0.6) continue;
+      const fy2 = f.yaw !== undefined ? f.yaw : f.axis === 'x' ? Math.PI / 2 : 0;
+      if (footprintOverlap(cx, cz, fy, wd / 2, d / 2, f.cx, f.cz, fy2, (f.w || wd) / 2, d / 2) > FRAME_CUT) return { ok: false, why: 'This would cut through the frame beside it: move along the tunnel or turn it less', ent: e };
+    }
     if (e.clear.length) return { ok: false, why: `The tunnel is too tight for a frame at this angle: dig out ${e.clear.length} more plush, or turn it with Left / Right`, ent: e };
     e.snap = 'free, turned ' + Math.round(((fy % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * 180 / Math.PI) + '°';
     return { ok: true, ent: e };
@@ -380,7 +403,7 @@ export class Machines {
       else if (tool.kind === 'mfan') { key = `mf${plan.ok}`; make = () => ghostify(buildMountFan(), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
-      else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
+      else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack', 'rope'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
@@ -389,7 +412,7 @@ export class Machines {
     if (tool.kind === 'frame') { this.ghost.position.set(e.cx, e.y0, e.cz); this.ghost.rotation.y = e.yaw !== undefined ? e.yaw : e.axis === 'x' ? Math.PI / 2 : 0; }
     else if (tool.kind === 'mfan') { this.ghost.position.set(e.px, e.py, e.pz); this.ghost.rotation.y = e.fyaw; }
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
-    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
+    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack', 'rope'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
   }
 
@@ -398,7 +421,7 @@ export class Machines {
     if (!this.ghost || !plan.ent) return;
     const e = plan.ent; let r = 0, col = 0x9dffc4, cy = 0;
     if (tool.kind === 'frame') { const ft = FRAME_TYPES[e.kind]; if (!ft) return; r = ft.radius; col = plan.ok ? 0x9dffc4 : 0xff8a7a; cy = e.h / 2; }
-    else if (tool.kind === 'strut') { r = 1.9; cy = 0.6; } else if (tool.kind === 'jack') { r = 2.7; cy = 0.6; } else return;
+    else if (tool.kind === 'strut') { r = 1.9; cy = 0.6; } else if (tool.kind === 'jack') { r = 2.7; cy = 0.6; } else if (tool.kind === 'rope') { r = 6; cy = 0.5; col = 0xcdb27a; } else return;
     const mat = new THREE.MeshBasicMaterial({ color: col, wireframe: true, transparent: true, opacity: 0.1, depthWrite: false });
     const sph = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), mat); sph.position.y = cy; sph.name = 'reach';
     const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.04, r, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
@@ -423,7 +446,14 @@ export class Machines {
 
   makeSimple(kind, ent) {
     const g = new THREE.Group();
-    if (kind === 'marker') {
+    if (kind === 'rope') {
+      const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.9, 7), MATS.dark); stake.position.y = 0.45; stake.rotation.z = 0.12;
+      const eye = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.014, 6, 12), MATS.steel); eye.position.set(0.04, 0.82, 0);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xcdb27a, roughness: 0.95 });
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.03, 6, 14), mat); coil.rotation.x = Math.PI / 2; coil.position.set(0.1, 0.1, 0.08);
+      const line = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 1.5, 5), mat); line.position.set(0.3, 0.3, 0.5); line.rotation.set(1.1, 0.25, 0.5);
+      g.add(stake, eye, coil, line);
+    } else if (kind === 'marker') {
       const hues = [0xff6a9b, 0x6aa9ff, 0xffd34a, 0x7ef0a8, 0xc58bff];
       const col = hues[(ent && ent.id ? ent.id : 0) % hues.length];
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 1.3, 6), MATS.dark); pole.position.y = 0.65;
@@ -559,7 +589,7 @@ export class Machines {
       it.obj = this.makeBeacon();
       it.obj.position.set(ent.x, ent.y, ent.z);
       w.reserved.add((ent.j * NZ + ent.k) * NX + ent.i);
-    } else if (['marker', 'flare', 'charge', 'strut'].includes(ent.type)) {
+    } else if (['marker', 'flare', 'charge', 'strut', 'rope'].includes(ent.type)) {
       it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.jack ? 'jack' : ent.glow ? 'glow' : ent.type, ent);
       it.obj.position.set(ent.x, ent.y, ent.z);
       if (ent.type === 'strut') { w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: ent.jack ? 2.7 : 1.9, b: ent.jack ? 2 : 1, id: ent.id, kind: ent.jack ? 'jack' : 'strut', cap: capacityOf(ent.jack ? 'jack' : 'strut'), born: game.time }); game.queueLoad && game.queueLoad(ent.x, ent.y + 0.6, ent.z); }
@@ -608,12 +638,27 @@ export class Machines {
   guestUpdate(dt, time) {
     for (const it of this.items.values()) {
       const e = it.ent;
-      if (e.type === 'borer') { const k = Math.min(1, dt * 6); const tx = cellX(e.i) + (e.dz !== 0 && e.w % 2 === 0 ? C / 2 : 0), tz = cellZ(e.k) + (e.dx !== 0 && e.w % 2 === 0 ? C / 2 : 0); it.obj.position.x += (tx - it.obj.position.x) * k; it.obj.position.z += (tz - it.obj.position.z) * k; if (it.borer) it.borer.teeth.rotation.z += dt * 7; }
+      if (e.type === 'claw') this.guestRig(it, dt);
+      else if (e.type === 'borer') { const k = Math.min(1, dt * 6); const tx = cellX(e.i) + (e.dz !== 0 && e.w % 2 === 0 ? C / 2 : 0), tz = cellZ(e.k) + (e.dx !== 0 && e.w % 2 === 0 ? C / 2 : 0); it.obj.position.x += (tx - it.obj.position.x) * k; it.obj.position.z += (tz - it.obj.position.z) * k; if (it.borer) it.borer.teeth.rotation.z += dt * 7; }
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
       else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
       else if (e.type === 'flare') { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); }
       else if (e.type === 'charge') { const led = it.obj.getObjectByName('led'); if (led) led.visible = Math.sin(time * 14) > 0; }
     }
+  }
+
+  // a guest's copy of a rig: the host says where the claw is aiming and how far along the swing is, and the arm moves the same way
+  guestRig(it, dt) {
+    const T = this.game.T, e = it.ent, r = it.rig; if (!r) return;
+    const ax = e.x, ay = e.y + 2.75, az = e.z;
+    r.lamp.material = (it.idle > 0) ? MATS.glowG : MATS.glowO;
+    if (it.idle > 0 || !it.target) { if (it.idle > 0) it.idle -= dt; this.posClaw(it, ax, ay, az, ax, ay - 1.2, az, 0); return; }
+    const rate = T.rigRate * compaction(e.x, e.z);
+    it.phase = Math.min(1, (it.phase || 0) + dt * (e.pw ?? 0) / rate);
+    const tg = it.target, tx = cellX(tg.i), ty = cellY(tg.j) + 0.1, tz = cellZ(tg.k);
+    const q = it.phase < 0.45 ? it.phase / 0.45 : it.phase < 0.55 ? 1 : 1 - Math.min(1, (it.phase - 0.55) / 0.45);
+    const k = q * q * (3 - 2 * q);
+    this.posClaw(it, ax, ay, az, ax + (tx - ax) * k, ay - 1.2 + (ty - (ay - 1.2)) * k, az + (tz - az) * k, k);
   }
 
   update(dt, time) {

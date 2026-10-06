@@ -94,7 +94,7 @@ export class Contracts {
     }
     S.stats.contracts = (S.stats.contracts || 0) + 1;
     g.ui.toast({ icon: '📋', title: 'Contract complete', text: `◈ ${fmt(c.reward)}${extra}`, cls: 'ach', ms: 5000 });
-    g.sound.ach();
+    g.sound.ach(); g.netSend({ t: 'toast', icon: '📋', title: 'Contract complete', text: `◈ ${fmt(c.reward)}${extra}` });
     const id = c.id;
     setTimeout(() => { const n = S.contracts.findIndex((x) => x.id === id); if (n >= 0 && S.contracts[n].have >= S.contracts[n].need) S.contracts[n] = this.make(); if (g.ui.openModal === 'shop') g.ui.renderShop(); }, 1500);
   }

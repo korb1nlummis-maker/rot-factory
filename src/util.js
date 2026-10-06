@@ -58,3 +58,6 @@ export function fmt(n) {
 
 // The pile gets denser and heavier the further from Sorting Bay 07: digging slows down.
 export const compaction = (x, z) => Math.pow(1 + Math.hypot(x, z) / 100, 1.4);
+
+// text that came from another player or a typed name, made safe for innerHTML
+export const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

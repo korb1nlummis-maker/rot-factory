@@ -158,12 +158,18 @@ export class RemotePlayer {
     this.group.add(this.tag);
     this.pos = new THREE.Vector3(0, -50, 0);
     this.target = new THREE.Vector3(0, -50, 0);
+    this.vel = new THREE.Vector3();
     this.yaw = 0; this.targetYaw = 0; this.pitch = 0;
     this.lampOn = true;
     this.t = 0;
   }
 
-  set(msg) { this.target.set(msg.x, msg.y, msg.z); this.targetYaw = msg.yaw; this.pitch = msg.pitch; this.lampOn = msg.lamp !== false; this.fresh = performance.now(); }
+  set(msg) {
+    // the other player's velocity, from how far it moved since the last message: plush hit them at the right relative speed
+    const now = performance.now();
+    if (this._lastSet !== undefined && now - this._lastSet > 20) { const dt = Math.min(0.5, (now - this._lastSet) / 1000); this.vel.set((msg.x - this.target.x) / dt, (msg.y - this.target.y) / dt, (msg.z - this.target.z) / dt); }
+    this._lastSet = now;
+    this.target.set(msg.x, msg.y, msg.z); this.targetYaw = msg.yaw; this.pitch = msg.pitch; this.lampOn = msg.lamp !== false; this.fresh = performance.now(); }
 
   update(dt) {
     this.pos.lerp(this.target, Math.min(1, dt * 12));
@@ -177,7 +183,7 @@ export class RemotePlayer {
     const lamp = this.group.getObjectByName('lamp'); if (lamp) lamp.visible = this.lampOn;
   }
 
-  spheres() { const p = this.pos; return [{ x: p.x, y: p.y + 0.3, z: p.z, r: 0.3 }, { x: p.x, y: p.y + 0.8, z: p.z, r: 0.3 }, { x: p.x, y: p.y + 1.3, z: p.z, r: 0.3 }]; }
+  spheres() { const p = this.pos, v = this.vel, r = true; return [{ x: p.x, y: p.y + 0.3, z: p.z, r: 0.3, vel: v, remote: r }, { x: p.x, y: p.y + 0.8, z: p.z, r: 0.3, vel: v, remote: r }, { x: p.x, y: p.y + 1.3, z: p.z, r: 0.3, vel: v, remote: r }]; }
 
   dispose(scene) { scene.remove(this.group); this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
 }

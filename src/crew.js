@@ -3,13 +3,15 @@ import { C, NX, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from 
 import { resolveSphere } from './sim.js';
 import { compaction, clamp } from './util.js';
 import { NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
-import { DX, DZ } from './logistics.js';
+import { DX, DZ, CHARGE_RATE, CHARGER_RANGE } from './logistics.js';
 import { CART_CAP } from './cart.js';
 
 const NAMES = ['Pip', 'Bolt', 'Nub', 'Clank', 'Sprocket', 'Widget', 'Doodle', 'Tinker', 'Gizmo', 'Rivet', 'Dot', 'Fidget', 'Cog', 'Bleep'];
 const COLORS = [0xd9a21c, 0xc9742b, 0x7fa6b8, 0x93b85d, 0xb87aa4, 0xd4c13a];
 const DIRNAME = ['East', 'South', 'West', 'North'];
-export const STATUS = { haulgo: 'Fetching your cart load', held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', blocked: 'Blocked', stuck: 'Stuck' };
+// battery rules: below LOW a bot needs power; with no station it waits at the bin and trickles up to OK
+export const LOW_BATTERY = 0.25, OK_BATTERY = 0.35, TRICKLE = 0.02;
+export const STATUS = { haulgo: 'Fetching your cart load', held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', chgwalk: 'Heading to a charger', recharge: 'Recharging at a station', lowbat: 'Waiting for a Charging Station', dwalk: 'Carrying plush to a drop-off', dgive: 'Handing plush over', blocked: 'Blocked', stuck: 'Stuck' };
 
 const M = {
   dark: new THREE.MeshStandardMaterial({ color: 0x1d2024, roughness: 0.7, metalness: 0.6 }),
@@ -66,6 +68,7 @@ export class Crew {
     this.objs = new Map();
     this.connCache = new Map();
     this.t = 0;
+    this.marker = null;
   }
 
   get bots() { return this.game.S.crew; }
@@ -167,8 +170,276 @@ export class Crew {
     b.path = path; b.pi = 0; b.state = 'return';
   }
 
-  stand(b) { b.state = 'idle'; b.order = null; b.origin = null; b.trail = []; }
-  follow(b) { b.state = 'follow'; b.origin = null; b.trail = []; }
+  stand(b) { b.state = 'idle'; b.order = null; b.origin = null; b.trail = []; b.deliver = null; b.chg = null; }
+  follow(b) { b.state = 'follow'; b.origin = null; b.trail = []; b.deliver = null; b.chg = null; }
+  sendHome(b) { b.deliver = null; b.chg = null; this.goHome(b); }
+
+  // ------------------------------------------------------------------ routes along the bot's own trail
+  // the points the bot has walked, from the dig face back to where the order started
+  trailPts(b) { const P = (b.trail || []).slice().reverse(); if (b.origin) P.push(b.origin); return P; }
+  nearIdx(P, x, z, maxD = 6) {
+    let bi = -1, bd = maxD;
+    for (let n = 0; n < P.length; n++) { const d = Math.hypot(P[n][0] - x, P[n][1] - z); if (d < bd) { bd = d; bi = n; } }
+    return bi;
+  }
+  // a walking path from the bot to (tx, tz): back along its trail like goHome does, leaving the trail where it passes closest
+  routePath(b, tx, tz, standOff = 0) {
+    const P = this.trailPts(b);
+    const a = this.nearIdx(P, b.x, b.z), c = this.nearIdx(P, tx, tz);
+    let path;
+    if (c >= 0) path = a >= 0 ? (a <= c ? P.slice(a, c + 1) : P.slice(c, a + 1).reverse()) : P.slice(c).reverse();   // off the trail (at the bin): in by the origin end
+    else path = a >= 0 ? P.slice(a) : [];
+    if (standOff > 0) {
+      const last = path.length ? path[path.length - 1] : [b.x, b.z];
+      const vx = last[0] - tx, vz = last[1] - tz, d = Math.hypot(vx, vz);
+      if (d > 0.01) { tx += vx / d * Math.min(standOff, d); tz += vz / d * Math.min(standOff, d); }
+    }
+    path.push([tx, tz]);
+    return path;
+  }
+  // back to the dig: from where the bot stands out along its trail to the face
+  resumeDig(b) {
+    const P = this.trailPts(b);
+    if (!b.origin) { b.state = 'idle'; return; }
+    const a = this.nearIdx(P, b.x, b.z);
+    b.path = a >= 0 ? P.slice(0, a + 1).reverse() : P.slice().reverse();
+    b.pi = 0; b.state = 'goto'; b.timer = 0;
+  }
+
+  // ------------------------------------------------------------------ charging stations
+  // the nearest charger that still holds charge and is within range, or null
+  chargerFor(b) {
+    const L = this.game.logi;
+    let best = null, bd = CHARGER_RANGE;
+    for (const t of L.tiles.values()) {
+      if (t.type !== 'charger' || !((t.reserve || 0) > 0.05)) continue;
+      const d = Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z);
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
+  }
+  startCharge(b, t, next) {
+    if (next) b.chgNext = next;
+    else if (b.state !== 'chgwalk' && b.state !== 'recharge') {
+      b.chgNext = ['return', 'unload'].includes(b.state) ? 'home' : ['dwalk', 'dgive'].includes(b.state) ? 'deliver' : b.state === 'follow' ? 'follow' : b.origin ? 'dig' : 'idle';
+    }
+    b.chg = t.id;
+    b.path = this.routePath(b, cellX(t.i), cellZ(t.k), 0.8); b.pi = 0; b.state = 'chgwalk'; b.scanT = 0;
+    return true;
+  }
+  endCharge(b) {
+    b.chg = null;
+    const next = b.chgNext; b.chgNext = null;
+    if (next === 'home') { const h = this.home(); b.path = this.routePath(b, h.x, h.z); b.pi = 0; b.state = 'return'; }
+    else if (next === 'deliver' && this.startDeliver(b)) { /* walking on */ }
+    else if (next === 'follow') b.state = 'follow';
+    else if (next === 'dig' || next === 'deliver') { if (b.origin) this.resumeDig(b); else b.state = 'idle'; }
+    else b.state = 'idle';
+  }
+  thinkRecharge(b, dt) {
+    const g = this.game, t = g.logi.byId.get(b.chg);
+    if (!t || t.type !== 'charger') { this.dryCharge(b); return; }
+    b.tx = cellX(t.i) + (b.x < cellX(t.i) ? -0.8 : 0.8); b.tz = cellZ(t.k);
+    if (Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z) < 2.0 && b.battery < 0.95 && (t.reserve || 0) > 0) {
+      const take = Math.min(CHARGE_RATE * dt, 1 - b.battery, t.reserve);
+      b.battery += take; t.reserve -= take;
+      if (Math.random() < dt * 4) g.fx.sparkle(b.x, b.y + 0.5, b.z, 2, 0.3, 0.9, 1);
+    }
+    if (b.battery >= 0.95) this.endCharge(b);
+    else if (!((t.reserve || 0) > 0.001)) this.dryCharge(b);
+  }
+  // the station ran dry (or is gone): another one if it is closer than home, else the old way, home
+  dryCharge(b) {
+    const o = this.chargerFor(b);
+    if (o && o.id !== b.chg) { this.startCharge(b, o); return; }
+    if (b.battery >= OK_BATTERY) { this.endCharge(b); return; }
+    b.waitAt = b.chg; b.chg = null;   // too weak to go on: it waits right here at the empty station and trickles
+    this.enterLowbat(b);
+  }
+
+  // below LOW: a station with charge if there is one, else home (the bin is where it waits)
+  lowBattery(b) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs); else this.goHome(b); }
+  enterLowbat(b) {
+    b.state = 'lowbat'; b.lowT = 0;
+    if (!b.lowToast) {
+      b.lowToast = true;
+      const any = [...this.game.logi.tiles.values()].some((t) => t.type === 'charger');
+      this.game.ui.toast(any ? { icon: '🪫', title: 'Feed a Charging Station', text: `${b.name} is out of power and the station is empty`, ms: 6000 } : { icon: '🪫', title: 'Build a Charging Station', text: `${b.name} is out of power`, ms: 6000 });
+    }
+  }
+  // back from the bin: unloaded. Too weak to work means a station or the bin's trickle, else back to the dig
+  afterUnload(b) {
+    b.cleared = false;
+    if (b.battery < LOW_BATTERY) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs, b.origin ? 'dig' : 'idle'); else this.enterLowbat(b); return; }
+    if (b.origin) { b.path = [b.origin, ...b.trail]; b.pi = 0; b.state = 'goto'; } else b.state = 'idle';
+  }
+  thinkLowbat(b, dt, time, h) {
+    const w = b.waitAt ? this.game.logi.byId.get(b.waitAt) : null;
+    if (w) { b.tx = cellX(w.i) + 0.8; b.tz = cellZ(w.k); if (Math.hypot(b.x - cellX(w.i), b.z - cellZ(w.k)) < 3) b.battery = Math.min(1, b.battery + dt * TRICKLE); }
+    else { b.waitAt = null; b.tx = h.x + Math.sin(time * 0.3 + b.id) * 2.0; b.tz = h.z + Math.cos(time * 0.27 + b.id * 1.7) * 1.6; this.charge(b, dt, h); }
+    b.lowT = (b.lowT || 0) - dt;
+    if (b.lowT <= 0) { b.lowT = 1; const cs = this.chargerFor(b); if (cs) { this.startCharge(b, cs, b.chgNext || (b.origin ? 'dig' : 'idle')); b.waitAt = null; return; } }
+    if (b.battery >= OK_BATTERY) {
+      b.lowToast = false; b.waitAt = null;
+      if (b.origin) { if (w) this.resumeDig(b); else { b.path = [b.origin, ...b.trail]; b.pi = 0; b.state = 'goto'; } } else b.state = 'idle';
+    }
+  }
+
+  // ------------------------------------------------------------------ drop-offs (a generator, vault, sorter or belt instead of the bin)
+  deliverTile(b) { return b.deliver ? this.game.logi.byId.get(b.deliver) || null : null; }
+  startDeliver(b) {
+    const t = this.deliverTile(b);
+    if (!t || !b.carry.length) return false;
+    b.path = this.routePath(b, cellX(t.i), cellZ(t.k), 0.9); b.pi = 0; b.state = 'dwalk'; b.scanT = 0;
+    return true;
+  }
+  // the bot is full: hand over at its drop-off if it has one, else the bin
+  fullTrip(b) {
+    if (b.deliver && !this.deliverTile(b)) b.deliver = null;
+    if (b.deliver && this.startDeliver(b)) return;
+    this.goHome(b);
+  }
+  thinkDeliver(b, dt) {
+    const g = this.game, t = this.deliverTile(b);
+    if (!t) { b.deliver = null; this.endDeliver(b); return; }
+    b.tx = cellX(t.i) + (b.x < cellX(t.i) ? -0.9 : 0.9); b.tz = cellZ(t.k);
+    if (Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z) > 2.4) return;
+    b.timer -= dt;
+    if (b.timer > 0) return;
+    b.timer = 0.15;
+    for (let n = 0; n < b.carry.length; n++) {
+      if (g.logi.accept(t, b.carry[n], null)) { b.carry.splice(n, 1); b.stall = 0; if (t.type === 'gen') g.power.markDirty(); g.fx.fluff && g.fx.fluff(cellX(t.i), t.j * 0.6 + 0.9, cellZ(t.k), 1, 0.6, 0.2, 5); return; }
+    }
+    b.stall = (b.stall || 0) + 0.15;
+    if (!b.carry.length || b.stall >= 3) this.endDeliver(b);
+  }
+  // done handing over: what the drop-off would not take goes to the bin, otherwise back to work
+  endDeliver(b) {
+    b.stall = 0;
+    if (b.carry.length) { const h = this.home(); b.path = this.routePath(b, h.x, h.z); b.pi = 0; b.state = 'return'; b.scanned = false; return; }
+    if (b.origin) this.resumeDig(b); else b.state = 'idle';
+  }
+
+
+  // ------------------------------------------------------------------ click a bot, then a target
+  // the nearest pile face from a spot, over the four directions: { dir, d, face } or null
+  nearestFace(x, y, z) {
+    const j = Math.max(0, toJ(y)); let best = null;
+    for (let dir = 0; dir < 4; dir++) {
+      const f = this.findFace(x, j, z, dir); if (!f) continue;
+      const d = Math.abs(f.i - toI(x)) + Math.abs(f.k - toK(z));
+      if (!best || d < best.d) best = { dir, d, face: f };
+    }
+    return best;
+  }
+
+  // ONE function decides what an E press on a target means, and says so: the HUD panel shows its text before the press and
+  // command() runs its act, so the words and the action cannot drift apart.
+  // tgt: { k: 'tile', id } | { k: 'spot', x, y, z, dir } | { k: 'bin' } | { k: 'feet' } | { k: 'cart' } | null
+  intent(b, tgt) {
+    const g = this.game, L = g.logi;
+    const no = (text) => ({ act: null, ok: false, text });
+    if (!tgt) return no('Aim at a generator, charger, sorter, vault, belt, the floor, the bin or your cart');
+    if (tgt.k === 'tile') {
+      const t = L.byId.get(tgt.id); if (!t) return no('That is gone');
+      const at = [cellX(t.i), t.j * C, cellZ(t.k)];
+      if (t.type === 'gen') {
+        const nf = this.nearestFace(at[0], at[1], at[2]);
+        if (!nf) return no('No pile within reach of this Generator');
+        const w = DIRNAME[nf.dir].toLowerCase();
+        return { act: 'fuel', ok: true, tile: t, dir: nf.dir, text: `Keep this Generator fuelled: dig ${w} of it and deliver plush here`, toast: `Digging ${w} and keeping the generator fuelled.` };
+      }
+      if (t.type === 'charger') {
+        if (!((t.reserve || 0) > 0.02)) return no('This Charging Station is empty');
+        return { act: 'charge', ok: true, tile: t, text: `Recharge at this Charging Station (${(t.reserve || 0).toFixed(1)} left), then carry on`, toast: 'Going to recharge, then back to work.' };
+      }
+      if (t.type === 'sorter' || t.type === 'vault' || t.type === 'belt') {
+        const nm = t.type === 'sorter' ? 'Sorting Box' : t.type === 'vault' ? 'Vault Crate' : 'belt';
+        return { act: 'deliver', ok: true, tile: t, text: `Deliver plush to this ${nm} instead of the bin from now on`, toast: `Delivering to the ${nm} from now on.` };
+      }
+      return no('Nothing to do with that');
+    }
+    if (tgt.k === 'spot') {
+      const f = this.findFace(tgt.x, Math.max(0, toJ(tgt.y)), tgt.z, tgt.dir);
+      const w = DIRNAME[tgt.dir].toLowerCase();
+      if (!f) return no(`Nothing to dig ${w} of that spot`);
+      return { act: 'dig', ok: true, dir: tgt.dir, text: `Dig ${w} from that spot`, toast: `Digging ${w}.` };
+    }
+    if (tgt.k === 'bin') return { act: 'home', ok: true, text: 'Go home and unload', toast: 'Heading home.' };
+    if (tgt.k === 'feet') return { act: 'follow', ok: true, text: 'Follow you', toast: 'Following you.' };
+    if (tgt.k === 'cart') {
+      const c = g.S.cart;
+      if (!c || !c.load.length) return no('Your cart is empty');
+      return { act: 'haul', ok: true, text: 'Haul the cart to the bin', toast: 'Fetching the cart load.' };
+    }
+    return no('Nothing to do with that');
+  }
+
+  // run the order intent() describes. Returns { ok, act, msg } (msg is the toast on success, the reason on failure)
+  command(b, tgt, quiet = false) {
+    const g = this.game;
+    const it = this.intent(b, tgt);
+    if (!it.ok) { if (!quiet) { g.sound.error(); g.ui.hint(it.text, 2.5); } return { ok: false, act: null, msg: it.text }; }
+    if (it.act !== 'charge') { b.chg = null; b.chgNext = null; }
+    let ran = true;
+    switch (it.act) {
+      case 'fuel': ran = this.order(b, it.dir, cellX(it.tile.i), it.tile.j * C, cellZ(it.tile.k)); if (ran) b.deliver = it.tile.id; break;
+      case 'charge': this.startCharge(b, it.tile); break;
+      case 'deliver': b.deliver = it.tile.id; if (b.carry.length && ['idle', 'follow', 'return'].includes(b.state)) this.startDeliver(b); break;
+      case 'dig': ran = this.order(b, it.dir, tgt.x, tgt.y, tgt.z); break;
+      case 'home': this.sendHome(b); break;
+      case 'follow': this.follow(b); break;
+      case 'haul': b.state = 'haulgo'; b.origin = null; b.trail = []; break;
+    }
+    if (!ran) return { ok: false, act: null, msg: 'It could not do that' };
+    if (!quiet) { g.sound.chirp(1.0 + Math.random() * 0.4); g.ui.toast({ icon: '🤖', title: b.name, text: it.toast, ms: 2500 }); }
+    return { ok: true, act: it.act, msg: it.toast };
+  }
+
+  // one plain sentence about what a bot is doing right now (the crew panel and the tests read it)
+  statusLine(b) {
+    const g = this.game, pct = Math.round(b.battery * 100), dir = DIRNAME[b.dir || 0].toLowerCase();
+    const dt = b.deliver ? g.logi.byId.get(b.deliver) : null;
+    const dn = dt ? { gen: 'the Generator', sorter: 'the Sorting Box', vault: 'the Vault Crate', belt: 'a belt' }[dt.type] || 'its drop-off' : '';
+    let base;
+    switch (b.state) {
+      case 'farm': case 'advance': base = `Digging ${dir}, ${b.adv || 0} cells in`; break;
+      case 'goto': base = `Heading out to dig ${dir}`; break;
+      case 'return': base = 'Hauling plush back to the bin'; break;
+      case 'unload': base = 'Unloading at the bin'; break;
+      case 'haulgo': base = 'Fetching your cart load'; break;
+      case 'follow': base = 'Following you'; break;
+      case 'idle': base = 'Waiting at the bin'; break;
+      case 'chgwalk': base = 'Walking to a Charging Station'; break;
+      case 'recharge': base = 'Recharging at a Charging Station'; break;
+      case 'dwalk': case 'dgive': base = `Taking plush to ${dn || 'its drop-off'}`; break;
+      case 'lowbat': { let any = false; for (const t of g.logi.tiles.values()) if (t.type === 'charger') any = true; base = any ? 'Waiting for a Charging Station' : `Build a Charging Station: ${b.name} is out of power`; break; }
+      case 'held': base = 'Held at the detector gate'; break;
+      case 'blocked': case 'stuck': base = 'Blocked, nothing more to dig that way'; break;
+      default: base = STATUS[b.state] || b.state;
+    }
+    if (dn && b.state !== 'dwalk' && b.state !== 'dgive') base += `, drop-off ${dn}`;
+    return `${base}, battery ${pct}%, carrying ${b.carry.length} plush`;
+  }
+
+  // a ring on the floor and an arrow over the selected bot
+  updateMarker(time) {
+    const g = this.game, b = g.crewSel ? this.bots.find((x) => x.id === g.crewSel) : null;
+    if (!b) { if (this.marker) this.marker.visible = false; return; }
+    if (!this.marker) {
+      const m = new THREE.Group();
+      const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.6, 0.4), side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 32), glow); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; ring.name = 'ring';
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.3, 4), glow); arrow.rotation.x = Math.PI; arrow.name = 'arrow';
+      m.add(ring, arrow); m.name = 'selmark'; this.root.add(m); this.marker = m;
+    }
+    const s = this.scale(b);
+    this.marker.visible = true;
+    this.marker.position.set(b.x, b.y, b.z);
+    const ring = this.marker.getObjectByName('ring'), arrow = this.marker.getObjectByName('arrow');
+    ring.scale.setScalar(s * (1 + Math.sin(time * 5) * 0.06));
+    arrow.position.y = 1.15 * s + 0.1 + Math.sin(time * 4) * 0.05; arrow.scale.setScalar(Math.max(0.8, s));
+  }
 
   // ------------------------------------------------------------------ belts
   connected(tile) {
@@ -210,6 +481,7 @@ export class Crew {
       if (b.gx !== undefined) { b.x += (b.gx - b.x) * k; b.y += (b.gy - b.y) * k; b.z += (b.gz - b.z) * k; b.yaw = b.gyaw ?? b.yaw; }
       this.animate(b, o, dt, time);
     }
+    this.updateMarker(time);
   }
 
   // a full cart gets emptied by a free bot: it takes a load, walks it through the detector gate and sells it at the bin
@@ -246,6 +518,7 @@ export class Crew {
       this.move(b, dt);
       this.animate(b, o, dt, time);
     }
+    this.updateMarker(time);
   }
 
   think(b, dt, time, o) {
@@ -285,7 +558,7 @@ export class Crew {
         if (d > 2.6) { b.tx = pp.x + (b.id % 3 - 1) * 0.8; b.tz = pp.z + 1.0; } else { b.tx = b.x; b.tz = b.z; }
         break;
       }
-      case 'goto': case 'return': {
+      case 'goto': case 'return': case 'chgwalk': case 'dwalk': {
         // standing in the gate while it scans the load
         if (b.scanT > 0) {
           b.scanT -= dt; b.tx = b.x; b.tz = b.z;
@@ -295,6 +568,8 @@ export class Crew {
         const p = b.path[b.pi];
         if (!p) {
           if (b.state === 'goto') { b.state = 'farm'; b.timer = this.digTime(b, b.x, b.z); }
+          else if (b.state === 'chgwalk') { b.state = 'recharge'; b.timer = 0; }
+          else if (b.state === 'dwalk') { b.state = 'dgive'; b.timer = 0; b.stall = 0; }
           else {
             // robots check in at the nearest detector gate before they unload
             const gate = !b.scanned ? g.logi.bestGate(b.x, b.z, h.x, h.z) : null;
@@ -317,20 +592,14 @@ export class Crew {
           b.timer = 0.12;
           const it = b.carry.shift();
           if (it) { g.sellAuto(it.sp, it.vr, 1); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.3 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(1.5 + Math.random() * 0.5); }
-          else { b.state = 'charge'; b.cleared = false; }
+          else this.afterUnload(b);
         }
         break;
       }
-      case 'charge': {
-        b.tx = h.x; b.tz = h.z;
-        this.charge(b, dt, h);
-        if (b.battery >= 0.95) {
-          if (b.origin) {
-            b.path = [b.origin, ...b.trail]; b.pi = 0; b.state = 'goto';
-          } else b.state = 'idle';
-        }
-        break;
-      }
+      case 'charge': this.afterUnload(b); break;   // an older save: the bin no longer charges fast
+      case 'lowbat': this.thinkLowbat(b, dt, time, h); break;
+      case 'recharge': this.thinkRecharge(b, dt); break;
+      case 'dgive': this.thinkDeliver(b, dt); break;
       case 'farm': case 'advance': this.thinkFarm(b, dt, time); break;
       case 'blocked': case 'stuck': {
         b.timer -= dt;
@@ -343,9 +612,11 @@ export class Crew {
       }
     }
     // low battery heads home
-    if ((b.state === 'farm' || b.state === 'advance' || b.state === 'goto') && b.battery < 0.12) this.goHome(b);
+    if (b.battery >= 0.5) b.lowToast = false;
+    if ((b.state === 'farm' || b.state === 'advance' || b.state === 'goto' || b.state === 'follow') && b.battery < LOW_BATTERY) this.lowBattery(b);
+    else if (b.state === 'idle' && b.battery < LOW_BATTERY) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs); else this.enterLowbat(b); }
     // stuck detection: wants to move but does not
-    if (['goto', 'return', 'advance'].includes(b.state)) {
+    if (['goto', 'return', 'advance', 'chgwalk', 'dwalk'].includes(b.state)) {
       b.stuckT = (b.stuckT || 0) + dt;
       if (b.lastX === undefined) { b.lastX = b.x; b.lastZ = b.z; }
       if (Math.hypot(b.x - b.lastX, b.z - b.lastZ) > 0.5) { b.stuckT = 0; b.lastX = b.x; b.lastZ = b.z; }
@@ -366,11 +637,11 @@ export class Crew {
       g.needleAlarm(gate);
       // pulled aside into the bay beside the lane, flagged, until you come and take it
       b.state = 'held'; b.heldGate = gate.id; b.path = []; b.pi = 0;
-    } else { g.logi.setGate(gate, false); gate.flash = 0.25; b.cleared = true; g.S.stats.botScans = (g.S.stats.botScans || 0) + 1; g.sound.tone('sine', 1250, 1250, 0.05, 0.03); }
+    } else { g.logi.setGate(gate, false); gate.flash = 0.25; b.cleared = true; g.S.stats.botScans = (g.S.stats.botScans || 0) + 1; g.gateDing(0.05, 0.03); }
   }
 
   charge(b, dt, h) {
-    if (Math.hypot(b.x - h.x, b.z - h.z) < 4) b.battery = Math.min(1, b.battery + dt * 0.25);
+    if (Math.hypot(b.x - h.x, b.z - h.z) < 4) b.battery = Math.min(1, b.battery + dt * TRICKLE);
   }
 
   beam(b) {
@@ -397,7 +668,7 @@ export class Crew {
     b.tx = cellX(bi) + dx * 0.1; b.tz = cellZ(bk) + dz * 0.1;
     b.timer -= dt;
     b.battery -= dt * 0.003 / T.crewBattery;
-    if (b.carry.length >= this.capacity(b)) { this.goHome(b); return; }
+    if (b.carry.length >= this.capacity(b)) { this.fullTrip(b); return; }
     if (b.timer > 0) return;
     // work volume
     const W = 2 + Math.floor(b.level / 6), H = 3 + (b.level >= 10 ? 1 : 0);
@@ -418,7 +689,7 @@ export class Crew {
       b.arm = performance.now() / 1000;
       b.aim = [cellX(best[0]), cellY(best[1]), cellZ(best[2])];
       g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
-      if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.carry.length >= this.capacity(b)) { this.goHome(b); b.timer = this.digTime(b, b.x, b.z); return; } }
+      if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.carry.length >= this.capacity(b)) { this.fullTrip(b); b.timer = this.digTime(b, b.x, b.z); return; } }
       this.gainXp(b, 1);
       if (Math.random() < 0.15 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(0.9 + Math.random() * 0.5);
       b.timer = this.digTime(b, b.x, b.z);

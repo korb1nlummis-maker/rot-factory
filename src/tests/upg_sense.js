@@ -4,7 +4,7 @@ import { REMAINS, species, isSpecialCell } from '../plushdata.js';
 import { EXIT_X } from '../config.js';
 
 export default async function (ctx) {
-  const { g, S, w, p, T, fresh, adv, near, V3, toI, toK, cellX, cellZ } = ctx;
+  const { g, S, w, p, T, fresh, adv, near, V3, toI, toK, cellX, cellZ, newWorld } = ctx;
   for (const id of ['airmon', 'compass', 'plan', 'scan', 'locator', 'assay']) await purchaseTests(ctx, id, 'sense');
 
   // capture what the HUD is told, frame by frame
@@ -110,7 +110,7 @@ export default async function (ctx) {
     return true;
   });
 
-  await T('upg.sense.locator.effect', async () => {
+  const locatorOnce = async () => {
     fresh({ compass: 1 }); const rec = spy(); const R = [0, 45, 110, 260, 600]; const restore = [];
     const gearMarks = () => rec.compass[2].filter((m) => m.label === 'GEAR');
     try {
@@ -149,7 +149,9 @@ export default async function (ctx) {
       rec.off(); for (const r of restore.reverse()) w().setCell(r[0], 0, r[1], r[2], r[3]);
     }
     return true;
-  });
+  };
+  // the staging depends on where the dig sites fall in the random world: try a few fresh worlds before calling it a failure
+  await T('upg.sense.locator.effect', async () => { let r; for (let n = 0; n < 4; n++) { if (n) await newWorld(); r = await locatorOnce(); if (r === true) return true; if (!/not marked|could not stage|no dig site/.test(String(r))) return r; } return r; });
 
   await T('upg.sense.assay.effect', async () => {
     fresh({}); const rec = spy(); const bar = () => parseFloat(/scaleX\(([\d.]+)\)/.exec(document.getElementById('assayBar').style.transform)[1]);

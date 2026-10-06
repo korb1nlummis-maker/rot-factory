@@ -7,7 +7,10 @@ import { buildMountFan } from './mountfan.js';
 
 export const DX = [1, 0, -1, 0];
 export const DZ = [0, 1, 0, -1];
-export const LOGI = new Set(['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan']);
+export const LOGI = new Set(['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan', 'charger']);
+// Charging Station: reserve units, where 1.0 is one full bot battery. Common to Epic only (index = rarity).
+export const CHARGE_PER = [0.34, 0.7, 1.5, 4.0];
+export const CHARGER_CAP = 8, CHARGER_HOPPER = 12, CHARGE_RATE = 0.5, CHARGER_RANGE = 400, CHARGER_MAX_RARITY = 3;
 const YAW = [Math.PI / 2, 0, -Math.PI / 2, Math.PI]; // model +Z -> dir
 const MAXBELT = 4500;
 
@@ -33,6 +36,7 @@ const M = {
   glowG: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 3, 1) }),
   glowO: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 1.4, 0.3) }),
   glowR: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.6, 0.3, 0.2) }),
+  glowB: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 2.2, 3.6) }),
 };
 
 export class Logistics {
@@ -121,6 +125,7 @@ export class Logistics {
     if (ent.type === 'sorter') { ent.q = ent.q || []; ent.kept = ent.kept || []; ent.timer = 0; ent.mode = ent.mode || 0; ent.filter = ent.filter ?? 7; }
     if (ent.type === 'vault') ent.stored = ent.stored || [];
     if (ent.type === 'gen') { ent.q = ent.q || []; ent.burn = ent.burn || 0; ent.lit = false; }
+    if (ent.type === 'charger') { ent.q = ent.q || []; ent.reserve = ent.reserve || 0; ent.dig = 0; }
     if (ent.type === 'mech') { ent.buf = ent.buf || []; ent.timer = 1.0; ent.out = 0; ent.state = 'dig'; ent.adv = ent.adv || 0; ent.arm = null; }
     const key = idx(ent.i, ent.j, ent.k);
     this.tiles.set(key, ent);
@@ -169,6 +174,15 @@ export class Logistics {
       const win = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.02), M.dark); win.position.set(0, 0.32, 0.3); win.name = 'win';
       const hopper = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.18, 10, 1, true), M.steel); hopper.position.set(-0.1, 0.62, 0.0);
       g.add(base, body, chim, win, hopper);
+    } else if (ent.type === 'charger') {
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.62), M.dark); pad.position.y = 0.035;
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.05, 16), M.steel); plate.position.set(0.04, 0.095, 0.0);
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 8, 20), M.glowB); coil.rotation.x = Math.PI / 2; coil.position.set(0.04, 0.16, 0.0); coil.name = 'coil';
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.6, 8), M.steel); post.position.set(-0.22, 0.37, -0.2);
+      const hopper = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.08, 0.2, 10, 1, true), M.yellow); hopper.position.set(-0.22, 0.72, -0.2);
+      const bolt = new THREE.Mesh(new THREE.OctahedronGeometry(0.06), M.glowB); bolt.position.set(0.04, 0.5, 0.0); bolt.name = 'bolt';
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), M.steel); mast.position.set(0.04, 0.33, 0.0);
+      g.add(pad, plate, coil, post, hopper, mast, bolt);
     } else if (ent.type === 'pole') {
       const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 2.0, 8), M.steel); mast.position.y = 1.0;
       const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.05), M.dark); arm.position.y = 1.95;
@@ -262,6 +276,12 @@ export class Logistics {
       n.q.push({ sp: item.sp, vr: item.vr });
       return true;
     }
+    if (n.type === 'charger') {
+      const r = species[item.sp] ? species[item.sp].rarity : 9;
+      if (r > CHARGER_MAX_RARITY || n.q.length >= CHARGER_HOPPER) return false;
+      n.q.push({ sp: item.sp, vr: item.vr });
+      return true;
+    }
     if (n.type === 'vault') {
       if (n.stored.length >= this.vaultCap()) return false;
       n.stored.push({ sp: item.sp, vr: item.vr });
@@ -314,6 +334,7 @@ export class Logistics {
       } else if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
       else if (t.type === 'mech') { if (!this.visualOnly) this.updateMech(t, dt); }
       else if (t.type === 'gen') this.updateGen(t, dt, tick);
+      else if (t.type === 'charger') this.updateCharger(t, dt);
       else if (t.type === 'fan') { const o = this.objs.get(t.id); const b = o && o.getObjectByName('blades'); if (b) b.rotation.z += dt * 14 * (t.pw ?? 0); }
       else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.glowR; }
     }
@@ -326,6 +347,22 @@ export class Logistics {
     const sim = this.game.sim;
     const i = sim.spawn(it.sp, it.vr, cellX(t.i) + DX[t.dir] * 0.5, t.j * C + 0.3, cellZ(t.k) + DZ[t.dir] * 0.5, DX[t.dir] * 1.2, 0.5, DZ[t.dir] * 1.2, 0);
     return i >= 0;
+  }
+
+  // the hopper turns plush into stored charge, one at a time, whenever the whole plush still fits under the cap
+  updateCharger(t, dt) {
+    if (!this.visualOnly) {
+      t.dig = (t.dig || 0) - dt;
+      if (t.q.length && t.dig <= 0) {
+        const it = t.q[0], r = Math.min(3, species[it.sp] ? species[it.sp].rarity : 0), v = CHARGE_PER[r];
+        if ((t.reserve || 0) + v <= CHARGER_CAP + 1e-9) { t.q.shift(); t.reserve = Math.min(CHARGER_CAP, (t.reserve || 0) + v); t.dig = 0.2; this.game.fx.sparkle(cellX(t.i), t.j * C + 0.55, cellZ(t.k), 3, 0.3, 0.9, 1); }
+      }
+    }
+    const o = this.objs.get(t.id);
+    if (!o) return;
+    const live = (t.reserve || 0) > 0.02;
+    const coil = o.getObjectByName('coil'); if (coil) coil.material = live ? M.glowB : M.dark;
+    const bolt = o.getObjectByName('bolt'); if (bolt) { bolt.visible = live; bolt.rotation.y += dt * 2; bolt.position.y = 0.5 + Math.sin(this.game.time * 3 + t.i) * 0.03; bolt.scale.setScalar(0.6 + Math.min(1, (t.reserve || 0) / CHARGER_CAP) * 0.9); }
   }
 
   updateGen(t, dt, tick) {
@@ -404,7 +441,7 @@ export class Logistics {
     this.setGate(t, false);
     g.S.stats.scans = (g.S.stats.scans || 0) + 1;
     t.flash = 0.18;
-    if (near) g.sound.tone('sine', 1250, 1250, 0.05, 0.035);
+    if (near) g.gateDing(0.05, 0.035);
     return false;
   }
 

@@ -6,6 +6,17 @@ import { cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 // powered fans. Breathing it builds up "lung load" until you cough, slow down and eventually pass out.
 // ---------------------------------------------------------------------------------------------------
 const SX = 3, SY = 2.4;
+
+// ---- stale air: the deeper the tunnel, the worse the air in it, unless fans are pushing fresh air in ----
+// stale(d) climbs from 0 at 150 m to 1 at 1050 m deep. A support fan throws fresh air up to FAN_R metres down the tunnel, and the
+// fresh share falls off linearly with distance, so just short of the next fan along the tunnel the stale level is stale(d) * s / FAN_R
+// (s = spacing). Staying under STALE_OK (just below the cough threshold) therefore needs
+//     spacing <= STALE_OK * FAN_R / stale(d)       and for a tunnel of length L at depth d:  fans = ceil(L / spacing)
+export const STALE_START = 150, STALE_SPAN = 900, FAN_R = 20, STALE_OK = 0.25, VENT_R = 14;
+export const staleAt = (depth) => Math.max(0, Math.min(1, (depth - STALE_START) / STALE_SPAN));
+// metres between support fans that keeps the air breathable at this depth (Infinity: no fans needed yet)
+export const fanSpacing = (depth) => { const S = staleAt(depth); return S <= STALE_OK ? Infinity : (STALE_OK * FAN_R) / S; };
+export const fansNeeded = (depth, length) => { const s = fanSpacing(depth); return isFinite(s) ? Math.ceil(length / s) : 0; };
 const K = (ix, iy, iz) => (iy + 64) * 1e10 + (iz + 40000) * 1e5 + (ix + 40000);
 
 export class Dust {
@@ -18,9 +29,10 @@ export class Dust {
     this.coughT = 4;
   }
 
-  clear() { this.cells.clear(); this.lung = 0; this.level = 0; }
+  clear() { this.cells.clear(); this.lung = 0; this.level = 0; this.recover = 0; this.hostLevel = 0; this.coughT = 4; }
 
   add(x, y, z, a) {
+    if (this.game.isGuest && this.game.isGuest()) return;   // the dust field is simulated on the host only (a guest breathes what the host says is at its head)
     const ix = Math.floor(x / SX), iy = Math.floor(y / SY), iz = Math.floor(z / SX);
     const k = K(ix, iy, iz);
     const v = (this.cells.get(k) || 0) + a;
@@ -85,9 +97,28 @@ export class Dust {
     }
   }
 
+  // how bad the air is where the head is: deep enclosed tunnels go stale, fresh air from powered fans cancels it
+  stale(head) {
+    const g = this.game, w = g.world; if (!w) return 0;
+    const depth = Math.hypot(head.x, head.z), S = staleAt(depth); if (S <= 0) return 0;
+    if (toJ(head.y) >= w.topAt(toI(head.x), toK(head.z))) return 0;   // open to the hall: the air is fine
+    // fans: refresh the list twice a second
+    if (!(this._fanNext > g.time)) { this._fanNext = g.time + 0.5; this._fans = []; for (const t of g.logi.tiles.values()) if (t.type === 'fan' && t.pw > 0.15) this._fans.push(t.mounted ? { x: t.px, y: t.py, z: t.pz, pw: t.pw, fx: t.fx, fz: t.fz } : { x: cellX(t.i), y: t.j * 0.6 + 0.8, z: cellZ(t.k), pw: t.pw }); }
+    let stale = 1;
+    for (const f of this._fans) {
+      const rx = head.x - f.x, ry = head.y - f.y, rz = head.z - f.z, d = Math.hypot(rx, ry, rz); let q = 0;
+      if (f.fx !== undefined && d < 1.5) q = f.pw; // right under the fan the air is moving fully
+      else if (f.fx !== undefined) { const along = (rx * f.fx + rz * f.fz) / (d || 1); if (along > 0.3 && d < FAN_R) q = f.pw * (1 - d / FAN_R) * Math.min(1, (along - 0.3) / 0.4); else if (d < 6) q = 0.3 * f.pw * (1 - d / 6); }
+      else if (d < VENT_R) q = 0.6 * f.pw * (1 - d / VENT_R);
+      stale *= 1 - Math.min(1, q);
+    }
+    return S * stale;
+  }
+
   // called every frame with the player's head position. Returns lung-related effects.
   breathe(dt, head, T) {
-    const d = Math.max(this.at(head.x, head.y, head.z), this.hostLevel || 0);
+    if (!Number.isFinite(this.lung)) this.lung = 0; if (!Number.isFinite(this.level)) this.level = 0;
+    const d = Math.max(this.at(head.x, head.y, head.z), this.hostLevel || 0, this.stale(head));
     this.level += (d - this.level) * Math.min(1, dt * 3);
     const resist = 1 - 0.2 * T.resp;
     const rec = this.recover > 0 ? 0.25 : 1; if (this.recover > 0) this.recover -= dt; // just woken up: your lungs forgive a lot for a minute

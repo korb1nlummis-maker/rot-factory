@@ -51,6 +51,7 @@ export const UPGRADES = [
   { id: 'tamp', cat: 'mine', name: 'Pile Tamping', desc: 'Compacts the whole pile. +1.2 m of safe unsupported tunnel per level, everywhere.', max: 8, cost: geo(320, 3.4, 8), req: { id: 'timber', lvl: 1 }, effect: (t, l) => { t.stabBonus += l; } },
   { id: 'creak', cat: 'mine', name: 'Creak Sensor', desc: 'More warning before a roof lets go.', max: 3, cost: [70, 340, 1600], effect: (t, l) => { t.warn += 0.55 * l; } },
   { id: 'stress', cat: 'mine', name: 'Stress Lens', desc: 'Highlights plush that are about to fall (amber) or will fall (red).', max: 1, cost: [520], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.stressLens = true; } },
+  { id: 'survey', cat: 'mine', name: 'Structural Survey', desc: 'A clipboard readout: how deep you are, the strongest frame you own and its rating, how much weight the pile above you is pressing, and the load on the nearest support. Amber at 85%, red when it is about to buckle.', max: 1, cost: [800], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.survey = true; } },
   { id: 'bulkhead', cat: 'mine', name: 'Bulkhead Panels', desc: 'Plank panels you build into empty cells. They never fall and loose plush stack against them. Wall off a collapse, seal a bad tunnel, build pillars. F on a panel removes it.', max: 1, cost: [140], req: { id: 'timber', lvl: 1 }, effect: (t) => { t.bulkhead = true; } },
   { id: 'markers', cat: 'mine', name: 'Markers & Flares', desc: 'Unlocks Survey Markers (show on your compass, so you can find your way back) and Road Flares (a bright light that burns for four minutes, no power needed).', max: 1, cost: [90], effect: (t) => { t.markers = true; } },
   { id: 'struts', cat: 'mine', name: 'Quick Struts', desc: 'Unlocks Struts: a cheap single prop you can set down anywhere, with a small support reach. Not a frame, but it buys you time.', max: 1, cost: [120], effect: (t) => { t.struts = true; } },
@@ -82,10 +83,11 @@ export const UPGRADES = [
   // ---------------- MOBILITY ----------------
   { id: 'boots', cat: 'move', name: 'Running Shoes', desc: '+12% walking speed per level.', max: 4, cost: [20, 90, 420, 1900], effect: (t, l) => { t.walk *= 1 + 0.12 * l; } },
   { id: 'knees', cat: 'move', name: 'Knee Pads', desc: 'Crawl faster in tunnels.', max: 3, cost: [28, 150, 800], effect: (t, l) => { t.crouchMul += 0.15 * l; } },
+  { id: 'rope', cat: 'move', name: 'Rope Anchors', desc: 'Unlocks Rope Anchors: stake one into the pile and everything within 6 m is roped in. The slope will not give way under you there, and your steps hardly loosen it. Plant a few going up and the climb is safe.', max: 1, cost: [400], req: { id: 'climb', lvl: 1 }, effect: (t) => { t.rope = true; } },
   { id: 'springs', cat: 'move', name: 'Spring Insoles', desc: 'Jump higher. The pile is steep.', max: 3, cost: [45, 260, 1400], effect: (t, l) => { t.jump += 0.9 * l; } },
 
   // ---------------- CREW ----------------
-  { id: 'crew', cat: 'crew', name: 'Scrapper Bot', desc: 'A little robot crew member. It follows you around, and when you give the order it digs a tunnel in a direction, hauls plush back to the bin and recharges. It levels up as it works: bigger, stronger, faster, wider tunnels. Press V for the crew panel, T to send the crew digging the way you face, Y to call them home.', max: 1, cost: [1800], needs: 150, req: { id: 'bag', lvl: 3 }, effect: (t) => { t.crewMax += 1; } },
+  { id: 'crew', cat: 'crew', name: 'Scrapper Bot', desc: 'A little robot crew member. It follows you around, and when you give the order it digs a tunnel in a direction, hauls plush back to the bin and recharges. It levels up as it works: bigger, stronger, faster, wider tunnels. Press V for the crew panel, T to send the crew digging the way you face, Y to call them home. Aim at a bot and press E to pick it, then E on a target to give it an order. Also unlocks the Charging Station.', max: 1, cost: [1800], needs: 150, req: { id: 'bag', lvl: 3 }, effect: (t) => { t.crewMax += 1; t.machines.push('charger'); } },
   { id: 'crewSlots', cat: 'crew', name: 'More Scrappers', desc: 'Another bot hatches at the bin, up to nine in all. Needs 400 plush handled, and each bot costs 2.3x the one before.', max: 8, cost: geo(3500, 2.3, 8), needs: 400, req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewMax += l; } },
   { id: 'crewHaul', cat: 'crew', name: 'Bigger Buckets', desc: 'Bots haul 40% of their base load more per trip per level (a fresh bot carries 6, 8, 11, 13, then 16).', max: 4, cost: geo(1500, 3, 4), req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewHaul = 1 + 0.4 * l; } },
   { id: 'crewSpeed', cat: 'crew', name: 'Servo Tuning', desc: 'Bots dig 20% faster per level (walking speed is unchanged).', max: 6, cost: geo(2200, 2.6, 6), req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewSpeed = 1 + 0.2 * l; } },
@@ -98,12 +100,12 @@ export const UPGRADES = [
   { id: 'rigCount', cat: 'machine', name: 'More Rigs', desc: 'Allows two more Claw Rigs at once.', max: 5, cost: geo(1400, 2.3, 5), req: { id: 'claw', lvl: 1 }, effect: (t, l) => { t.rigMax += 2 * l; } },
   { id: 'rigSpeed', cat: 'machine', name: 'Rig Motors', desc: 'Claw Rigs grab faster.', max: 6, cost: geo(700, 2.3, 6), req: { id: 'claw', lvl: 1 }, effect: (t, l) => { t.rigRate *= Math.pow(0.78, l); } },
   { id: 'rigReach', cat: 'machine', name: 'Rig Boom', desc: 'Longer arms: bigger area per rig.', max: 4, cost: geo(1100, 2.6, 4), req: { id: 'claw', lvl: 1 }, effect: (t, l) => { t.rigReach += 1.2 * l; } },
-  { id: 'power', cat: 'machine', name: 'Power Grid', desc: 'Unlocks Generators and Power Poles. Generators burn Common to Rare plush for power. Poles link generators together and feed machines within reach. Belts, sorters, mechs, borers, rigs and fans all need power.', max: 1, cost: [450], req: { id: 'bag', lvl: 2 }, effect: (t) => { t.machines.push('gen'); t.machines.push('pole'); } },
+  { id: 'power', cat: 'machine', name: 'Power Grid', desc: 'Unlocks Generators and Power Poles. Generators burn Common to Epic plush for power (1.5, 4, 10 and 25 minutes each at 8 kW). Poles link generators together and feed machines within reach. Belts, sorters, mechs, borers, rigs and fans all need power.', max: 1, cost: [450], req: { id: 'bag', lvl: 2 }, effect: (t) => { t.machines.push('gen'); t.machines.push('pole'); } },
   { id: 'genOutput', cat: 'machine', name: 'Turbine Upgrades', desc: 'Each level makes generators put out 70% more power than the level before (and burn each plush faster).', max: 6, cost: geo(1200, 2.6, 6), req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.genOutput *= Math.pow(1.7, l); } },
   { id: 'gridRange', cat: 'machine', name: 'Grid Range', desc: 'Poles link and reach further.', max: 4, cost: geo(500, 2.8, 4), req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.poleLink += 4 * l; t.poleReach += 1.5 * l; } },
   { id: 'genBuffer', cat: 'machine', name: 'Fuel Hoppers', desc: 'Generators hold more plush in reserve.', max: 3, cost: [800, 4000, 20000], req: { id: 'power', lvl: 1 }, effect: (t, l) => { t.genBuffer = [8, 16, 32, 64][l]; } },
   { id: 'fans', cat: 'machine', name: 'Vent Fans', desc: 'Unlocks Vent Fans. Powered fans clear dust from tunnels within about 14 m.', max: 1, cost: [600], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('fan'); } },
-  { id: 'mfan', cat: 'machine', name: 'Support Fans', desc: 'Unlocks Support Fans: a powered ducted fan you clamp under a frame, which blows fresh air the way you were facing, clearing dust up to 20 m down the tunnel in front of it. Needs power like any machine.', max: 1, cost: [900], req: { id: 'fans', lvl: 1 }, effect: (t) => { t.machines.push('mfan'); } },
+  { id: 'mfan', cat: 'machine', name: 'Support Fans', desc: 'Unlocks Support Fans: a powered ducted fan you clamp under a frame, which blows fresh air the way you were facing, clearing dust and stale air up to 20 m down the tunnel in front of it. The deeper you dig the staler the air: fresh until about 375 m, then you need a fan every (0.25 x 20 / stale) metres, where stale runs from 0 at 150 m to 1 at 1,050 m. Needs power like any machine.', max: 1, cost: [900], req: { id: 'fans', lvl: 1 }, effect: (t) => { t.machines.push('mfan'); } },
   { id: 'splitter', cat: 'machine', name: 'Belt Splitters', desc: 'Unlocks Splitters: a belt piece that sends plush forward, left and right in turn, so one line can feed several sorters, vaults or lines. Set one on the floor or over an existing belt.', max: 1, cost: [1200], req: { id: 'belts', lvl: 1 }, effect: (t) => { t.machines.push('splitter'); } },
   { id: 'detector', cat: 'machine', name: 'Detector Gate', desc: 'A metal-detector arch you set over a belt. Everything that rolls through gets scanned: green beep for ordinary plush, RED alarm and the line holds the item when it is The One. Build as many as you like. Bots and mechs only protect The One if it passes a gate: anything that reaches the bin unscanned is sold, and The One cannot be sold back.', max: 1, cost: [30], req: { id: 'bag', lvl: 1 }, effect: (t) => { t.machines.push('gate'); } },
   { id: 'belts', cat: 'machine', name: 'Conveyor Belts', desc: 'Unlocks belts (R toggles ramp up/down). Run plush from the pile to the bin or sorters, through tunnels and up slopes. Lay a line by holding B. Needs power.', max: 1, cost: [350], req: { id: 'power', lvl: 1 }, effect: (t) => { t.machines.push('belt'); } },
@@ -134,13 +136,13 @@ export const FRAME_TYPES = {
   rebar:    { name: 'Rebar Cage',       cost: 4500,    bonus: 4, radius: 5.0, maxDepth: 1300, color: 0x8a6a58, icon: '⛓️' },
   titan:    { name: 'Titanium Rib',     cost: 27000,    bonus: 5, radius: 5.6, maxDepth: 1800, color: 0xb7c3d0, icon: '🔷' },
   carbon:   { name: 'Carbon Weave',     cost: 156000,   bonus: 6, radius: 6.2, maxDepth: 2300, color: 0x2b2f36, icon: '⬛' },
-  plasma:   { name: 'Plasma Arch',      cost: 900000,  bonus: 7, radius: 6.8, maxDepth: 2700, color: 0x7ad7ff, icon: '🌀' },
-  voidl:    { name: 'Void Lattice',     cost: 16200000, bonus: 8, radius: 7.6, maxDepth: 3000, color: 0xb078ff, icon: '🕳️' },
-  neutron:  { name: 'Neutron Shell',    cost: 99000000, bonus: 9, radius: 8.4, maxDepth: 3500, color: 0xfff0b0, icon: '⚛️' },
+  plasma:   { name: 'Plasma Arch',      cost: 900000,  bonus: 7, radius: 6.8, maxDepth: 3200, color: 0x7ad7ff, icon: '🌀' },
+  voidl:    { name: 'Void Lattice',     cost: 16200000, bonus: 8, radius: 7.6, maxDepth: 3900, color: 0xb078ff, icon: '🕳️' },
+  neutron:  { name: 'Neutron Shell',    cost: 99000000, bonus: 9, radius: 8.4, maxDepth: 4500, color: 0xfff0b0, icon: '⚛️' },
   horizon:  { name: 'Event Horizon',    cost: 630000000, bonus: 10, radius: 9.2, maxDepth: Infinity, color: 0x101018, icon: '⚫' },
 };
 
-// How deep (metres from the start, toward the exit 3 km out) a support can stand. The mountain presses harder the deeper you go:
+// How deep (metres from the start, toward the exit 4.9 km out) a support can stand. The mountain presses harder the deeper you go:
 // near its limit a support creaks, past it the support breaks the moment you set it. Struts and jacks are weaker than frames.
 export const STRUT_DEPTH = { strut: 110, jack: 320 };
 export const supportDepth = (x, z) => Math.hypot(x, z);
@@ -160,7 +162,7 @@ export function defaultTuning() {
   return {
     grabTime: 1.5, reach: 2.4, carry: 1, autoRepeat: false, locator: 0, locatorRange: 0, exitMarker: false, assay: false, depots: false, scoop: 0, vac: 0, vacRate: 0, throwPower: 11,
     sellMult: 1, streakCap: 6, binCatch: 0, autoDump: 3.8, dexBonus: 0, shinyMult: 5,
-    frames: [], stabBonus: 0, warn: 1.1, stressLens: false, shakeMul: 1, compass: false,
+    frames: [], stabBonus: 0, warn: 1.1, stressLens: false, survey: false, shakeMul: 1, compass: false,
     lampRange: 9, lampPower: 1, lantern: false,
     scan: 0, scanRange: 0,
     walk: 4.0, crouchMul: 0.5, jump: 6.0,

@@ -8,7 +8,7 @@ const FORM = `
   <ol>
     <li><b>Position.</b> Sorter, Grade 1 (probationary). Probation lasts until the end of time.</li>
     <li><b>Pay.</b> Paid per plush handled, by weight of enthusiasm. Management may double your pay without notice during Golden Hour.</li>
-    <li><b>Duties.</b> Grab plush. Feed the SORT bin. Find the one marked <i>Il Rotto Supremo</i>, or dig out through the east wall, 3 km away.</li>
+    <li><b>Duties.</b> Grab plush. Feed the SORT bin. Find the one marked <i>Il Rotto Supremo</i>, or dig out through the east wall, nearly 5 km away.</li>
     <li><b>Hours.</b> The lights are on from 07:00 to 19:00. After the chime you are responsible for your own lamp.</li>
     <li><b>Hazards.</b> The Employee accepts the risk of slides, cave-ins, loose plush, thin air and the mountain. Do not climb. The sign says so.</li>
     <li><b>Previous employees.</b> Their belongings are in the pile. Treat them with respect and keep what is useful.</li>
@@ -36,13 +36,15 @@ export function playIntro() {
     };
     root.addEventListener('mousedown', () => { if (stage < LINES.length) next(); });
     const onKey = (e) => {
-      if (stage < LINES.length && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); next(); }
+      if (e.target === input) return;   // the form handles (and keeps to itself) what is typed in it
+      e.stopPropagation();              // nothing else pressed during the intro (Tab, B, F, I, WASD...) reaches the game behind it
+      if (stage < LINES.length && !e.repeat && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); next(); }
     };
     window.addEventListener('keydown', onKey, true);
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.code !== 'Enter' || done) return;
-      const name = input.value.replace(/\s+/g, ' ').trim();
+      const name = input.value.replace(/\s+/g, ' ').trim().slice(0, 24);
       if (!name) { input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake'); return; }
       done = true; input.readOnly = true; paper.classList.add('signed');
       setTimeout(() => { paper.classList.remove('on'); welcome.textContent = `Welcome aboard, ${name}.`; welcome.classList.add('on'); }, 1500);

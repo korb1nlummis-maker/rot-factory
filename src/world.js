@@ -54,12 +54,12 @@ export class World {
   }
 
   placeNeedle() {
-    // The One hides in a far corner of the hall, 4.0 to 4.25 km from the start.
+    // The One hides in a far corner of the hall, 6.0 to 6.25 km from the start (the exit is 4.9 km east, so it is well past the exit).
     const rnd = mulberry32(this.seed ^ 0xabcdef);
     const lim = (NX * C) / 2 - 60;
     for (let t = 0; t < 400; t++) {
       const a = rnd() * Math.PI * 2;
-      const r = 4000 + rnd() * 250;
+      const r = 6000 + rnd() * 250;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (Math.abs(x) > lim || Math.abs(z) > lim) continue;
       const i = toI(x), k = toK(z);
@@ -73,15 +73,17 @@ export class World {
   // rich veins: drifting blobs ~10 m across where rarer plush gather
   veinAt(i, j, k) { return vnoise2(i / 16 + j / 23, k / 16 - j / 19, this.seed + 99); }
   // the closest rich vein (veinAt above VEIN_T) to a spot, looking at the heights around j; null if none within `range` metres
+  // how high the pile stood before anyone dug: the same rule makeCol uses, without generating the column (a far search must stay cheap)
+  baseTop(i, k) { const x = cellX(i), z = cellZ(k); return x * x + z * z > 85 * 85 ? NY : Math.min(NY, Math.floor(this.heightAt(x, z) / C)); }
   nearestVein(x, y, z, range) {
     const ci = toI(x), ck = toK(z), cj = toJ(y), R = Math.ceil(range / C), step = 3;
     let best = null, bd = 1e9;
-    for (const dj of [0, -8, 8]) {
+    for (const dj of [0, -8, 8, -16, 16, -32]) {
       const j = cj + dj; if (j < 1 || j > NY - 2) continue;
       for (let dk = -R; dk <= R; dk += step) for (let di = -R; di <= R; di += step) {
-        const d2 = di * di + dk * dk; if (d2 > R * R || d2 >= bd) continue;
+        const d2 = di * di + dk * dk; if (d2 > R * R || d2 + dj * dj >= bd) continue;
         const i = ci + di, k = ck + dk; if (!this.inside(i, j, k)) continue;
-        if (this.veinAt(i, j, k) > VEIN_T) { bd = d2 + dj * dj * 0.25; best = { i, j, k }; }
+        if (this.veinAt(i, j, k) > VEIN_T && j < this.baseTop(i, k)) { bd = d2 + dj * dj; best = { i, j, k }; }   // a vein is in the pile, never in the open air above it
       }
     }
     if (!best) return null;

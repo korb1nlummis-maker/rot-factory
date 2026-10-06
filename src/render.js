@@ -11,7 +11,7 @@ import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, ARCH_COUNT } from './p
 import { makeArchGeometry } from './plushgeo.js';
 import { U, makePlushMaterial, ghostVert, ghostFrag, gradeShader } from './shaders.js';
 
-const NA = ARCH_COUNT + 8; // 36 shapes + The One + bulkhead + gear + 4 fakes + cache
+const NA = ARCH_COUNT + 8; // every shape + The One + bulkhead + gear + 4 fakes + cache
 const A_NEEDLE = ARCH_COUNT, A_BULK = ARCH_COUNT + 1, A_REMAINS = ARCH_COUNT + 2;
 const CAP_HI = 1100, CAP_LO = 3200, CAP_DYN = 700;
 const hexCache = new Map();

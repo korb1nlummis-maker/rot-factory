@@ -1,3 +1,4 @@
+import { ENERGY_KJ } from '../power.js';
 // Audit of the "machine" upgrade category: every upgrade, every level, must do what its name and text say.
 // Run in the browser: `await __selftest('upg.machine.')`
 import { fmt, compaction } from '../util.js';
@@ -171,8 +172,8 @@ export default async function (ctx) {
       const net = g.power.nets[0]; if (!net) return `L${l}: no net`;
       if (!near(net.cap, out, 1e-9) || !near(net.supply, out, 1e-9)) return `L${l}: grid cap ${net.cap} supply ${net.supply}, expected ${out}`;
       const want = Math.min(1, out / (8 * 3.5)); if (!near(mechs[0].pw, want, 0.01)) return `L${l}: machines run at ${mechs[0].pw}, expected ${want} (supply ${out} vs demand 28)`;
-      let tt = 0.02; while ((gen.burn > 0 || gen.lit) && tt < 60) { g.power.update(0.01); tt += 0.01; }
-      const expect = 100 / out; if (!near(tt, expect + 0.02, 0.04)) return `L${l}: a Common plush burned ${tt.toFixed(2)}s, expected ${expect.toFixed(2)}s`;
+      let tt = 0.02; while ((gen.burn > 0 || gen.lit) && tt < 400) { g.power.update(0.01); tt += 0.01; }
+      const expect = ENERGY_KJ[0] / out; if (!near(tt, expect + 0.02, 0.04)) return `L${l}: a Common plush burned ${tt.toFixed(2)}s, expected ${expect.toFixed(2)}s`;
     }
     return true;
   });

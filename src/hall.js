@@ -3,6 +3,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { HALL_HX, HALL_HZ, HALL_H } from './config.js';
 import { U } from './shaders.js';
 import { mulberry32 } from './util.js';
+import { FRAME_TYPES, STRUT_DEPTH } from './upgrades.js';
+import { fanSpacing, staleAt, STALE_START, STALE_SPAN, STALE_OK, FAN_R, VENT_R } from './dust.js';
 
 function canvasTex(w, h, draw, repeat = null, srgb = true) {
   const c = document.createElement('canvas');
@@ -395,7 +397,7 @@ export function buildHall(scene) {
       'Cash buys bags, tools, crew (desk: E).',
       'Dig tunnels. Prop the roof or it falls.',
       'DO NOT CLIMB. Piles slide.',
-      'Cannot find it? Exit is 3 km EAST  →',
+      'Cannot find it? Exit is 4.9 km EAST  →',
     ];
     rules.forEach((t, n) => { const y = 168 + n * 74; g.fillText((n + 1) + '.', 52, y); g.fillText(t, 112, y + (n % 2 ? 2 : -2)); });
     g.lineWidth = 4; g.beginPath(); g.moveTo(112, 168 + 5 * 74 + 26); g.lineTo(420, 168 + 5 * 74 + 24); g.stroke(); // underline the warning
@@ -414,6 +416,78 @@ export function buildHall(scene) {
   for (const [cx, cl] of [[-0.3, 0.09], [-0.1, 0.07], [0.2, 0.11]]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, cl, 8), chalkMat); c.rotation.z = Math.PI / 2; c.position.set(cx, 0.84, 0.08); board.add(c); }
   board.add(bf, bs, tray, frontLeg); board.scale.setScalar(1.3); scene.add(board);
   hall.colliders.push({ x: 4.4, z: 2.6, r: 0.75, h: 2.4 });
+
+  // ---- more chalkboards: how deep each piece can go, the air, what to carry, how to dig. Every number comes from the game data. ----
+  hall.boards = [];
+  const HAND = 'Chalkboard SE, Chalkduster, Bradley Hand, Segoe Print, Comic Sans MS, cursive';
+  const fm = (v) => (isFinite(v) ? (v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + ' km' : v + ' m') : 'any depth');
+  const makeBoard = (x, z, title, rows, foot = '') => {
+    const rec = { title, rows, foot, overflow: false };
+    const tex = canvasTex(1024, 720, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#26342e'); gr.addColorStop(1, '#1b2622'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      for (let n = 0; n < 900; n++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.045})`; g.fillRect(Math.random() * w, Math.random() * h, 30 + Math.random() * 120, 2 + Math.random() * 8); }
+      const chalk = '#f1eee2'; g.fillStyle = chalk; g.strokeStyle = chalk; g.textBaseline = 'middle'; g.textAlign = 'center'; g.font = `700 58px ${HAND}`; g.fillText(title, w / 2, 52);
+      g.lineWidth = 5; g.beginPath(); g.moveTo(120, 92); g.lineTo(w - 120, 88); g.stroke(); g.textAlign = 'left';
+      const n = rows.length, step = Math.min(56, (h - 190 - (foot ? 70 : 0)) / n), fs = Math.round(Math.min(40, step * 0.72));
+      g.font = `500 ${fs}px ${HAND}`;
+      rows.forEach((r, i) => {
+        const y = 140 + i * step; const left = Array.isArray(r) ? r[0] : r, right = Array.isArray(r) ? r[1] : '';
+        if (left.startsWith('#')) { g.font = `700 ${fs}px ${HAND}`; g.fillStyle = '#ffe9a8'; g.fillText(left.slice(1), 44, y); g.fillStyle = chalk; g.font = `500 ${fs}px ${HAND}`; return; }
+        g.fillText(left, 44, y + (i % 2 ? 1 : -1)); if (g.measureText(left).width > (right ? 560 : 930)) rec.overflow = true;
+        if (right) { g.textAlign = 'right'; g.fillText(right, w - 44, y); g.textAlign = 'left'; if (g.measureText(left).width + g.measureText(right).width > 920) rec.overflow = true; }
+      });
+      if (foot) { g.font = `600 ${Math.round(fs * 0.9)}px ${HAND}`; g.fillStyle = '#ffd98a'; g.textAlign = 'center'; foot.split('\n').forEach((ln, i) => { g.fillText(ln, w / 2, h - 52 + i * 34 - (foot.split('\n').length - 1) * 17); if (g.measureText(ln).width > 960) rec.overflow = true; }); }
+    });
+    const b = new THREE.Group(); b.name = 'chalkboard'; b.position.set(x, 0, z); b.rotation.y = Math.atan2(-x, -(z + 1.4));
+    const bf2 = new THREE.Mesh(new THREE.BoxGeometry(1.78, 1.28, 0.07), boardWood); bf2.position.set(0, 1.45, 0);
+    const bs2 = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 1.15), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 })); bs2.position.set(0, 1.45, 0.037);
+    const tr2 = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.12), boardWood); tr2.position.set(0, 0.8, 0.07);
+    for (const sx of [-0.7, 0.7]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.9, 0.06), legMat); leg.position.set(sx, 0.9, -0.28); leg.rotation.x = 0.14; b.add(leg); }
+    const fl = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), legMat); fl.position.set(0, 0.4, 0.02);
+    b.add(bf2, bs2, tr2, fl); b.scale.setScalar(1.3); scene.add(b); hall.colliders.push({ x, z, r: 0.75, h: 2.4 }); hall.boards.push(rec); return b;
+  };
+  // 1. how deep each support can go
+  makeBoard(6.8, 5.0, 'HOW DEEP CAN IT GO?', [
+    ...Object.entries(FRAME_TYPES).map(([k, f]) => [`${f.name}`, `${fm(f.maxDepth)}   reach ${f.radius} m`]),
+    ['Strut / Hydraulic Jack', `${STRUT_DEPTH.strut} m / ${STRUT_DEPTH.jack} m`],
+  ], 'At 85% of its rating a support creaks. At 100% it breaks.\nWide rooms and long spans need more supports sharing the weight.');
+  // 2. the air
+  const fsp = (d) => { const s = fanSpacing(d); return isFinite(s) ? `a fan every ${s.toFixed(s < 10 ? 1 : 0)} m` : 'no fan needed'; };
+  makeBoard(7.6, 0.8, 'AIR AT DEPTH', [
+    `Past ${STALE_START} m the air in a tunnel goes stale.`,
+    `Fresh enough to ${Math.round(STALE_START + STALE_OK * STALE_SPAN)} m. Then you cough.`,
+    '#Support Fans: how many',
+    ...[400, 500, 600, 800, 1000, 1500].map((d) => [`at ${d} m deep`, fsp(d)]),
+    `A Support Fan blows ${FAN_R} m the way you face.`,
+    `Rule: spacing = ${STALE_OK} x ${FAN_R} / stale. Needs power.`,
+  ], 'Vent Fan: ' + VENT_R + ' m all around. Respirator: 20% less dust per level.\nCough = walk out. Pass out = you wake at a depot.');
+  // 3. what to carry, by depth
+  makeBoard(1.4, 6.2, 'SURVIVING THE DEPTH', [
+    ['0 to 150 m', 'timber, struts, lantern, flares'],
+    ['150 to 380 m', 'steel frames, Structural Survey'],
+    ['375 m and up', 'Support Fans, Respirator'],
+    ['800 m and up', 'concrete, Air Tank, a Depot'],
+    ['1,300 m and up', 'rebar, Hard Hat, Padding'],
+    ['4.9 km', 'the exit. Bring everything.'],
+    '#Always',
+    ['Stress Lens', 'amber = soon, red = now'],
+    ['Rope Anchors', 'safe footing on the slope'],
+    ['Depot Beacon', 'recall and sell far out'],
+    ['Medkit, canister', 'first aid and 40 s of air'],
+  ], 'The Survey shows depth, load and the fan spacing you need.');
+  // 4. how to dig
+  makeBoard(6.6, -7.0, 'TUNNEL CRAFT', [
+    '1. Dig the 4 x 4 section out first.',
+    '2. Set a frame. It never digs for you.',
+    '3. Left and Right turn a frame: curves.',
+    '4. Down arrow: back to the grid.',
+    `5. Unsupported roof: about 7 m near the top,`,
+    '    less the deeper and heavier it gets.',
+    '6. Frames, struts and jacks share the load.',
+    '7. Hammer a support to read its load.',
+    '8. Tamping adds 1.2 m of safe roof a level.',
+    '9. A creaking roof is about to fall. Leave.',
+  ], 'Remove supports and the tunnel comes down.');
 
   // EXIT door in +X wall
   const door = new THREE.Group();

@@ -1,10 +1,10 @@
 // World geometry. One lattice cell holds one plush.
 export const C = 0.6;            // cell size, meters
-export const NX = 10240, NZ = 10240, NY = 72; // ~6.1 km x 6.1 km x 43.2 m hall, generated lazily
+export const NX = 16384, NZ = 16384, NY = 72; // ~9.8 km x 9.8 km x 43.2 m hall, generated lazily (the stability code packs (i,k) into k * 16384 + i, so NX must stay at or under 16384)
 export const CS = 16;            // render chunk size in cells
 export const CX = Math.ceil(NX / CS), CZ = Math.ceil(NZ / CS), CY = Math.ceil(NY / CS);
 export const NA_ARCH = 16; // plush archetypes + the one + bulkhead
-export const HALL_HX = NX * C * 0.5; // 72
+export const HALL_HX = NX * C * 0.5; // 4915 m: the exit door is this far east of the start
 export const HALL_HZ = NZ * C * 0.5;
 export const HALL_H = NY * C;        // 43.2
 export const RC = 0.335;             // collision radius of a lattice plush

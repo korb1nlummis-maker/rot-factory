@@ -1,12 +1,15 @@
 import { h32 } from './util.js';
 
-export const ARCH_COUNT = 48;
-export const PAL_COUNT = 20; // 48 shapes x 20 colors = 960 species, plus fakes and The One. Ids 1..576 are the original 36 x 16 and never change.
+export const ARCH_COUNT = 68;
+export const PAL_COUNT = 24; // ids 1..576 are the original 36 x 16, 577..960 added 4 colors and 12 shapes (48 x 20), then 20 more shapes in every color and 4 more colors in every shape but the Razzo. None of those ever change.
 const OLD_ARCH = 36, OLD_PAL = 16, OLD_TOTAL = OLD_ARCH * OLD_PAL;
-export const NEEDLE = 999; // species id of The One
-export const BULK = 998;   // bulkhead panel (player-built wall, never falls)
-export const REMAINS = 997; // what is left of a past worker
-export const CACHE = 996;   // a worker's supply cache
+const GEN2_ARCH = 48, GEN2_PAL = 20, GEN2_TOTAL = GEN2_ARCH * GEN2_PAL;
+const RAZZO_ARCH = 31; // volatile: never given a new color, so the volatile pool stays exactly as it was
+export const SPECIAL_MIN = 4090; // every id from here up is a fake or a special cell, never a regular species (regular ids stay far below)
+export const NEEDLE = 4099; // species id of The One
+export const BULK = 4098;   // bulkhead panel (player-built wall, never falls)
+export const REMAINS = 4097; // what is left of a past worker
+export const CACHE = 4096;   // a worker's supply cache
 export const isSpecialCell = (sp) => sp === BULK || sp === REMAINS || sp === CACHE;
 
 export const ARCH_NAMES = [
@@ -15,12 +18,15 @@ export const ARCH_NAMES = [
   'Pinguino', 'Orsetto', 'Tartaruga', 'Giraffa', 'Elefante', 'Riccio', 'Gufo', 'Medusa', 'Lumaca', 'Fungo',
   'Cactus', 'Ananas', 'Anguria', 'Pizza', 'Gelato', 'Ciambella', 'Dado', 'Razzo', 'Nuvola', 'Stella', 'Drago', 'Lampadina',
   'Zucca', 'Castello', 'Moka', 'Nido', 'Sardina', 'Aragosta', 'Pappagallo', 'Cavallo', 'Mongolfiera', 'Gondola', 'Tostapane', 'Pomodoro',
+  'Ombrello', 'Bottiglia', 'Candela', 'Scimmia', 'Cigno', 'Canguro', 'Granchio', 'Ragno', 'Balena', 'Ape',
+  'Carota', 'Bruco', 'Cuore', 'Saturno', 'Casetta', 'Locomotiva', 'Ciliegia', 'Peperoncino', 'Fenicottero', 'Tricheco',
 ];
-export const DECOYS = [990, 991, 992, 993]; // gold fakes of The One
+export const DECOYS = [4090, 4091, 4092, 4093]; // gold fakes of The One
 export const PREFIXES = [
   'Gnocchi', 'Biscotti', 'Pepperoni', 'Tiramisu', 'Mozzarello', 'Limoncello', 'Crostini', 'Zucchino',
   'Risotto', 'Pistacchio', 'Frullato', 'Panino', 'Spaghetto', 'Cannolo', 'Bruschetta', 'Affogato',
   'Carbonara', 'Gorgonzolo', 'Panettone', 'Amaretto',
+  'Ravioli', 'Barolo', 'Focaccia', 'Radicchio',
 ];
 export const PALETTES = [
   ['Bubblegum', 0xff8fc4], ['Mint', 0x7ef0c4], ['Lavender', 0xb69cff], ['Sky', 0x6cc4ff],
@@ -28,6 +34,7 @@ export const PALETTES = [
   ['Teal', 0x2cb8b0], ['Grape', 0x8a4fd8], ['Ketchup', 0xe0343c], ['Cream', 0xfff1d6],
   ['Cocoa', 0x9c6b4a], ['Cloud', 0xc9d3dc], ['Magenta', 0xe83cb4], ['Navy', 0x3a56c8],
   ['Peach', 0xffb68a], ['Slate', 0x5f7183], ['Rust', 0xb85a2e], ['Sunflower', 0xffc71f],
+  ['Olive', 0x8a9a3b], ['Wine', 0x862646], ['Sand', 0xdcc48c], ['Orchid', 0xd27be0],
 ];
 
 export const RARITY = [
@@ -40,7 +47,8 @@ export const RARITY = [
   { id: 6, name: 'THE ONE',   color: '#fff3a0', css: 'theone',    value: 0,    weight: 0 },
 ];
 
-const SPECIES_TOTAL = ARCH_COUNT * PAL_COUNT;
+const GEN3_TOTAL = GEN2_TOTAL + (ARCH_COUNT - GEN2_ARCH) * GEN2_PAL; // 960 + the 20 newest shapes in the 20 colors
+const SPECIES_TOTAL = GEN3_TOTAL + (PAL_COUNT - GEN2_PAL) * (ARCH_COUNT - 1); // + the 4 newest colors in every shape except the Razzo
 export const species = []; // index = species id (1..SPECIES_TOTAL), 0 unused
 export const pools = RARITY.map(() => []);
 export const volatilePool = []; // Razzo plush: not part of the normal rarity pools, they turn up on their own roll (see pickSpecies)
@@ -51,8 +59,11 @@ export const volatilePool = []; // Razzo plush: not part of the normal rarity po
   for (let s = 1; s <= OLD_TOTAL; s++) { archOf[s] = (s - 1) % OLD_ARCH; palOf[s] = Math.floor((s - 1) / OLD_ARCH); }
   // new ids: the old shapes in the new colors first, then the new shapes in every color
   let id = OLD_TOTAL + 1;
-  for (let pal = OLD_PAL; pal < PAL_COUNT; pal++) for (let arch = 0; arch < OLD_ARCH; arch++) { archOf[id] = arch; palOf[id] = pal; id++; }
-  for (let arch = OLD_ARCH; arch < ARCH_COUNT; arch++) for (let pal = 0; pal < PAL_COUNT; pal++) { archOf[id] = arch; palOf[id] = pal; id++; }
+  for (let pal = OLD_PAL; pal < GEN2_PAL; pal++) for (let arch = 0; arch < OLD_ARCH; arch++) { archOf[id] = arch; palOf[id] = pal; id++; }
+  for (let arch = OLD_ARCH; arch < GEN2_ARCH; arch++) for (let pal = 0; pal < GEN2_PAL; pal++) { archOf[id] = arch; palOf[id] = pal; id++; }
+  // ids 961..: the newest shapes in the 20 colors, then the newest colors in every shape (no new Razzo)
+  for (let arch = GEN2_ARCH; arch < ARCH_COUNT; arch++) for (let pal = 0; pal < GEN2_PAL; pal++) { archOf[id] = arch; palOf[id] = pal; id++; }
+  for (let pal = GEN2_PAL; pal < PAL_COUNT; pal++) for (let arch = 0; arch < ARCH_COUNT; arch++) { if (arch === RAZZO_ARCH) continue; archOf[id] = arch; palOf[id] = pal; id++; }
   const rarityOf = {};
   const assign = (from, to, seed, counts) => {
     const order = [];
@@ -62,12 +73,14 @@ export const volatilePool = []; // Razzo plush: not part of the normal rarity po
     counts.forEach((c, r) => { for (let n = 0; n < c; n++) rarityOf[order[p++]] = r; });
   };
   assign(1, OLD_TOTAL, 77, [262, 160, 90, 44, 14, 6]);
-  assign(OLD_TOTAL + 1, SPECIES_TOTAL, 78, [175, 107, 60, 29, 9, 4]);
+  assign(OLD_TOTAL + 1, GEN2_TOTAL, 78, [175, 107, 60, 29, 9, 4]);
+  assign(GEN2_TOTAL + 1, GEN3_TOTAL, 79, [182, 111, 63, 30, 10, 4]); // 400, same shares as the 576
+  assign(GEN3_TOTAL + 1, SPECIES_TOTAL, 80, [122, 75, 42, 20, 6, 3]); // 268
   for (let s = 1; s <= SPECIES_TOTAL; s++) {
     const arch = archOf[s], pal = palOf[s];
     const r = rarityOf[s] ?? 0;
     const name = `${PREFIXES[pal]} ${ARCH_NAMES[arch]}`;
-    species[s] = { id: s, arch, pal, rarity: r, name, volatile: arch === 31 };
+    species[s] = { id: s, arch, pal, rarity: r, name, volatile: arch === RAZZO_ARCH };
     if (species[s].volatile) volatilePool.push(s); else pools[r].push(s);
   }
   species[NEEDLE] = { id: NEEDLE, arch: ARCH_COUNT, pal: 99, rarity: 6, name: 'Il Rotto Supremo' };

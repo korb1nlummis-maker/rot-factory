@@ -31,7 +31,7 @@ export default async function (ctx) {
   // ------------------------------------------------------------------ table sanity
   await T('upg.mine.table-costs-req-and-frames', async () => {
     const bad = [];
-    if (mine.length !== 26) bad.push('expected 26 mine upgrades, got ' + mine.length);
+    if (mine.length !== 27) bad.push('expected 27 mine upgrades, got ' + mine.length);
     for (const u of mine) {
       if (u.cost.length !== u.max) bad.push(`${u.id}: cost length ${u.cost.length} != max ${u.max}`);
       for (let l = 1; l < u.cost.length; l++) if (!(u.cost[l] > u.cost[l - 1])) bad.push(`${u.id}: cost not rising at level ${l + 1}`);

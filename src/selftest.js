@@ -6,7 +6,7 @@ import { UPGRADES, FRAME_TYPES, effLevels, computeTuning } from './upgrades.js';
 import { recipes, MATERIALS } from './crafting.js';
 import { CART_CAP, CART_NAMES } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
-import { NEEDLE, species } from './plushdata.js';
+import { NEEDLE, BULK, species } from './plushdata.js';
 import { Slides } from './slide.js';
 import { capacityOf, loadOn } from './loadtrace.js';
 
@@ -319,8 +319,8 @@ export async function runSelfTest(g, only = '') {
   });
   await T('mining.marker-on-compass', async () => { fresh(mkUp({ compass: 1 })); const r = await placeAtFloor('marker', 0, 6); return (r.ok && S().entities.some((e) => e.type === 'marker')) || 'marker'; });
   await T('mining.bulkhead-place-and-take', async () => {
-    fresh(mkUp()); craft('bulk', 2); selectTool('bulk'); aimPoint(0, 0, 6); let pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const e = pl.ent; if (w().get(e.i, e.j, e.k) !== 998) return 'no bulk cell';
-    S().carry = []; g.collect({ type: 'cell', i: e.i, j: e.j, k: e.k, sp: 998, vr: 0 }); return (w().get(e.i, e.j, e.k) === 0 && (S().items.bulk || 0) >= 1) || 'not taken back';
+    fresh(mkUp()); craft('bulk', 2); selectTool('bulk'); aimPoint(0, 0, 6); let pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const e = pl.ent; if (w().get(e.i, e.j, e.k) !== BULK) return 'no bulk cell';
+    S().carry = []; g.collect({ type: 'cell', i: e.i, j: e.j, k: e.k, sp: BULK, vr: 0 }); return (w().get(e.i, e.j, e.k) === 0 && (S().items.bulk || 0) >= 1) || 'not taken back';
   });
   await T('mining.dynamite-blast-and-fuse', async () => {
     fresh(mkUp()); const { i, k } = spot(); const j0 = 3; const cnt = (cx, cy, cz, r) => { let c = 0; for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let d = -r; d <= r; d++) if (w().get(cx + a, cy + b, cz + d)) c++; return c; };
@@ -604,7 +604,7 @@ export async function runSelfTest(g, only = '') {
   });
   await T('machines.borer-size-and-speed-upgrades', async () => { const a = tune({ borer: 1 }), b = tune({ borer: 1, borerSize: 2, borerSpeed: 6, borerCount: 4 }); return (b.borerW >= 5 && b.borerRate < a.borerRate && b.borerMax > a.borerMax) || `borer upgrades ${a.borerW}x${a.borerH} ${a.borerRate} ${a.borerMax} -> ${b.borerW}x${b.borerH} ${b.borerRate} ${b.borerMax}`; });
   await T('machines.depot-sells-and-lists-travel', async () => {
-    fresh(powerUp({ bag: 2 })); const b = await placeAtFloor('beacon', 6, -9, 2.2); if (!b.ok) return b.why; const bc = [...g.machines.items.values()].find((x) => x.ent.type === 'beacon'); S().carry = []; for (let q = 0; q < 4; q++) S().carry.push({ sp: 2, vr: 0 }); p().pos.set(bc.ent.x + 2, 0, bc.ent.z); const m0 = S().money; for (let n = 0; n < 80; n++) g.autoDump(0.1);
+    fresh(powerUp({ bag: 2 })); { const ci = toI(6), ck = toK(-9); for (let di = -3; di <= 3; di++) for (let dk = -3; dk <= 3; dk++) for (let j = 0; j < 5; j++) w().removeCell(ci + di, j, ck + dk, false); } /* earlier tests can leave plush in the bay */ const b = await placeAtFloor('beacon', 6, -9, 2.2); if (!b.ok) return b.why; const bc = [...g.machines.items.values()].find((x) => x.ent.type === 'beacon'); S().carry = []; for (let q = 0; q < 4; q++) S().carry.push({ sp: 2, vr: 0 }); p().pos.set(bc.ent.x + 2, 0, bc.ent.z); const m0 = S().money; for (let n = 0; n < 80; n++) g.autoDump(0.1);
     if (S().carry.length !== 0 || S().money <= m0) return 'depot did not sell'; p().pos.set(bc.ent.x + 1.2, 0, bc.ent.z); p().yaw = Math.atan2(bc.ent.x - p().pos.x, bc.ent.z - p().pos.z); p().pitch = -0.2; adv(0.2); g.useKey(); const open = g.ui.openModal === 'travel'; g.ui.closeModals(); return open || 'travel menu did not open';
   });
 
@@ -684,8 +684,8 @@ export async function runSelfTest(g, only = '') {
 
   // ================================================================== PLUSH VARIETY
   const pd = await import('./plushdata.js'); const pg = await import('./plushgeo.js');
-  await T('plush.960-species-with-unique-names-and-valid-fields', async () => {
-    if (pd.speciesCount !== 960) return 'count ' + pd.speciesCount; const names = new Set(); const bad = [];
+  await T('plush.species-with-unique-names-and-valid-fields', async () => {
+    if (pd.speciesCount < 960) return 'count ' + pd.speciesCount; const names = new Set(); const bad = [];
     for (let id = 1; id <= pd.speciesCount; id++) { const sp = pd.species[id]; if (!sp) { bad.push('missing ' + id); continue; } if (names.has(sp.name)) bad.push('dup name ' + sp.name); names.add(sp.name); if (sp.arch < 0 || sp.arch >= pd.ARCH_COUNT || !pd.PALETTES[sp.pal] || !pd.PREFIXES[sp.pal] || !pd.ARCH_NAMES[sp.arch]) bad.push('bad fields ' + id); if (/undefined/.test(sp.name)) bad.push('undefined name ' + id); }
     return bad.length === 0 || bad.slice(0, 4).join('; ');
   });
@@ -694,17 +694,17 @@ export async function runSelfTest(g, only = '') {
     const counts = [0, 0, 0, 0, 0, 0]; for (let id = 1; id <= 576; id++) counts[pd.species[id].rarity]++; return (ok && counts.join() === '262,160,90,44,14,6') || 'old ids moved: ' + counts.join();
   });
   await T('plush.new-species-rarity-spread', async () => { const c = [0, 0, 0, 0, 0, 0]; for (let id = 577; id <= 960; id++) c[pd.species[id].rarity]++; return (c.join() === '175,107,60,29,9,4' && c.reduce((a, b) => a + b, 0) === 384) || 'spread ' + c.join(); });
-  await T('plush.ids-stay-clear-of-special-cells', async () => pd.speciesCount < 990 || 'species ids collide with decoys/specials');
+  await T('plush.ids-stay-clear-of-special-cells', async () => pd.speciesCount < pd.SPECIAL_MIN || 'species ids collide with decoys/specials');
   await T('plush.every-shape-builds-at-both-detail-levels', async () => {
     const bad = []; for (let a = 0; a < pd.ARCH_COUNT; a++) for (const lod of [0, 1]) { try { const geo = pg.makeArchGeometry(a, lod); const n = geo.attributes.position.count; geo.computeBoundingSphere(); const r = geo.boundingSphere.radius; if (n < 12) bad.push(`arch ${a} lod ${lod}: ${n} verts`); if (r < 0.18 || r > 0.7) bad.push(`arch ${a} lod ${lod}: radius ${r.toFixed(2)}`); geo.dispose(); } catch (e) { bad.push(`arch ${a} lod ${lod} threw ${e.message}`); } }
     return bad.length === 0 || bad.slice(0, 5).join('; ');
   });
   await T('plush.specials-use-shifted-shapes', async () => (pd.species[pd.NEEDLE].arch === pd.ARCH_COUNT && pd.species[pd.BULK].arch === pd.ARCH_COUNT + 1 && pd.species[pd.REMAINS].arch === pd.ARCH_COUNT + 2 && pd.species[pd.CACHE].arch === pd.ARCH_COUNT + 7 && pd.DECOYS.every((d, n) => pd.species[d].arch === pd.ARCH_COUNT + 3 + n) && pg.ARCH_NEEDLE === pd.ARCH_COUNT) || 'special shapes');
   await T('plush.new-shapes-found-in-the-pile-and-dex', async () => {
-    fresh(); const seen = new Set(); const sp = spot(); for (let i = sp.i; i < sp.i + 60; i++) for (let k = sp.k - 6; k < sp.k + 6; k++) for (let j = 0; j < 20; j++) { const s = w().get(i, j, k); if (s && s < 990) seen.add(pd.species[s].arch); }
+    fresh(); const seen = new Set(); const sp = spot(); for (let i = sp.i; i < sp.i + 60; i++) for (let k = sp.k - 6; k < sp.k + 6; k++) for (let j = 0; j < 20; j++) { const s = w().get(i, j, k); if (s && s < pd.SPECIAL_MIN) seen.add(pd.species[s].arch); }
     const newShapes = [...seen].filter((a) => a >= 36).length; S().dex = {}; g.registerDex(700); const dexOk = S().dex[700] === 1; S().dex = {}; return (newShapes >= 4 && dexOk) || `new shapes seen ${newShapes}`;
   });
-  await T('plush.dex-modal-lists-all-960', async () => { fresh(); g.openModal('dex'); const total = document.getElementById('dexTotal').textContent; const cards = document.querySelectorAll('#dexGrid > *').length; g.ui.closeModals(); return (String(total) === '960') || `dex total ${total} cards ${cards}`; });
+  await T('plush.dex-modal-lists-every-species', async () => { fresh(); g.openModal('dex'); const total = document.getElementById('dexTotal').textContent; const cards = document.querySelectorAll('#dexGrid > *').length; g.ui.closeModals(); return (String(total) === String(pd.speciesCount)) || `dex total ${total} cards ${cards}`; });
 
 
   // ================================================================== SPLITTERS

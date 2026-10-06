@@ -10,10 +10,10 @@ import { FX } from './fx.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
 import { Machines } from './machines.js';
-import { Logistics, LOGI } from './logistics.js';
+import { Logistics, LOGI, CHARGE_PER, CHARGER_CAP, CHARGER_HOPPER, CHARGER_MAX_RARITY } from './logistics.js';
 import { Power } from './power.js';
 import { Contracts } from './contracts.js';
-import { Crew } from './crew.js';
+import { Crew, STATUS as BOT_STATUS } from './crew.js';
 import { Radio } from './radio.js';
 import { Net, RemotePlayer } from './net.js';
 import { Slides } from './slide.js';
@@ -23,6 +23,9 @@ import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
 import { playIntro } from './intro.js';
+import { fanSpacing, staleAt } from './dust.js';
+import { FUEL_MAX_RARITY, BURN_SECONDS, ENERGY_KJ, burnTime } from './power.js';
+import { findInfoRef, infoFor } from './info.js';
 import { capacityOf, loadOn, WARN_AT } from './loadtrace.js';
 import { UPGRADES, FRAME_TYPES, STRUT_DEPTH, supportDepth, betterThan, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
 import { Cart, CART_CAP, CART_NAMES, dims as cartDims } from './cart.js';
@@ -30,12 +33,12 @@ import { ACHIEVEMENTS } from './achievements.js';
 import { RARITY, species, pools, NEEDLE, BULK, REMAINS, CACHE, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
 import { makeWorker, noteFor, rewardFor, applyBoost, describeBoosts } from './remains.js';
 import { speciesIcon, needleFrames } from './icons.js';
-import { clamp, lerp, fmt, compaction } from './util.js';
+import { clamp, lerp, fmt, compaction, escHtml } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
-const ARCH_PITCH = { 18: 0.55, 16: 0.65, 15: 0.8, 17: 0.85, 2: 0.8, 3: 0.75, 8: 0.7, 12: 1.15, 13: 1.3, 11: 1.35, 20: 1.2, 35: 1.4, 14: 1.1, 32: 1.25, 33: 1.3, 30: 1.5, 9: 0.9, 22: 0.85, 24: 1.2 };
+const ARCH_PITCH = { 18: 0.55, 16: 0.65, 15: 0.8, 17: 0.85, 2: 0.8, 3: 0.75, 8: 0.7, 12: 1.15, 13: 1.3, 11: 1.35, 20: 1.2, 35: 1.4, 14: 1.1, 32: 1.25, 33: 1.3, 30: 1.5, 9: 0.9, 22: 0.85, 24: 1.2, 56: 0.6, 67: 0.75, 63: 0.7, 53: 0.9, 55: 1.4, 57: 1.35, 64: 1.3, 49: 1.1, 48: 1.1, 58: 1.2 };
 const START_POS = [0.0, 0.0, -1.4];
 
 export class Game {
@@ -171,7 +174,7 @@ export class Game {
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
       onKick: (i, j, k, vx, vy, vz, sp, en) => this.onKick(i, j, k, vx, vy, vz, sp, en),
-      onPlayerHit: (v) => this.onPlayerHit(v),
+      onPlayerHit: (v, remote) => this.onPlayerHit(v, remote),
     };
     this.player.events.land = (v) => { if (v > 12) this.hurtPlayer((v - 12) * 5, 'fell too far'); this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
     this.player.events.step = (sp) => {
@@ -184,8 +187,9 @@ export class Game {
     this.power.clear();
     this.dust.clear();
     this.crew.clear();
-    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); };
+    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006 * (1 + Math.hypot(cellX(i), cellZ(k)) / 300)); }; // the deeper the pile, the dustier it is to cut
     for (const e of S.entities) this.addEntity(e);
+    { const ids = new Set(S.entities.map((e) => e.id)); for (const e of [...S.entities]) if (e.type === 'fan' && e.mounted && !ids.has(e.frameId)) { const t = this.logi.byId.get(e.id); if (t) this.logi.remove(t); S.entities = S.entities.filter((x) => x.id !== e.id); } }   // a Support Fan whose frame is gone cannot hang in the air
     this.ensureFreeGate();
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
@@ -198,6 +202,11 @@ export class Game {
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
     this.fliers = [];
+    // nothing from the last game may leak into this one: lit Razzo fuses, queued loads, a turned frame in hand, warnings on screen
+    this.fuses = []; this.guestFuses = []; this._fuseTxt = ''; this.ui.setWarn(''); this.loadQ = new Set(); this.frameYaw = null; this._lastFrameYaw = undefined;
+    this._lungPrev = undefined; this._lungRate = 0; this._lungWarned = false; this.ui.setLungWarn(0, '', '', 0, false);
+    this.wasOpen = undefined; this._dayShown = this.dayNumber(); this._shift = null;
+    this.golden = 0; this.outage = 0; this.closingGrace = 0; this.syncLights();
     this.grab = { key: '', p: 0, latch: false };
     this.streak = { n: 0, t: 0 };
     const p = S.player;
@@ -223,9 +232,13 @@ export class Game {
   wireUI() {
     // a new local game starts with the welcome and the hiring form; continuing, joining and hosting skip it
     const startNew = async () => {
-      this.sound.init(); this.sound.resume();
-      const intro = await playIntro();
-      this.startPlay(true, undefined, () => { this.S.name = intro.name; intro.close(); this.ui.dayCard(1, `Employee: ${intro.name}`); this._dayShown = 1; });
+      if (this._starting) return;   // a double click must not start two intros or two games
+      this._starting = true;
+      try {
+        this.sound.init(); this.sound.resume();
+        const intro = await playIntro();
+        this.startPlay(true, undefined, () => { this.S.name = intro.name; intro.close(); this.ui.dayCard(1, `Employee: ${intro.name}`); this._dayShown = 1; this._starting = false; }, () => { intro.close(); this._starting = false; });
+      } catch (err) { this._starting = false; throw err; }
     };
     const start = (isNew) => (isNew ? startNew() : this.startPlay(isNew));
     $('btnNew').onclick = () => { start(true); };
@@ -261,7 +274,7 @@ export class Game {
     });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
-      if (!locked && this.mode === 'play' && !this.ui.isModalOpen() && !this.suppressPause) this.ui.open('pause');
+      if (!locked && this.mode === 'play' && !this.ui.isModalOpen() && !this.suppressPause) { this.crewDeselect(); this.ui.open('pause'); }
     });
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.ui.isModalOpen() && document.pointerLockElement !== this.canvas) this.requestLock(); });
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(); });
@@ -286,11 +299,11 @@ export class Game {
     setTimeout(() => (this.suppressPause = false), 200);
   }
 
-  startPlay(isNew, seedOverride, after) {
+  startPlay(isNew, seedOverride, after, fail) {
     $('title').classList.add('hidden');
     this.setLoading(isNew ? 'Stacking a fresh warehouse…' : 'Resuming your shift…');
     $('loading').classList.remove('hidden');
-    setTimeout(() => {
+    setTimeout(() => { try {
       if (isNew) {
         if (seedOverride === undefined) clearSave();
         const S = newState(seedOverride ?? ((Math.random() * 4294967296) >>> 0));
@@ -315,7 +328,13 @@ export class Game {
       if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>F</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
       else this.ui.hint('Welcome back to Warehouse 07.', 4);
       if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('You wear a hard hat with a lamp and a clock. At 19:00 the warehouse closes, a chime sounds, and the lights go out until 07:00.', 11), 14000);
-    }, 60);
+    } catch (err) {
+      // a failed start must not leave a black intro or the loading screen over everything: say so and go back to the title
+      console.error(err); this.errCount = (this.errCount || 0) + 1; (this.errLog = this.errLog || []).push(String(err && err.stack || err).split('\n').slice(0, 3).join(' | '));
+      $('loading').classList.add('hidden'); $('title').classList.remove('hidden'); this.mode = 'title';
+      if (fail) { try { fail(); } catch (e2) { /* ignore */ } }
+      this.ui.toast({ icon: '⚠️', title: 'Could not start', text: 'The warehouse failed to open. Try again.', ms: 6000 });
+    } }, 60);
   }
 
   save() {
@@ -342,6 +361,7 @@ export class Game {
     if (e.code === 'KeyF') this.keys.KeyG = down; // F (and left click) hold the grab flag
     if (!down) return;
     if (this.mode !== 'play') return;
+    if (e.code === 'Escape' && this.crewSel) this.crewDeselect();
     if (this.ui.isModalOpen()) {
       if (this.ui.openModal === 'inv') {
         // inventory: a number puts the selected item into that hotbar slot, X clears it from the bar, I or Esc closes
@@ -372,7 +392,7 @@ export class Game {
     else if (e.code === 'KeyZ') this.throwOne();
     else if (e.code === 'KeyK') this.useMedkit();
     else if (e.code === 'KeyP') this.punch();
-    else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); const t = this.curTool(); this.ui.hint(this.stowed ? 'Put away. Hands free. <kbd>Q</kbd> takes it out again.' : (t.kind === 'hammer' ? 'Hammer out. <kbd>B</kbd> removes what you aim at. <kbd>Q</kbd> puts it away.' : 'Tool out. <kbd>B</kbd> places it. <kbd>Q</kbd> puts it away.'), 2.5); }
+    else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.plan = null; this.rebuildTools(); const t = this.curTool(); this.ui.hint(this.stowed ? 'Put away. Hands free. <kbd>Q</kbd> takes it out again.' : (t.kind === 'hammer' ? 'Hammer out. <kbd>B</kbd> removes what you aim at. <kbd>Q</kbd> puts it away.' : 'Tool out. <kbd>B</kbd> places it. <kbd>Q</kbd> puts it away.'), 2.5); }
     else if (e.code === 'KeyX') this.deconstruct();
     else if (e.code === 'KeyU') this.useCart();
     else if (e.code === 'KeyR') {
@@ -445,6 +465,7 @@ export class Game {
     for (let n = 1; n <= 9; n++) { const s = (this.buildIdx + dir * n + 90) % 9; if (this.tools[s]) { this.selectTool(s); return; } }
   }
   beaconCost() { return Math.round(4000 * Math.pow(2.6, this.beaconList().length - 1)); }
+  chargerCost() { return Math.round(260 * Math.pow(1.3, this.logi ? this.logi.count('charger') : 0)); }
   genCost() { return Math.round(350 * Math.pow(1.35, this.logi ? this.logi.count('gen') : 0)); }
   sorterCost() { return Math.round(90 * Math.pow(1.18, this.logi ? this.logi.count('sorter') : 0)); }
   mechCost() { return Math.round(2500 * Math.pow(1.55, this.logi ? this.logi.count('mech') : 0)); }
@@ -455,9 +476,11 @@ export class Game {
     const slot = ((n % 9) + 9) % 9;
     const same = this.buildIdx === slot;
     this.buildIdx = slot;
+    if (this.crewSel) this.crewDeselect();
     this.stowed = toggle && same && !this.stowed; // pressing the number of the tool you already hold puts it away
     this.ui.setHotbar(this.tools, this.stowed ? -1 : this.buildIdx);
     this.machines.setGhost(null);
+    this.plan = null; // the old tool's plan must not be placed by the new tool before the next aim update
     this.sound.tone('sine', 700, 900, 0.05, 0.05);
   }
   giveItem(id, n = 1) { this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }
@@ -485,6 +508,7 @@ export class Game {
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
     this.crew.sync();
+    if (id === 'airtank' && this.trapOn && this.airLeft !== undefined) this.airLeft += 30; // the bigger tank helps the burial you are in right now
     if (this.T.contractSlots) this.contracts.fill();
     this.ui.setMoney(this.S.money);
     this.ui.toast({ icon: '🛒', title: u.name + (u.max > 1 ? ' ' + (lvl + 1) : ''), text: u.names ? u.names[lvl + 1] : 'Upgrade purchased' });
@@ -627,7 +651,7 @@ export class Game {
 
     // --- interaction
     if (this.mode === 'play' && locked && !modal) this.interact(dt, cam.position, _fwd);
-    else { this.curTargetRef = null; this.ui.setGrab(0, false); this.ui.setTarget(null); this.renderer.setGhost(0); }
+    else { this.curTargetRef = null; this.ui.setGrab(0, false); this.ui.setTarget(null); this.renderer.setGhost(0); this.machines.showPreview(null, null); }
 
     // --- sim
     this.kickBudget = 6;
@@ -644,7 +668,7 @@ export class Game {
     } else {
       for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
     }
-    this.playerGateScan(dt);
+    this.playerGateScan(dt); if (!this.isGuest()) { this.feedGensFromThrows(); this.feedChargersFromThrows(); }
     this.settleT = (this.settleT ?? 10) - dt;
     if (this.settleT <= 0) {
       this.settleT = 9 + Math.random() * 20;
@@ -657,8 +681,10 @@ export class Game {
       this.logi.update(dt);
       this.crew.guestUpdate(dt, this.time);
       this.cart.guestUpdate(dt);
-      if (this.golden > 0) this.golden = Math.max(0, this.golden - dt);
-      if (this.outage > 0) this.outage = Math.max(0, this.outage - dt);
+      this.updateFuses(dt);
+      world.stabQueue.length = 0;   // the host judges the roof; a guest never drains this queue, so it must not grow
+      if (this.golden > 0) { this.golden -= dt; if (this.golden <= 0) { this.golden = 0; this.ui.toast({ icon: '🌟', title: 'Golden Hour is over', text: 'Prices are back to normal.', ms: 3000 }); } }
+      if (this.outage > 0) { this.outage -= dt; if (this.outage <= 0) { this.outage = 0; this.power.outage = false; this.ui.toast({ icon: '💡', title: 'Power restored', text: 'The grid came back.', ms: 3000 }); } }
     } else {
       this.machines.update(dt, this.time);
       this.updateFuses(dt);
@@ -941,7 +967,7 @@ export class Game {
     // hands first (so you can throw them at the cart); once your hands are full the rest ride on the cart
     if (sp.volatile || S.carry.length < this.T.carry || !this.routeToCart(carried, pos)) {
       S.carry.push(carried);
-      if (sp.volatile && !quiet) this.lightFuse(carried);
+      if (sp.volatile) this.lightFuse(carried);   // dug out with Scoop Hands counts too
     }
     this.ui.setCarry(S.carry, this.T.carry);
     this.heldPop = 1;
@@ -1107,8 +1133,8 @@ export class Game {
   describeRef(ref) {
     if (!ref) return null;
     if (ref.kind === 'cart') return 'your cart';
-    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : t.splitter ? 'Belt Splitter' : t.type) : null; }
-    if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4)${(() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })()}` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.type; }
+    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : t.splitter ? 'Belt Splitter' : t.mounted ? 'Support Fan' : t.type === 'charger' ? 'Charging Station' : t.type) : null; }
+    if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4)${(() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })()}` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.dyn ? 'Dynamite' : e.type; }
     if (ref.kind === 'bulk') return 'Bulkhead Panel';
     return null;
   }
@@ -1160,15 +1186,104 @@ export class Game {
   crewHomeAll() {
     if (this.isGuest()) { this.cmd('crew', { act: 'homeAll' }); return; }
     if (!this.S.crew || !this.S.crew.length) return;
-    for (const b of this.S.crew) this.crew.goHome(b);
+    for (const b of this.S.crew) this.crew.sendHome(b);
     this.ui.hint('Crew: heading home.', 2);
   }
 
+
+  // ---------------- click a bot, then click a target ----------------
+  crewSelected() {
+    if (!this.crewSel) return null;
+    const b = (this.S.crew || []).find((x) => x.id === this.crewSel);
+    if (!b) this.crewSel = null;
+    return b || null;
+  }
+  crewSelect(b) { this.crewSel = b.id; this.sound.chirp(1.6); this.ui.hint(`<b>${b.name}</b> selected. Aim at something and press <kbd>E</kbd> to give an order. <kbd>Esc</kbd> lets go.`, 3); }
+  crewDeselect() { if (!this.crewSel) return; this.crewSel = null; this.ui.setBotInfo(false); if (this.crew.marker) this.crew.marker.visible = false; }
+
+  // what the crosshair is on, out to maxD: a bot, a machine tile, the cart, the bin, your own feet, or a spot on the floor or pile
+  crewAim(maxD = 14) {
+    const eye = this.renderer.camera.position, d = this.player.forward(_fwd), w = this.world, L = this.logi, S = this.S;
+    let tw = maxD, solid = false, tileHit = null;
+    for (let t = 0.3; t < maxD; t += 0.1) {
+      const x = eye.x + d.x * t, y = eye.y + d.y * t, z = eye.z + d.z * t;
+      const i = toI(x), j = toJ(y), k = toK(z);
+      if (y < 0 || w.solid(i, j, k)) { tw = t; solid = true; break; }
+      if (!tileHit) { const tile = L.tiles.get(idx(i, j, k)) || L.tiles.get(idx(i, j - 1, k)); if (tile) tileHit = { t, kind: 'tile', tile }; }
+    }
+    const rs = (cx, cy, cz, r) => { const ox = cx - eye.x, oy = cy - eye.y, oz = cz - eye.z; const tc = ox * d.x + oy * d.y + oz * d.z; if (tc < 0) return -1; const d2 = ox * ox + oy * oy + oz * oz - tc * tc; if (d2 > r * r) return -1; return Math.max(0.1, tc - Math.sqrt(r * r - d2)); };
+    let best = tileHit && tileHit.t < tw ? tileHit : null;
+    const take = (t, o) => { if (t >= 0 && t < tw && (!best || t < best.t)) best = { t, ...o }; };
+    for (const b of S.crew || []) { const sc = this.crew.scale(b); const t = rs(b.x, b.y + 0.4 * sc, b.z, 0.5 * sc + 0.2); if (t <= 7) take(t, { kind: 'bot', bot: b }); }
+    if (S.cart) take(rs(S.cart.x, S.cart.y + 0.5, S.cart.z, 1.1), { kind: 'cart' });
+    const bp = this.hall.binPos; take(rs(bp.x, 1.0, bp.z, 1.8), { kind: 'bin' });
+    if (best) return best;
+    if (!solid) return null;
+    const tt = Math.max(0.3, tw - 0.12), x = eye.x + d.x * tt, y = Math.max(0, eye.y + d.y * tt), z = eye.z + d.z * tt;
+    if (Math.hypot(x - this.player.pos.x, z - this.player.pos.z) < 1.2 && y < 0.8) return { t: tt, kind: 'feet' };
+    const dir = Math.abs(d.x) > Math.abs(d.z) ? (d.x > 0 ? 0 : 2) : (d.z > 0 ? 1 : 3);
+    return { t: tt, kind: 'spot', x, y, z, dir };
+  }
+  // the aim as the small message the host understands (a bot is a selection, not a target)
+  crewTgt(a) {
+    if (!a) return null;
+    if (a.kind === 'tile') return { k: 'tile', id: a.tile.id };
+    if (a.kind === 'spot') return { k: 'spot', x: +a.x.toFixed(2), y: +a.y.toFixed(2), z: +a.z.toFixed(2), dir: a.dir };
+    if (a.kind === 'bin' || a.kind === 'cart' || a.kind === 'feet') return { k: a.kind };
+    return null;
+  }
+  crewIssue(b, tgt) {
+    if (this.isGuest()) {
+      const it = this.crew.intent(b, tgt);
+      if (!it.ok) { this.sound.error(); this.ui.hint(it.text, 2.5); return { ok: false, msg: it.text }; }
+      this.cmd('crew', { act: 'ctx', id: b.id, tgt }); this.sound.chirp(1.2);
+      return { ok: true, act: it.act, msg: it.toast };
+    }
+    return this.crew.command(b, tgt);
+  }
+  // E: select the bot you aim at (or let it go again); with a bot selected, E on a target gives the order the panel names
+  crewUseKey() {
+    if (this.mode !== 'play' || !(this.S.crew || []).length) return false;
+    const sel = this.crewSelected(), a = this.crewAim();
+    if (a && a.kind === 'bot') {
+      if (sel && sel.id === a.bot.id) { this.crewDeselect(); this.sound.chirp(0.9); this.ui.hint('Deselected.', 1.5); }
+      else this.crewSelect(a.bot);
+      return true;
+    }
+    if (!sel || !a) return false;
+    this.crewIssue(sel, this.crewTgt(a));
+    return true;
+  }
+  updateBotHud() {
+    const b = this.crewSelected();
+    if (!b) { this.ui.setBotInfo(false); return; }
+    const a = this.crewAim();
+    const act = a && a.kind === 'bot' ? { ok: true, text: a.bot.id === b.id ? 'Let this bot go (deselect)' : `Pick ${a.bot.name} instead` } : this.crew.intent(b, this.crewTgt(a));
+    const cap = this.crew.capacity(b);
+    let carry = `Carrying ${b.carry.length} of ${cap}`;
+    if (!this.isGuest() && b.carry.length) { const n = [0, 0, 0, 0, 0, 0]; for (const it of b.carry) n[Math.min(5, species[it.sp] ? species[it.sp].rarity : 0)]++; carry += ': ' + n.map((c, r) => (c ? `${c} ${RARITY[r].name}` : '')).filter(Boolean).join(', '); }
+    const dt = b.deliver ? this.logi.byId.get(b.deliver) : null;
+    const dn = dt ? { gen: 'Generator', sorter: 'Sorting Box', vault: 'Vault Crate', belt: 'belt', charger: 'Charging Station' }[dt.type] || dt.type : '';
+    this.ui.setBotInfo(true, { title: b.name.toUpperCase(), lines: [`Level ${b.level}  ·  Battery ${Math.round(b.battery * 100)}%`, carry, `Doing: ${BOT_STATUS[b.state] || b.state}${dn ? `  ·  drop-off: ${dn}` : ''}`], act: 'E: ' + act.text, ok: act.ok });
+  }
+
   crewCommand(b, d) {
+    // dig orders start from the spot you aim at (or where you stand), recharge and fuel go to the nearest station or generator: all through the one intent function
+    if (d.d !== undefined || d.a === 'charge' || d.a === 'fuel') {
+      let tgt = null;
+      if (d.d !== undefined) { const a = this.crewAim(), p = this.player.pos; tgt = a && a.kind === 'spot' ? { k: 'spot', x: +a.x.toFixed(2), y: +a.y.toFixed(2), z: +a.z.toFixed(2), dir: +d.d } : { k: 'spot', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), dir: +d.d }; }
+      else {
+        let best = null, bd = 1e9;
+        for (const t of this.logi.tiles.values()) { if (t.type !== (d.a === 'charge' ? 'charger' : 'gen') || (d.a === 'charge' && !((t.reserve || 0) > 0.02))) continue; const q = Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z); if (q < bd) { bd = q; best = t; } }
+        if (!best) { this.ui.hint(d.a === 'charge' ? 'No Charging Station with charge. Feed one Common to Epic plush.' : 'No generator to keep fuelled.', 3); return; }
+        tgt = { k: 'tile', id: best.id };
+      }
+      this.crewIssue(b, tgt); return;
+    }
     if (this.isGuest()) { this.cmd('crew', { act: 'one', id: b.id, d: { d: d.d, a: d.a } }); return; }
     if (d.d !== undefined) this.crew.order(b, +d.d, b.x, b.y, b.z);
     else if (d.a === 'follow') this.crew.follow(b);
-    else if (d.a === 'home') this.crew.goHome(b);
+    else if (d.a === 'home') this.crew.sendHome(b);
     else if (d.a === 'stay') this.crew.stand(b);
   }
 
@@ -1192,7 +1307,7 @@ export class Game {
       if (t.type === 'pole' || t.type === 'fan') { this.ui.hint(`${t.type === 'pole' ? 'Pole' : 'Fan'}: ${(t.pw ?? 0) > 0.05 ? 'powered' : 'no power'} (${Math.round((t.pw ?? 0) * 100)}%)`, 2.5); return true; }
       if (t.type === 'belt' && !t.detector) return false;
       const d = { id: t.id, room: T.carry - S.carry.length };
-      if (t.type === 'gen') { d.items = []; for (let q = S.carry.length - 1; q >= 0; q--) if (species[S.carry[q].sp].rarity <= 2) d.items.push(S.carry.splice(q, 1)[0]); this.ui.setCarry(S.carry, T.carry); }
+      if (t.type === 'gen' || t.type === 'charger') { d.items = []; for (let q = S.carry.length - 1; q >= 0; q--) if (species[S.carry[q].sp].rarity <= (t.type === 'gen' ? FUEL_MAX_RARITY : CHARGER_MAX_RARITY)) d.items.push(S.carry.splice(q, 1)[0]); this.ui.setCarry(S.carry, T.carry); }
       this.cmd('tile', d);
       return true;
     }
@@ -1200,10 +1315,22 @@ export class Game {
       let n = 0;
       for (let q = S.carry.length - 1; q >= 0; q--) {
         const it = S.carry[q];
-        if (species[it.sp].rarity <= 2 && t.q.length < T.genBuffer) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
+        if (species[it.sp].rarity <= FUEL_MAX_RARITY && t.q.length < T.genBuffer) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
       }
       this.ui.setCarry(S.carry, T.carry); this.power.markDirty();
-      this.ui.hint(n ? `Fed ${n} plush to the generator (${t.q.length}/${T.genBuffer}).` : `Generator fuel ${t.q.length}/${T.genBuffer}. It burns Common to Rare plush.`, 3);
+      const tooGood = S.carry.some((c) => species[c.sp].rarity > FUEL_MAX_RARITY);
+      this.ui.hint(n ? `Fed ${n} plush to the generator (${t.q.length}/${T.genBuffer}).` : t.q.length >= T.genBuffer ? `The fuel hopper is full (${t.q.length}/${T.genBuffer}).` : `Nothing to burn. It takes Common to Epic plush${tooGood ? ' (Legendary and Mythic are too valuable to burn)' : ''}.`, 3);
+      return true;
+    }
+    if (t.type === 'charger') {
+      let n = 0;
+      for (let q = S.carry.length - 1; q >= 0; q--) {
+        const it = S.carry[q];
+        if (species[it.sp].rarity <= CHARGER_MAX_RARITY && t.q.length < CHARGER_HOPPER) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
+      }
+      this.ui.setCarry(S.carry, T.carry);
+      const tooGood = S.carry.some((c) => species[c.sp].rarity > CHARGER_MAX_RARITY);
+      this.ui.hint(n ? `Fed ${n} plush to the Charging Station (hopper ${t.q.length}/${CHARGER_HOPPER}, charge ${(t.reserve || 0).toFixed(1)}/${CHARGER_CAP}).` : t.q.length >= CHARGER_HOPPER ? `The hopper is full (${t.q.length}/${CHARGER_HOPPER}).` : `Nothing to charge with. It takes Common to Epic plush${tooGood ? ' (Legendary and Mythic are too valuable)' : ''}.`, 3);
       return true;
     }
     if (t.type === 'pole' || t.type === 'fan') { this.ui.hint(`${t.type === 'pole' ? 'Pole' : 'Fan'}: ${(t.pw ?? 0) > 0.05 ? 'powered' : 'no power'} (${Math.round((t.pw ?? 0) * 100)}%)`, 2.5); return true; }
@@ -1392,6 +1519,7 @@ export class Game {
     if (this.netBodies) this.netBodies.clear();
     if (this.net.role === 'guest') { this.S.crew = []; this.crew.clear(); this.crewViews = new Map(); this.S.cart = null; this.cart.clear(); }
     this.guestReady = false;
+    if (this.dust) this.dust.hostLevel = 0;
     if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
     if (this.world) { this.world.onSet = null; this.world.onCreakCell = null; }
     this.ui.toast({ icon: '👋', title: 'Friend left', text: 'The connection closed.', ms: 4000 });
@@ -1412,6 +1540,9 @@ export class Game {
         this.ui.closeModalsSilently();
         this.startPlay(true, m.seed, () => {
           this.S.gameMin = m.gameMin || 0;
+          this.S.name = this.myName();   // the joiner skips the hiring form but is still on the books
+          this._dayShown = this.dayNumber(); this.syncLights();
+          if (this.isOpen()) this._shift = { earn: this.S.totalEarned || 0, plush: this.S.stats.plush || 0, dug: this.S.stats.cells || 0, deaths: this.S.stats.deaths || 0 };
           this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
           this.guestReady = true;
           const q = this.netPending.splice(0);
@@ -1429,7 +1560,7 @@ export class Game {
           const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2], sp = m.a[n + 3], vr = m.a[n + 4];
           w.setCell(i, j, k, sp, vr);
           w.stabQueue.push({ i, j, k });
-          if (sp === 0 && Math.random() < 0.3) this.fx.dust(cellX(i), cellY(j), cellZ(k), 2, 0.4, 0.5);
+          if (sp === 0) { if (!this.isGuest()) this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (Math.random() < 0.3) this.fx.dust(cellX(i), cellY(j), cellZ(k), 2, 0.4, 0.5); }   // the dust field lives on the host: a guest's digging has to feed it there
         }
         w._remoteApply = false;
         break;
@@ -1467,13 +1598,21 @@ export class Game {
         this.sound.rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
         if (d < 18) this.shake = Math.max(this.shake, Math.min(1.2, 14 / (d + 6)));
         this.fx.dust(m.x, m.y, m.z, 16, 1.4, 1.6);
+        if (m.R !== undefined) { this.fx.burst(m.x, m.y + 0.6, m.z, 70, 1, 0.6, 0.2, 6, 0.14, 1.4); this.blastOnPlayer(m.x, m.y, m.z, m.R, true); }   // a real blast: the guest gets shoved and hurt like the host would be
         break;
       }
+      case 'razzo': this.razzoOnPlayer(m.x, m.y, m.z, m.mk); break;
+      case 'hit': this.onPlayerHit(m.v); break;
+      case 'slide': if (this.guestReady) this.slideFeel(Math.hypot(m.x - this.player.pos.x, m.z - this.player.pos.z), m.r); break;
+      case 'sfail': this.supportFailFx(m.x, m.y, m.z, m.name, m.ratio); break;
+      case 'swarn': this.supportWarnFx(m.x, m.z, m.name, m.ratio); break;
+      case 'sbreak': this.breakSupport(m.st, m.e); break;
+      case 'sstrain': this.sound.creak(0.25); this.ui.hint(m.note, 5); break;
       case 'ent+': this.remoteEnt(m.ent); break;
       case 'ent-': this.removeViewEnt(m.id); break;
       case 'say': this.chatLine(`${(this.remote && this.remote.name) || 'Friend'}: ${m.text}`); break;
       case 'time': this.S.gameMin = m.gameMin; break;
-      case 'win': if (!this.S.ending) { this.S.ending = m.ending; this.mode = 'ended'; this.sound.found(); this.ui.toast({ icon: '🏆', title: `${m.by || 'Your friend'} found the One!`, text: 'You did it together.', ms: 8000 }); this.endTimer = 2.5; } break;
+      case 'win': if (!this.S.ending) { this.S.ending = m.ending; this.mode = 'ended'; this.sound.found(); this.ui.toast({ icon: '🏆', title: `${escHtml(String(m.by || 'Your friend').slice(0, 24))} found the One!`, text: 'You did it together.', ms: 8000 }); this.endTimer = 2.5; } break;
     }
   }
 
@@ -1495,6 +1634,26 @@ export class Game {
     }
     this.world.supports = this.world.supports.filter((s2) => s2.id !== id && s2.id !== 'shield' + id);
     this.S.entities = this.S.entities.filter((x) => x.id !== id);
+  }
+
+  // The host believes a guest about WHAT to build, but not that the spot is still free: a second click before ent+ arrives
+  // (or two friends aiming at one cell) would otherwise stack a duplicate and eat a second item. Returns a reason, or null.
+  placeConflict(tool, e) {
+    if (!tool || !e) return 'Nothing to place';
+    const k = tool.kind, T = this.T;
+    if ((k === 'splitter' && e.type === 'splitbelt') || (k === 'gate' && e.type === 'gatebelt')) { const t = this.logi.byId.get(e.id); return !t ? 'That belt is gone' : (t.splitter || t.detector) ? 'That piece is already converted' : null; }
+    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(k)) {
+      const why = this.logi.canPlace(e.i, e.j, e.k); if (why && why !== 'Too close') return why;
+      if (k === 'mech' && this.logi.count('mech') >= T.mechMax) return `Mech limit reached (${T.mechMax})`;
+      return null;
+    }
+    if (k === 'bulk') return this.world.solid(e.i, e.j, e.k) || this.logi.tiles.has(idx(e.i, e.j, e.k)) ? 'Occupied' : null;
+    if (k === 'frame') { for (const it of this.machines.items.values()) { const f = it.ent; if (f.type === 'frame' && Math.hypot(f.cx - e.cx, f.cz - e.cz) < 0.3 && Math.abs(f.y0 - e.y0) < 0.3) return 'A frame is already here'; } return null; }
+    if (k === 'mfan') { if (!this.machines.items.has(e.frameId)) return 'That frame is gone'; for (const t of this.logi.tiles.values()) if (t.type === 'fan' && t.mounted && t.frameId === e.frameId) return 'This frame already has a fan'; return null; }
+    if (k === 'beacon') { for (const it of this.machines.items.values()) if (it.ent.type === 'beacon' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 1.0) return 'A depot beacon is already here'; return null; }
+    if (k === 'claw') { for (const it of this.machines.items.values()) if (it.ent.type === 'claw' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 2.2) return 'Too close to another rig'; return this.machines.count('claw') >= T.rigMax ? `Rig limit reached (${T.rigMax})` : null; }
+    if (k === 'borer') return this.machines.count('borer') >= T.borerMax ? `Borer limit reached (${T.borerMax})` : null;
+    return null;
   }
 
   stripEnt(e) { return JSON.parse(JSON.stringify(e, (k, v) => (['items', 'q', 'kept', 'stored', 'buf', 'path', 'trail', 'carry'].includes(k) ? undefined : v))); }
@@ -1521,10 +1680,10 @@ export class Game {
   netCmd(c, d) {
     const S = this.S;
     switch (c) {
-      case 'buy': this.buy(d.id); break;
+      case 'buy': { const lv = S.up[d.id] || 0; if (this.buy(d.id) && (S.up[d.id] || 0) > lv) { const u = upgradeById(d.id); if (u) this.netSend({ t: 'toast', icon: '🛒', title: u.name + (u.max > 1 ? ' ' + (lv + 1) : ''), text: u.names ? u.names[lv + 1] : 'Upgrade purchased' }); } break; }
       case 'craft': craft(this, d.id, d.n); break;
       case 'craftGear': craftGear(this, d.id); break;
-      case 'place': { const tool = d.tool; this.plan = { ok: true, ent: d.ent }; this.placeCurrent(tool); this.plan = null; break; }
+      case 'place': { const tool = d.tool; const why = this.placeConflict(tool, d.ent); if (why) { this.netSend({ t: 'toast', icon: '⚠️', title: 'Could not place', text: why }); break; } this.plan = { ok: true, ent: d.ent }; this._forGuest = true; try { this.placeCurrent(tool); } finally { this._forGuest = false; } this.plan = null; break; }
       case 'decon': this.doDecon(d); break;
       case 'tile': {
         const t = this.logi.byId.get(d.id);
@@ -1532,7 +1691,7 @@ export class Game {
         if (t.type === 'vault') {
           const take = t.stored.splice(0, Math.max(0, d.room || 0));
           if (take.length) this.netSend({ t: 'give', items: take });
-        } else if (t.type === 'gen') {
+        } else if (t.type === 'gen' || t.type === 'charger') {
           const back = [];
           for (const it of d.items || []) if (!this.logi.accept(t, it, null)) back.push(it);
           if (back.length) this.netSend({ t: 'give', items: back });
@@ -1553,10 +1712,22 @@ export class Game {
         else if (r && r.name) this.netSend({ t: 'note', entry: r });
         break;
       }
+      case 'pay': { const n = Math.max(0, Math.min(1e9, Math.round(+d.n || 0))); if (S.money >= n) S.money -= n; break; }
+      case 'tread': if (this.world.get(d.i, d.j, d.k) !== 0) this.slide.trigger(d.i, d.j, d.k, Math.min(3, +d.e || 0)); break;   // the guest's footing loads the face under it exactly as the host's would
+      case 'patch': this.slide.triggerPatch(d.i, d.k, Math.min(6, +d.e || 0), 3); break;
+      case 'fuse': {
+        // a Razzo the guest let go of keeps burning here, where the bodies live: the host tracks it from the guest's hands
+        this.fuses = this.fuses || [];
+        if (this.fuses.length < 12) this.fuses.push({ item: { sp: d.sp, vr: d.vr }, t: Math.max(0.1, Math.min(3.2, +d.t || 3.2)), bid: undefined, lost: 0, remote: true });
+        break;
+      }
+      case 'razzo': { const x = +d.x, y = +d.y, z = +d.z; if (Number.isFinite(x + y + z)) this.razzoBlast(x, y, z); break; }
+      case 'clearDust': { const p0 = d; for (const k of [...this.dust.cells.keys()]) { const [ix, , iz] = this.dust.decode(k); if (Math.hypot((ix + 0.5) * 3 - p0.x, (iz + 0.5) * 3 - p0.z) < 16) this.dust.cells.delete(k); } break; }
       case 'crew': {
         if (d.act === 'farmAhead') this.crew.orderAll(d.dir, d.x, d.y, d.z);
         else if (d.act === 'homeAll') this.crewHomeAll();
         else if (d.act === 'one') { const b = this.S.crew.find((x) => x.id === d.id); if (b) this.crewCommand(b, d.d); }
+        else if (d.act === 'ctx') { const b = this.S.crew.find((x) => x.id === d.id); if (b) { const r = this.crew.command(b, d.tgt, true); this.netSend({ t: 'toast', icon: '🤖', title: b.name, text: r.msg }); } }
         break;
       }
     }
@@ -1568,6 +1739,7 @@ export class Game {
     this.netSend({
       t: 'shared', money: S.money, te: S.totalEarned, up: S.up, gear: S.gear, items: S.items, mats: S.mats, boosts: S.boosts, contracts: S.contracts,
       gameMin: S.gameMin, golden: this.golden || 0, outage: this.outage || 0, ending: S.ending || null,
+      clues: S.clues || [], clueLevel: S.clueLevel || 0, nd: [this.world.needle.i, this.world.needle.j, this.world.needle.k],
     });
   }
 
@@ -1576,8 +1748,16 @@ export class Game {
     const key = JSON.stringify([m.up, m.gear, m.items, m.boosts, m.mats]);
     if (m.money > S.money + 0.5 && S.money > 0) this.ui.gain(m.money - S.money);
     S.money = m.money; S.totalEarned = m.te; S.contracts = m.contracts || [];
+    // Golden Hour and grid surges start on the host: the guest gets the same toast and sound when the shared timers flip
+    if (m.golden > 0 && !(this.golden > 0)) { this.sound.ach(); this.ui.toast({ icon: '🌟', title: 'Golden Hour', text: 'Buyers are in a good mood. Everything sells for double for 75 seconds.', ms: 7000 }); }
+    else if (!(m.golden > 0) && this.golden > 0) this.ui.toast({ icon: '🌟', title: 'Golden Hour is over', text: 'Prices are back to normal.', ms: 3000 });
+    if (!(m.outage > 0) && this.outage > 0) this.ui.toast({ icon: '💡', title: 'Power restored', text: 'The grid came back.', ms: 3000 });
+    if (m.outage > 0 && !(this.outage > 0)) this.ui.toast({ icon: '⚡', title: 'Grid surge', text: 'Everything is down for about 40 seconds. The hall lights died too.', ms: 6000 });
     this.golden = m.golden; this.outage = m.outage;
     this.power.outage = m.outage > 0;
+    if (m.clues && m.clues.length > (S.clues || []).length) { for (const c of m.clues.slice((S.clues || []).length)) this.ui.toast({ icon: '📎', title: 'Old paperwork found', text: c, ms: 9000 }); }
+    if (m.clues) { S.clues = m.clues; S.clueLevel = m.clueLevel; }
+    if (m.nd && this.world) this.world.needle = { i: m.nd[0], j: m.nd[1], k: m.nd[2] };
     if (Math.abs((S.gameMin || 0) - m.gameMin) > 3) S.gameMin = m.gameMin;
     if (key !== this._sharedKey) {
       this._sharedKey = key;
@@ -1600,13 +1780,13 @@ export class Game {
     for (const t of L.tiles.values()) {
       if (t.type === 'belt') {
         if (t.items.length && near(cellX(t.i), cellZ(t.k))) { const a = [t.id]; for (const it of t.items) a.push(it.sp, it.vr, Math.round(it.t * 100)); belts.push(a); }
-      } else tiles.push([t.id, Math.round((t.pw ?? 0) * 100), Math.round(t.burn || 0), t.mode || 0, t.off ? 1 : 0, t.i, t.k, t.q ? t.q.length : 0, t.filter ?? 7]);
+      } else { const row = [t.id, Math.round((t.pw ?? 0) * 100), Math.round(t.burn || 0), t.mode || 0, t.off ? 1 : 0, t.i, t.k, t.q ? t.q.length : 0, t.filter ?? 7]; if (t.type === 'gen') { const rc = [0, 0, 0, 0]; for (const it of t.q) rc[Math.min(3, species[it.sp] ? species[it.sp].rarity : 0)]++; row.push(t.cur ? t.cur.sp : 0, Math.round(t.burnMax || 0), rc); } else if (t.type === 'charger') row.push(Math.round((t.reserve || 0) * 100)); tiles.push(row); }
     }
     const movers = [];
-    for (const it of this.machines.items.values()) if (it.ent.type === 'borer') movers.push([it.ent.id, it.ent.i, it.ent.k, Math.round((it.ent.pw ?? 0) * 100)]); else if (it.ent.type === 'claw') movers.push([it.ent.id, 0, 0, Math.round((it.ent.pw ?? 0) * 100)]);
+    for (const it of this.machines.items.values()) if (it.ent.type === 'borer') movers.push([it.ent.id, it.ent.i, it.ent.k, Math.round((it.ent.pw ?? 0) * 100)]); else if (it.ent.type === 'claw') movers.push([it.ent.id, 0, 0, Math.round((it.ent.pw ?? 0) * 100), +(it.phase || 0).toFixed(2), it.target ? it.target.i : -1, it.target ? it.target.j : 0, it.target ? it.target.k : 0, +(it.idle || 0).toFixed(1)]);
     const crew = this.S.crew.map((b) => {
       const sample = b.carry.slice(-4).flatMap((x) => [x.sp, x.vr]);
-      return [b.id, b.name, b.color, b.level, Math.round(b.xp), b.state, b.carry.length, +b.battery.toFixed(2), +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +(b.yaw % 6.2832).toFixed(2), sample, b.arm ? 1 : 0, b.aim || null, b.dir || 0];
+      return [b.id, b.name, b.color, b.level, Math.round(b.xp), b.state, b.carry.length, +b.battery.toFixed(2), +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +(b.yaw % 6.2832).toFixed(2), sample, b.arm ? 1 : 0, b.aim || null, b.dir || 0, b.deliver || 0];
     });
     const c = this.S.cart;
     const cart = c ? { tier: c.tier, mode: c.mode, x: +c.x.toFixed(2), y: +c.y.toFixed(2), z: +c.z.toFixed(2), yaw: +c.yaw.toFixed(2), n: c.load.length, load: c.load.slice(-60).flatMap((x) => [x.sp, x.vr]) } : null;
@@ -1628,11 +1808,16 @@ export class Game {
     for (const a of m.tiles) {
       const t = L.byId.get(a[0]); if (!t) continue;
       t.pw = a[1] / 100; t.burn = a[2];
+      if (t.type === 'charger') { if (a.length > 9) t.reserve = a[9] / 100; while (t.q.length < a[7]) t.q.push({ sp: 1, vr: 0 }); t.q.length = a[7]; }
+      if (t.type === 'gen' && a.length > 9) { t.cur = a[9] ? { sp: a[9], vr: 0 } : null; t.burnMax = a[10]; t.rc = a[11]; }
       if (t.type === 'sorter' && (t.mode !== a[3] || t.filter !== a[8])) { t.mode = a[3]; t.filter = a[8]; L.setSorterLook(t); }
       t.off = !!a[4];
       if (t.type === 'sorter' && t.q) { while (t.q.length < a[7]) t.q.push({ sp: 1, vr: 0, t: 0.5 }); t.q.length = a[7]; }
     }
-    for (const a of m.movers) { const it = this.machines.items.get(a[0]); if (!it) continue; if (a[1]) { it.ent.i = a[1]; it.ent.k = a[2]; } it.ent.pw = a[3] / 100; }
+    for (const a of m.movers) {
+      const it = this.machines.items.get(a[0]); if (!it) continue; if (a[1]) { it.ent.i = a[1]; it.ent.k = a[2]; } it.ent.pw = a[3] / 100;
+      if (it.ent.type === 'claw' && a.length > 4) { it.phase = a[4]; it.target = a[5] >= 0 ? { i: a[5], j: a[6], k: a[7] } : null; it.idle = a[8]; }
+    }
     // crew
     const S = this.S;
     this.crewViews = this.crewViews || new Map();
@@ -1641,7 +1826,7 @@ export class Game {
       let b = this.crewViews.get(a[0]);
       if (!b) { b = { id: a[0], x: a[8], y: a[9], z: a[10], yaw: a[11], carry: [], trail: [], path: [] }; this.crewViews.set(a[0], b); }
       b.name = a[1]; b.color = a[2]; b.level = a[3]; b.xp = a[4]; b.state = a[5]; b.battery = a[7];
-      b.gx = a[8]; b.gy = a[9]; b.gz = a[10]; b.gyaw = a[11]; b.dir = a[15];
+      b.gx = a[8]; b.gy = a[9]; b.gz = a[10]; b.gyaw = a[11]; b.dir = a[15]; b.deliver = a[16] || null;
       const sample = a[12], n = a[6];
       b.carry = new Array(n);
       for (let q = 0; q < n; q++) { const s2 = (q >= n - sample.length / 2) ? (q - (n - sample.length / 2)) * 2 : -1; b.carry[q] = s2 >= 0 ? { sp: sample[s2], vr: sample[s2 + 1] } : { sp: 1, vr: 0 }; }
@@ -1713,7 +1898,18 @@ export class Game {
 
   // ======================= the working day =======================
   // 1 game minute = 2 real seconds. The hall is lit from 07:00 to 19:00. At closing there is a chime and then it is dark.
-  dayNumber() { return Math.floor((this.S.gameMin || 0) / 1440) + 1; }
+  // a short note from management on the early mornings, each one a real tip about something you have probably not tried yet
+  dayTip(n) {
+    return ({
+      2: 'Memo, Day 2: a frame is a hollow 4x4 box. Dig the section out first, then set it. It never digs for you.',
+      3: 'Memo, Day 3: dust builds up in a long tunnel. A cough means leave. A Vent Fan or a Support Fan under a frame moves it.',
+      4: 'Memo, Day 4: left and right arrows turn a frame you are holding. Turn each one a little and the tunnel bends.',
+      5: 'Memo, Day 5: every support has a depth rating. Wood stops being enough a long way before the east wall.',
+      6: 'Memo, Day 6: veins of rare plush drift through the pile. A Vein Assay will point you at them.',
+      7: 'Memo, Day 7: one in sixty thousand plush is a Razzo. If one starts ticking, throw it away from your tunnel.',
+    })[n] || '';
+  }
+  dayNumber() { return Math.max(1, Math.floor((this.S.gameMin || 0) / 1440) + 1); }
   dayLine(n) {
     const special = { 2: 'Still here.', 3: 'You are getting the hang of it.', 5: 'A full work week, nearly.', 7: 'One week on the job.', 10: 'Ten days. The pile has not noticed.', 14: 'Two weeks. Management has forgotten your name.', 30: 'A month in the warehouse.', 50: 'Fifty days. You know the sounds now.', 100: 'One hundred days. Nobody remembers who hired you.' };
     if (special[n]) return special[n];
@@ -1722,6 +1918,12 @@ export class Game {
   }
   dayMinute() { return ((7 * 60 + (this.S.gameMin || 0)) % 1440 + 1440) % 1440; }
   isOpen() { const m = this.dayMinute(); return m >= 420 && m < 1140; }
+
+  // the hall lights match the clock the moment a world loads (a save at night, or a friend joining after closing), not after a slow fade
+  syncLights() {
+    this.lightLevel = (this.isOpen() && !(this.outage > 0)) ? 1 : 0;
+    if (this.hall && this.hall.setLevel) this.hall.setLevel(this.lightLevel);
+  }
 
   updateClock(dt) {
     const S = this.S;
@@ -1733,7 +1935,7 @@ export class Game {
       if (open) {
         this.sound.dingDong(true);
         this.ui.toast({ icon: '🌅', title: 'Warehouse open', text: 'Morning shift. The lights come back on.', ms: 6000 });
-        { const dn = this.dayNumber(); if (dn !== this._dayShown) { this._dayShown = dn; this.ui.dayCard(dn, this.dayLine(dn)); } }
+        { const dn = this.dayNumber(); if (dn !== this._dayShown) { this._dayShown = dn; this.ui.dayCard(dn, this.dayLine(dn)); const tip = this.dayTip(dn); if (tip) setTimeout(() => this.ui.toast({ icon: '📋', title: 'Memo from management', text: tip.replace(/^Memo, Day \d+: /, ''), ms: 9000 }), 4500); } }
         this._shift = { earn: this.S.totalEarned || 0, plush: this.S.stats.plush || 0, dug: this.S.stats.cells || 0, deaths: this.S.stats.deaths || 0 };
       } else {
         this.sound.dingDong(false);
@@ -1863,6 +2065,7 @@ export class Game {
   }
 
   useKey() {
+    if (this.crewUseKey()) return;
     {
       const tile = this.logi.pick(this.renderer.camera.position, this.player.forward(_fwd), 3.4);
       if (tile && this.useTile(tile)) return;
@@ -2069,7 +2272,7 @@ export class Game {
     }
     else if (tool.kind === 'mfan') { plan = this.machines.planMountFan(eye, dir, yaw); cost = 0; }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
-    else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
+    else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack', 'rope'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
     else if (tool.kind === 'claw') {
       plan = this.machines.planRig(eye, dir); cost = this.rigCost();
@@ -2078,9 +2281,9 @@ export class Game {
       plan = this.machines.planBorer(eye, dir, yaw); cost = this.borerCost();
       if (plan.ok && this.machines.count('borer') >= T.borerMax) plan = { ok: false, why: `Borer limit reached (${T.borerMax})`, ent: plan.ent };
     }
-    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) { ({ plan, cost } = this.planLogi(tool, eye, dir, yaw)); }
+    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) { ({ plan, cost } = this.planLogi(tool, eye, dir, yaw)); }
     this.plan = plan; this.planCost = cost;
-    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) this.showCellGhost(tool, plan);
+    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
     if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk')) {
       const key = `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
@@ -2136,7 +2339,7 @@ export class Game {
     }
     const plan = this.logi.plan(kind, eye, dir, yaw, rise);
     if (plan.ok && plan.ent && kind === 'sorter' && this.gateInRange(cellX(plan.ent.i), cellZ(plan.ent.k), this.gateClearance())) { plan.ok = false; plan.why = `Too close to a detector gate: it would suck plush in before they are scanned. Keep sorters ${Math.ceil(this.gateClearance())} m from gates.`; }
-    let cost = 0; const _unused = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
+    let cost = 0; const _unused = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'charger' ? this.chargerCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
     if (plan.ok && kind === 'mech' && this.logi.count('mech') >= T.mechMax) { plan.ok = false; plan.why = `Mech limit reached (${T.mechMax})`; }
     return { plan, cost };
   }
@@ -2179,6 +2382,70 @@ export class Game {
   }
 
   // walking through any gate scans your bag (and cart)
+  // plush thrown at a generator drop into its hopper
+  feedGensFromThrows() {
+    const sim = this.sim; if (!sim || !sim.n) return;
+    for (const t of this.logi.tiles.values()) {
+      if (t.type !== 'gen' || t.q.length >= this.T.genBuffer) continue;
+      const gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
+      for (let i = sim.n - 1; i >= 0; i--) {
+        if (sim.flag[i] !== 1) continue; const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 1.3) continue; if (sim.y[i] > gy + 2.2) continue;
+        const sp = sim.sp[i], r = species[sp] ? species[sp].rarity : 9; if (r > FUEL_MAX_RARITY) continue;
+        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.power.markDirty(); this.fx.fluff(gx, gy + 1.0, gz, 1, 0.6, 0.2, 5); this.sound.tone('triangle', 500, 700, 0.08, 0.06); if (t.q.length >= this.T.genBuffer) break; }
+      }
+    }
+  }
+
+  // plush thrown at a Charging Station drop into its hopper
+  feedChargersFromThrows() {
+    const sim = this.sim; if (!sim || !sim.n) return;
+    for (const t of this.logi.tiles.values()) {
+      if (t.type !== 'charger' || t.q.length >= CHARGER_HOPPER) continue;
+      const gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
+      for (let i = sim.n - 1; i >= 0; i--) {
+        if (sim.flag[i] !== 1) continue; const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 1.3) continue; if (sim.y[i] > gy + 2.2) continue;
+        const sp = sim.sp[i], r = species[sp] ? species[sp].rarity : 9; if (r > CHARGER_MAX_RARITY) continue;
+        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.fx.sparkle(gx, gy + 0.9, gz, 4, 0.3, 0.9, 1); this.sound.tone('triangle', 600, 900, 0.08, 0.06); if (t.q.length >= CHARGER_HOPPER) break; }
+      }
+    }
+  }
+
+  // the hover readout of a Charging Station
+  chargerInfo(t) {
+    const q = t.q || [], res = t.reserve || 0;
+    const names = ['Common', 'Uncommon', 'Rare', 'Epic'];
+    const lines = [`Charge ${res.toFixed(2)} of ${CHARGER_CAP} (one full bot battery is 1.0)  ·  hopper ${q.length}/${CHARGER_HOPPER}`];
+    lines.push(`Each plush adds: ${names.map((n, r) => `${CHARGE_PER[r]} (${n})`).join(', ')}`);
+    lines.push('Bots recharge here at 0.5 battery per second. It needs no power.');
+    lines.push('Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable.');
+    return { title: 'CHARGING STATION' + (res > 0.02 ? ' · READY' : ' · EMPTY'), lines, live: res > 0.02 };
+  }
+
+  // what a generator is doing, for the hover readout
+  genInfo(t) {
+    const T = this.T, lit = t.burn > 0, out = T.genOutput; const q = t.q || [];
+    const cur = t.cur ? species[t.cur.sp] : null;
+    const names = ['Common', 'Uncommon', 'Rare', 'Epic'];
+    const counts = [0, 0, 0, 0]; let queued = 0;
+    for (const it of q) { const r = Math.min(3, species[it.sp] ? species[it.sp].rarity : 0); counts[r]++; queued += burnTime(r, out); }
+    if (t.rc) for (let r = 0; r < 4; r++) { counts[r] = t.rc[r] || 0; }
+    if (t.rc) { queued = 0; for (let r = 0; r < 4; r++) queued += counts[r] * burnTime(r, out); }
+    const left = Math.max(0, t.burn || 0), total = left + queued;
+    const fmt = (sec) => (sec >= 90 ? `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s` : `${Math.round(sec)} s`);
+    const net = this.power.nets.find((n) => n.nodes.includes(t)) || null;
+    const lines = [];
+    lines.push(lit && cur ? `Burning: ${cur.name} (${RARITY[cur.rarity].name}), ${fmt(left)} left of ${fmt(t.burnMax || left)}` : 'Not burning: out of fuel');
+    lines.push(`Output ${out.toFixed(1)} kW${net ? `  ·  grid ${net.supply.toFixed(1)} of ${net.demand.toFixed(1)} kW wanted` : ''}`);
+    lines.push(`Burn rate: 1 plush per ${fmt(burnTime(0, out))} (Common), ${fmt(burnTime(1, out))} (Uncommon), ${fmt(burnTime(2, out))} (Rare), ${fmt(burnTime(3, out))} (Epic)`);
+    const mix = counts.map((c, r) => (c ? `${c} ${names[r]}` : '')).filter(Boolean).join(', ');
+    lines.push(`Hopper ${q.length}/${T.genBuffer}${mix ? ': ' + mix : ' (empty)'}${total > 0 ? `  ·  runs ${fmt(total)}` : ''}`);
+    lines.push('Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable to burn.');
+    return { title: 'GENERATOR', lit, lines };
+  }
+
+  // gate scan beeps share one limiter so a busy belt or a crowd of bots never turns into a machine-gun of dings
+  gateDing(dur = 0.05, vol = 0.035) { if (this._dingNext > this.time) return; this._dingNext = this.time + 0.3; this.sound.tone('sine', 1250, 1250, dur, vol); }
+
   playerGateScan(dt) {
     const p = this.player.pos, S = this.S;
     this._gateCd = (this._gateCd || 0) - dt;
@@ -2197,7 +2464,7 @@ export class Game {
         if (all.some((x) => x.sp === NEEDLE)) { this.logi.setGate(t, true); this.foundNeedle('the gate'); }
         else {
           this.logi.setGate(t, false); t.flash = 0.35;
-          this.sound.tone('sine', 1250, 1250, 0.07, 0.05);
+          this.gateDing(0.07, 0.05);
           S.stats.scans = (S.stats.scans || 0) + all.length;
           this.ui.hint(`<b>SCAN CLEAR</b> ${all.length} plush${cartN ? ' (with cart)' : ''}. The One is not in your bag.`, 2.5);
         }
@@ -2234,6 +2501,7 @@ export class Game {
     const cost = 0;
     if (!plan || !plan.ok) { this.sound.error(); if (plan && plan.why) this.ui.hint(plan.why, 2); return; }
     if (!(S.items[tool.id] > 0)) { this.sound.error(); return; }
+    this.plan = null; // one plan places once: a second click in the same frame must wait for the next aim update, or it would stack a duplicate
     if (this.isGuest()) { this.cmd('place', { tool: { id: tool.id, kind: tool.kind, fk: tool.fk, ramp: tool.ramp }, ent: plan.ent }); this.sound.place(); return; }
     S.items[tool.id]--;
     if (S.items[tool.id] <= 0) delete S.items[tool.id];
@@ -2244,7 +2512,7 @@ export class Game {
     if (tool.kind === 'frame' || tool.kind === 'strut' || tool.kind === 'jack') {
       const st = this.strainOf(tool, plan);
       if (st.state === 'break') { this.breakSupport(st, e); this.rebuildTools(); return; }
-      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: ${st.pct}% load. It holds, but the next one nearby should share it.`; this.sound.creak(0.25); }
+      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: ${st.pct}% load. It holds, but the next one nearby should share it.`; this.sound.creak(0.25); if (this._forGuest) this.netSend({ t: 'sstrain', note: this._strainNote }); }
     }
     if (tool.kind === 'bulk') {
       this.world.setCell(e.i, e.j, e.k, BULK, (Math.random() * 127) | 0);
@@ -2271,14 +2539,14 @@ export class Game {
       }
       return;
     }
-    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) {
+    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) {
       ent = { id, type: tool.kind === 'gate' || tool.kind === 'splitter' ? 'belt' : tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
       if (tool.kind === 'splitter') { ent.splitter = true; S.stats.splitters = (S.stats.splitters || 0) + 1; }
       if (tool.kind === 'gate') { ent.detector = true; S.stats.gates = (S.stats.gates || 0) + 1; }
       S.entities.push(ent);
       this.addEntity(ent);
       this.sound.place();
-      if (['sorter', 'mech', 'gen', 'fan'].includes(tool.kind)) this.rebuildTools();
+      if (['sorter', 'mech', 'gen', 'charger', 'fan'].includes(tool.kind)) this.rebuildTools();
       this.power.markDirty();
       if (!this.hasGen() && ['belt', 'sorter', 'mech'].includes(tool.kind) && !this._pwHint) { this._pwHint = true; this.ui.hint('Machines need power. Build a <b>Generator</b>, feed it commons, and link it with <b>Poles</b>.', 8); }
       S.stats.built = (S.stats.built || 0) + 1;
@@ -2286,7 +2554,7 @@ export class Game {
       return;
     }
     if (tool.kind === 'frame') {
-      ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, gm: e.gm, glo: e.glo, gj: e.gj, yaw: e.yaw }; if (e.turned) ent.turned = true; S.stats.props++;
+      ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, gm: e.gm, glo: e.glo, gj: e.gj, yaw: e.yaw }; if (e.turned) { ent.turned = true; S.stats.turnedFrames = (S.stats.turnedFrames || 0) + 1; } S.stats.props++;
       // building a frame carves out its 4x4 section; the crew salvages the plush
       let carved = 0;
       for (const [ci, cj, ck] of e.clear || []) { const rm = this.world.removeCell(ci, cj, ck, true); if (rm) { carved++; S.stats.cells++; this.sellAuto(rm.sp, rm.vr, 0.6); } }
@@ -2294,12 +2562,13 @@ export class Game {
     }
     else if (tool.kind === 'mfan') {
       ent = { id, type: 'fan', mounted: true, frameId: e.frameId, px: e.px, py: e.py, pz: e.pz, fx: e.fx, fz: e.fz, fyaw: e.fyaw, dir: 0, i: e.i, j: e.j, k: e.k };
-      S.entities.push(ent); this.addEntity(ent); this.power.markDirty(); this.sound.place(); this.rebuildTools(); S.stats.built = (S.stats.built || 0) + 1;
+      S.entities.push(ent); this.addEntity(ent); this.power.markDirty(); this.sound.place(); this.rebuildTools(); S.stats.built = (S.stats.built || 0) + 1; S.stats.mfans = (S.stats.mfans || 0) + 1;
       this.ui.hint('Support fan hung. It blows the way you were facing and needs power: link it with a pole or generator.', 5);
       return;
     }
     else if (tool.kind === 'lantern') { ent = { id, type: 'lantern', x: e.x, y: e.y, z: e.z }; S.stats.lanterns++; }
     else if (tool.kind === 'marker') { ent = { id, type: 'marker', x: e.x, y: e.y, z: e.z }; }
+    else if (tool.kind === 'rope') { ent = { id, type: 'rope', x: e.x, y: e.y, z: e.z }; S.stats.ropes = (S.stats.ropes || 0) + 1; }
     else if (tool.kind === 'glow') { ent = { id, type: 'flare', glow: true, x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'flare') { ent = { id, type: 'flare', x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'strut') { ent = { id, type: 'strut', x: e.x, y: e.y, z: e.z }; S.stats.props++; }
@@ -2365,14 +2634,14 @@ export class Game {
       this.giveItem(tile.type === 'belt' ? (tile.detector ? 'gate' : tile.splitter ? 'splitter' : tile.rise ? 'ramp' : 'belt') : tile.mounted ? 'mfan' : tile.type);
       this.ui.setCarry(this.S.carry, this.T.carry);
       this.sound.thump(0.15, 140);
-      if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
+      if (['sorter', 'mech', 'gen', 'charger', 'fan'].includes(tile.type)) this.rebuildTools();
       this.power.markDirty();
       return;
     }
     const best = this.machines.items.get(ref.id);
     if (!best) return;
     const e = best.ent;
-    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.jack ? 'jack' : e.glow ? 'glow' : e.type);
+    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.jack ? 'jack' : e.glow ? 'glow' : e.dyn ? 'dynamite' : e.type);
     if (e.type === 'beacon') this.world.reserved.delete((e.j * NZ + e.k) * NX + e.i);
     this.machines.disposeObj(best.obj);
     this.machines.root.remove(best.obj);
@@ -2415,6 +2684,8 @@ export class Game {
     this.fx.dust(x, y, z, 26, 1.6, 1.6); this.sound.thump(0.4, 90); this.sound.creak(0.35); this.shake = Math.max(this.shake, 0.3);
     this.S.stats.brokenSupports = (this.S.stats.brokenSupports || 0) + 1;
     this.ui.hint(`<b>The ${st.name} cracks and gives way.</b> It would have carried ${st.pct}% of what it can bear, at ${Math.round(st.d)} m deep. It is gone. ${st.next ? 'You need ' + (FRAME_TYPES[st.next] ? FRAME_TYPES[st.next].name : st.next) + ' or better down here, or more supports to share the weight.' : ''}`, 6);
+    // a support the guest tried to set breaks on the guest's screen too, with the same numbers
+    if (this._forGuest) this.netSend({ t: 'sbreak', st: { name: st.name, pct: st.pct, d: st.d, next: st.next }, e: { cx: e.cx, cz: e.cz, x: e.x, z: e.z, y0: e.y0, y: e.y } });
   }
 
   // a fan hangs from its frame: when the frame goes, the fan goes with it (you get it back when you took the frame down yourself)
@@ -2434,13 +2705,26 @@ export class Game {
     this._loadT = (this._loadT || 0) - dt; if (this._loadT > 0 || !this.loadQ || !this.loadQ.size || this.isGuest()) return; this._loadT = 0.35;
     const w = this.world; let n = 0;
     for (const id of [...this.loadQ]) {
-      this.loadQ.delete(id); if (++n > 2) { break; }
+      if (++n > 2) break;   // two per tick; the rest stay queued (they used to be dropped, so some supports were never weighed)
+      this.loadQ.delete(id);
       const s = w.supports.find((q) => q.id === id); if (!s || s.cap === undefined) continue;
       const ratio = isFinite(s.cap) ? loadOn(w, s) / s.cap : 0; s.load = ratio;
       if (ratio > 1 && this.time - (s.born || 0) > 1.5) { this.failSupport(s, ratio); continue; }
-      if (ratio > WARN_AT) { if (!s.warned) { s.warned = true; if (Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z) < 30) { this.sound.creak(0.3); this.ui.hint(`<b>A ${s.kind === 'jack' ? 'jack' : s.kind === 'strut' ? 'strut' : (FRAME_TYPES[s.kind] || { name: 'frame' }).name.toLowerCase()} is carrying ${Math.round(ratio * 100)}% of its limit and creaking.</b> Put another support next to it to share the weight.`, 6); } } }
+      if (ratio > WARN_AT) { if (!s.warned) { s.warned = true; const nm = s.kind === 'jack' ? 'jack' : s.kind === 'strut' ? 'strut' : (FRAME_TYPES[s.kind] || { name: 'frame' }).name.toLowerCase(); this.supportWarnFx(s.x, s.z, nm, ratio); this.netSend({ t: 'swarn', x: s.x, z: s.z, name: nm, ratio }); } }
       else if (ratio < 0.7) s.warned = false;
     }
+  }
+
+  supportWarnFx(x, z, name, ratio) {
+    if (Math.hypot(x - this.player.pos.x, z - this.player.pos.z) < 30) { this.sound.creak(0.3); this.ui.hint(`<b>A ${name} is carrying ${Math.round(ratio * 100)}% of its limit and creaking.</b> Put another support next to it to share the weight.`, 6); }
+  }
+
+  // what the buckling of a support looks and sounds like, for whoever is near it (the host runs it and tells the guest)
+  supportFailFx(x, y, z, name, ratio) {
+    const pd = Math.hypot(x - this.player.pos.x, z - this.player.pos.z);
+    this.fx.dust(x, y, z, 22, 1.4, 1.4);
+    if (pd < 40) { this.sound.thump(0.35, 85); this.sound.creak(0.35); this.shake = Math.max(this.shake, Math.max(0.05, 0.4 - pd * 0.01)); }
+    if (pd < 25) this.ui.hint(`<b>${name} buckles under the weight of the mountain!</b> (${Math.round(ratio * 100)}% load). Its share lands on the supports around it.`, 6);
   }
 
   failSupport(s, ratio) {
@@ -2451,10 +2735,9 @@ export class Game {
     if (it) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(s.id); }
     S.entities = S.entities.filter((e) => e.id !== s.id); this.netSend({ t: 'ent-', id: s.id });
     S.stats.brokenSupports = (S.stats.brokenSupports || 0) + 1;
-    const pd = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
-    this.fx.dust(s.x, s.y, s.z, 22, 1.4, 1.4);
-    if (pd < 40) { this.sound.thump(0.35, 85); this.sound.creak(0.35); this.shake = Math.max(this.shake, Math.max(0.05, 0.4 - pd * 0.01)); }
-    if (pd < 25) this.ui.hint(`<b>${ent && ent.type === 'frame' ? (FRAME_TYPES[ent.kind] || { name: 'A frame' }).name : s.kind === 'jack' ? 'A jack' : 'A strut'} buckles under the weight of the mountain!</b> (${Math.round(ratio * 100)}% load). Its share lands on the supports around it.`, 6);
+    const fname = ent && ent.type === 'frame' ? (FRAME_TYPES[ent.kind] || { name: 'A frame' }).name : s.kind === 'jack' ? 'A jack' : 'A strut';
+    this.supportFailFx(s.x, s.y, s.z, fname, ratio);
+    this.netSend({ t: 'sfail', x: s.x, y: s.y, z: s.z, name: fname, ratio });
     // the roof it was holding comes back under the tunnel rule, and the supports that shared its load are re-weighed
     for (let a = -6; a <= 6; a += 4) for (let b = -6; b <= 6; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: toI(s.x) + a, j: toJ(s.y) + dj - 2, k: toK(s.z) + b });
     this.queueLoad(s.x, s.y, s.z);
@@ -2472,6 +2755,21 @@ export class Game {
       if (d > max && !fl[k + 'b']) { fl[k + 'b'] = 1; fl[k + 'c'] = 1; this.sound.creak(0.3); this.ui.hint(`<b>The ${noun[k]} can't take it down here.</b> ${FRAME_TYPES[k].name}s are rated to ${max} m and break the moment you set them. ${nn ? 'You need ' + nn + 's (rated to ' + (isFinite(FRAME_TYPES[nx].maxDepth) ? FRAME_TYPES[nx].maxDepth + ' m' : 'any depth') + ') or better.' : ''}`, 8); break; }
       if (d > max * 0.85 && !fl[k + 'c']) { fl[k + 'c'] = 1; this.sound.creak(0.3); this.ui.hint(`<b>The ${noun[k]} is starting to creak under the pressure of the mountain.</b> ${FRAME_TYPES[k].name}s are rated to ${max} m and you are ${Math.round(d)} m in. ${nn ? 'Get ' + nn + 's ready.' : ''}`, 8); break; }
     }
+  }
+
+  // the Structural Survey readout: depth, best frame and its rating, the weight above you, and the load on the support next to you
+  updateSurvey() {
+    const T = this.T; if (!T.survey) { this.ui.setSurvey(false); return; }
+    if (this._svNext > this.time) return; this._svNext = this.time + 0.5;
+    const p = this.player, w = this.world, d = supportDepth(p.pos.x, p.pos.z);
+    let best = null; for (const k of T.frames) if (!best || FRAME_TYPES[k].maxDepth > FRAME_TYPES[best].maxDepth) best = k;
+    let bestTxt = 'no frames yet: buy Timber Frames';
+    if (best) { const f = FRAME_TYPES[best]; bestTxt = `${f.name} (${isFinite(f.maxDepth) ? 'rated ' + f.maxDepth + ' m' : 'any depth'})` + (d > f.maxDepth ? ': too weak here' : d > f.maxDepth * 0.85 ? ': near its limit' : ''); }
+    const i = toI(p.pos.x), k = toK(p.pos.z), j = toJ(p.pos.y + 1), over = Math.max(0, w.topAt(i, k) - j - 1);
+    let near = null, nd = 8; for (const s of w.supports) if (s.cap !== undefined) { const dd = Math.hypot(s.x - p.pos.x, s.y - (p.pos.y + 1), s.z - p.pos.z); if (dd < nd) { nd = dd; near = s; } }
+    let load = 'no support within 8 m', cls = '';
+    if (near) { const r = isFinite(near.cap) ? loadOn(w, near) / near.cap : 0; near.load = r; load = `nearest support: ${Math.round(r * 100)}% load`; cls = r > 0.97 ? 'red' : r > WARN_AT ? 'amber' : ''; }
+    const fs = fanSpacing(d); this.ui.setSurvey(true, { depth: `${Math.round(d)} m DEEP`, best: bestTxt, press: `${(over * 0.6).toFixed(0)} m of pile above · weight x${(1 + d / 150).toFixed(1)}`, air: isFinite(fs) ? `stale air ${Math.round(staleAt(d) * 100)}%: a Support Fan every ${Math.floor(fs)} m` : 'air still fresh at this depth', load, cls });
   }
 
   // ======================= abandoned gear =======================
@@ -2567,6 +2865,7 @@ export class Game {
       mk(b.name, `${dist.toFixed(0)} m away`, dist < 6 ? 'Here' : `Travel ◈${fmt(cost)}`, () => {
         if (this.S.money < cost) { this.sound.error(); return; }
         this.S.money -= cost; this.ui.setMoney(this.S.money);
+        if (this.isGuest()) this.cmd('pay', { n: cost });   // the wallet is the host's: a guest's fare comes out of it too
         this.teleport(b);
         this.ui.closeModals();
       }, dist < 6 || this.S.money < cost);
@@ -2584,7 +2883,7 @@ export class Game {
 
   // ======================= blasting =======================
   detonate(ent) {
-    this.netSend({ t: 'boom', x: ent.x, y: ent.y, z: ent.z });
+    { const R0 = ent.R ?? (ent.dyn ? 2.2 : [0, 3, 4, 5][ent.tier || 1]); this.netSend({ t: 'boom', x: ent.x, y: ent.y, z: ent.z, R: R0 }); }
     if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
     const w = this.world, S = this.S;
     const tier = ent.tier || 1;
@@ -2611,21 +2910,37 @@ export class Game {
     this.fx.burst(ent.x, ent.y + 0.6, ent.z, 70, 1, 0.6, 0.2, 6, 0.14, 1.4);
     this.fx.dust(ent.x, ent.y + 0.6, ent.z, 40, 2.2, 3);
     this.dust.add(ent.x, ent.y + 0.8, ent.z, 1.2);
-    const pd = Math.hypot(ent.x - this.player.pos.x, ent.y - this.player.pos.y, ent.z - this.player.pos.z);
-    this.sound.rumble(1.6);
-    if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.6, 24 / (pd + 4)) * this.T.shakeMul);
-    if (pd < R * 0.6 + 2.2) {
-      const dx = this.player.pos.x - ent.x, dz = this.player.pos.z - ent.z, l = Math.hypot(dx, dz) || 1;
-      this.player.vel.x += dx / l * 7; this.player.vel.z += dz / l * 7; this.player.vel.y += 4;
-      this.ui.hurt(0.55); this.dust.lung = Math.min(1.05, this.dust.lung + 0.25);
-      this.hurtPlayer(Math.max(15, 55 - pd * 12), 'got too close to the blast');
-      this.ui.hint('That was too close.', 3);
-    }
+    this.blastOnPlayer(ent.x, ent.y, ent.z, R, false);
     S.stats.blasts = (S.stats.blasts || 0) + 1;
     // a blast shakes the whole slope around the hole
     for (let q = 0; q < 30; q++) this.slide.trigger(ci + ((Math.random() * 2 - 1) * (RI + 3)) | 0, cj + ((Math.random() * 2 - 1) * (RI + 2)) | 0, ck + ((Math.random() * 2 - 1) * (RI + 3)) | 0, 2.2);
     // loosen everything around the hole
     for (let q = 0; q < 12; q++) w.stabQueue.push({ i: ci + ((Math.random() * 2 - 1) * (R + 2)) | 0, j: cj + ((Math.random() * 2 - 1) * (R + 1)) | 0, k: ck + ((Math.random() * 2 - 1) * (R + 2)) | 0 });
+  }
+
+  // what a blast does to the person standing near it: sound, shake, and if they are too close a shove, damage and a lungful of dust.
+  // The host runs it for itself; a guest runs it from the 'boom' message, so both players suffer the same blast.
+  blastOnPlayer(x, y, z, R, fromNet) {
+    const pd = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
+    if (!fromNet) this.sound.rumble(1.6);
+    if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.6, 24 / (pd + 4)) * this.T.shakeMul);
+    if (pd < R * 0.6 + 2.2) {
+      const dx = this.player.pos.x - x, dz = this.player.pos.z - z, l = Math.hypot(dx, dz) || 1;
+      this.player.vel.x += dx / l * 7; this.player.vel.z += dz / l * 7; this.player.vel.y += 4;
+      this.ui.hurt(0.55); this.dust.lung = Math.min(1.05, this.dust.lung + 0.25);
+      this.hurtPlayer(Math.max(15, 55 - pd * 12), 'got too close to the blast');
+      this.ui.hint('That was too close.', 3);
+    }
+    return pd;
+  }
+
+  // the Razzo's extra: a hurt scaled by how close you are, a lungful of dust, and a warning about the roof
+  razzoOnPlayer(x, y, z, marked) {
+    const pd = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
+    if (pd < 14) { this.hurtPlayer(70 * (1 - pd / 14), 'a Razzo went off'); this.dust.lung = Math.min(1.1, this.dust.lung + 0.5); }
+    this.shake = Math.max(this.shake, 1.4);
+    if (pd < 60) this.ui.hint(marked > 20 ? '<b>The roof is coming down!</b> Get clear.' : '<b>BOOM.</b>', 4);
+    this.sound.rumble(2.2);
   }
 
   // ======================= volatile plush =======================
@@ -2639,32 +2954,52 @@ export class Game {
   }
 
   updateFuses(dt) {
+    this._fuseTxt = '';
+    // a guest's thrown Razzo burns on the host, but the guest still sees the countdown
+    if (this.guestFuses && this.guestFuses.length) { this.guestFuses = this.guestFuses.filter((u) => u > this.time); if (this.guestFuses.length) this._fuseTxt = `FUSE ${Math.max(0, Math.min(...this.guestFuses) - this.time).toFixed(1)}`; }
     if (!this.fuses || !this.fuses.length) return;
-    const S = this.S, sim = this.sim;
+    const S = this.S, sim = this.sim; let minT = 1e9;
     for (let n = this.fuses.length - 1; n >= 0; n--) {
       const f = this.fuses[n];
       let pos = null;
       if (f.bid === undefined) {
         if (S.carry.indexOf(f.item) >= 0) pos = this.player.pos;
+        else if (this.isGuest()) { this.cmd('fuse', { sp: f.item.sp, vr: f.item.vr, t: f.t }); (this.guestFuses = this.guestFuses || []).push(this.time + f.t); this.fuses.splice(n, 1); continue; }   // thrown: the bodies live on the host, which keeps the fuse from here
         else {
-          // it left your hands: find the body it became
-          let best = -1, bd = 1e9; for (let q = 0; q < sim.n; q++) { if (sim.sp[q] !== f.item.sp || sim.age[q] > 1.5) continue; const d = Math.hypot(sim.x[q] - this.player.pos.x, sim.z[q] - this.player.pos.z); if (d < bd) { bd = d; best = q; } }
+          // it left your hands: find the body it became (a guest's Razzo is looked for around the guest)
+          const ref = f.remote && this.remote ? this.remote.pos : this.player.pos;
+          let best = -1, bd = 1e9; for (let q = 0; q < sim.n; q++) { if (sim.sp[q] !== f.item.sp || sim.age[q] > 1.5 || this.fuses.some((o) => o !== f && o.bid === sim.bid[q])) continue; const d = Math.hypot(sim.x[q] - ref.x, sim.z[q] - ref.z); if (d < bd) { bd = d; best = q; } }
           if (best >= 0) f.bid = sim.bid[best]; else if ((f.lost += dt) > 0.5) { this.fuses.splice(n, 1); continue; } // sold into the bin or put away: the fuse goes out
         }
       }
-      let idx = -1;
-      if (f.bid !== undefined) { idx = sim.indexOfId(f.bid); if (idx < 0) { this.fuses.splice(n, 1); continue; } }
+      let idx = -1, px = 0, py = 0, pz = 0;
+      if (!f.rest && f.bid !== undefined) {
+        idx = sim.indexOfId(f.bid);
+        if (idx < 0) {
+          // the body is gone: sold into the bin (the fuse goes out), or it stopped on the pile and became a cell (the fuse keeps burning there)
+          const b = this.hall.binPos;
+          if (f.lx !== undefined && Math.hypot(f.lx - b.x, f.lz - b.z) > 4) f.rest = { i: toI(f.lx), j: toJ(f.ly), k: toK(f.lz) };
+          else { this.fuses.splice(n, 1); continue; }
+        }
+      }
+      if (f.rest) {
+        // settled into the pile: still ticking. If the cell is not there any more it was dug out and picked up (that one has its own fuse now)
+        const c = f.rest, w = this.world; let hit = null;
+        for (let dj = -1; dj <= 1 && !hit; dj++) for (let dk = -1; dk <= 1 && !hit; dk++) for (let di = -1; di <= 1; di++) if (w.get(c.i + di, c.j + dj, c.k + dk) === f.item.sp) { hit = { i: c.i + di, j: c.j + dj, k: c.k + dk }; break; }
+        if (!hit) { this.fuses.splice(n, 1); continue; }
+        f.rest = hit; px = cellX(hit.i); py = cellY(hit.j); pz = cellZ(hit.k);
+      } else if (idx >= 0) { px = sim.x[idx]; py = sim.y[idx]; pz = sim.z[idx]; f.lx = px; f.ly = py; f.lz = pz; }
       f.t -= dt; f.tick = (f.tick || 0) - dt;
-      const held = f.bid === undefined;
+      const held = f.bid === undefined && !f.rest;
       if (f.tick <= 0) { f.tick = Math.max(0.08, f.t * 0.18); this.sound.tone('square', 1100, 1100, 0.025, 0.06); if (held) this.heldPop = 0.4; }
-      if (idx >= 0 && Math.random() < dt * 14) this.fx.dust(sim.x[idx], sim.y[idx] + 0.2, sim.z[idx], 1, 0.15, 0.2);
-      if (held || Math.hypot(sim.x[idx] - this.player.pos.x, sim.z[idx] - this.player.pos.z) < 40) this.ui.setWarn(`FUSE ${Math.max(0, f.t).toFixed(1)}`);
+      if (!held && Math.random() < dt * 14) this.fx.dust(px, py + 0.2, pz, 1, 0.15, 0.2);
+      if (held || Math.hypot(px - this.player.pos.x, pz - this.player.pos.z) < 40) { if (f.t < minT) { minT = f.t; this._fuseTxt = `FUSE ${Math.max(0, f.t).toFixed(1)}`; } }   // updateHud shows it (it used to be cleared again every frame)
       if (f.t <= 0) {
         this.fuses.splice(n, 1);
         let x, y, z;
         if (held) { const i2 = S.carry.indexOf(f.item); if (i2 >= 0) S.carry.splice(i2, 1); this.ui.setCarry(S.carry, this.T.carry); x = this.player.pos.x; y = this.player.pos.y + 1; z = this.player.pos.z; }
-        else { x = sim.x[idx]; y = sim.y[idx]; z = sim.z[idx]; sim.remove(idx); }
-        this.razzoBlast(x, y, z);
+        else { x = px; y = py; z = pz; if (idx >= 0) sim.remove(idx); }
+        if (this.isGuest()) this.cmd('razzo', { x, y, z }); else this.razzoBlast(x, y, z);
       }
     }
   }
@@ -2683,14 +3018,11 @@ export class Game {
       for (let j = Math.max(1, cj - 3); j <= Math.min(top - 1, cj + 9); j++) {
         if (!w.solid(i, j, k) || w.solid(i, j - 1, k)) continue;
         const id = (j * NZ + k) * NX + i; if (w.creaking.has(id)) continue;
-        const d = Math.hypot(di, dk); w.creaking.set(id, { i, j, k, t: 0.4 + d * 0.09 + Math.random() * 0.8, force: true }); marked++;
+        const d = Math.hypot(di, dk); w.creaking.set(id, { i, j, k, t: 0.4 + d * 0.09 + Math.random() * 0.8, force: true }); marked++; if (w.onCreakCell && marked <= 160) w.onCreakCell(i, j, k); /* the guest sees the roof groan too */ if (this.net.open && this.creakOut && this.creakOut.length < 180 && marked % 6 === 0) this.creakOut.push(i, j, k);
       }
     }
-    const pd = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
-    if (pd < 14) { this.hurtPlayer(70 * (1 - pd / 14), 'a Razzo went off'); this.dust.lung = Math.min(1.1, this.dust.lung + 0.5); }
-    this.shake = Math.max(this.shake, 1.4);
-    if (pd < 60) this.ui.hint(marked > 20 ? '<b>The roof is coming down!</b> Get clear.' : '<b>BOOM.</b>', 4);
-    this.sound.rumble(2.2);
+    this.razzoOnPlayer(x, y, z, marked);
+    this.netSend({ t: 'razzo', x, y, z, mk: marked });
   }
 
   explode(x, y, z) {
@@ -2748,7 +3080,7 @@ export class Game {
       this.fx.haze(head.x + _fwd.x * r + (Math.random() - 0.5) * 2, head.y + _fwd.y * r + (Math.random() - 0.5), head.z + _fwd.z * r + (Math.random() - 0.5) * 2, Math.min(0.35, d.level * 0.5));
     }
     this.lungSlow = lung > 0.6 ? 1 - 0.45 * Math.min(1, (lung - 0.6) / 0.4) : 1;
-    if (lung > 0.32) {
+    if (lung > 0.32 && !this.dead && !this.blacking) {
       d.coughT -= dt;
       if (d.coughT <= 0) {
         d.coughT = 2.5 + Math.random() * 4 * (1.3 - lung);
@@ -2766,6 +3098,8 @@ export class Game {
   // you always get told before you pass out: a dusty edge to the screen, the cough, a wheeze and a countdown
   lungWarning(dt, lung) {
     const d = this.dust; const prev = this._lungPrev ?? lung; this._lungPrev = lung;
+    // nothing to warn about when you are out cold, dead, on the title or looking at a menu: no dusty edge, no wheeze, no hint
+    if (this.dead || this.blacking || this.mode !== 'play' || this.ui.isModalOpen()) { this.ui.setLungWarn(0, '', '', 0, false); this._lungRate = 0; return; }
     this._lungRate = (this._lungRate || 0) * 0.92 + ((lung - prev) / Math.max(dt, 1e-3)) * 0.08;
     const stage = lung > 0.82 ? 3 : lung > 0.55 ? 2 : lung > 0.15 ? 1 : 0;
     const eta = this._lungRate > 0.004 ? Math.max(1, Math.round((1 - lung) / this._lungRate)) : 0;
@@ -2818,6 +3152,7 @@ export class Game {
       this.ui.setCarry(S.carry, this.T.carry);
       this.dust.lung = 0.06; this.dust.recover = 75;
       this.recall();
+      if (this.isGuest()) this.cmd('clearDust', { x: this.player.pos.x, z: this.player.pos.z });   // the dust field lives on the host
       { const p0 = this.player.pos; for (const k of [...this.dust.cells.keys()]) { const [ix, iy, iz] = this.dust.decode(k); if (Math.hypot((ix + 0.5) * 3 - p0.x, (iz + 0.5) * 3 - p0.z) < 16) this.dust.cells.delete(k); } }
       this._poCount = (this._poCount || 0) + 1; if (this.time - (this._poLast ?? -1e9) < 240) this.ui.hint('<b>You keep passing out in the same place.</b> Ventilate it: Support Fans on your frames, a Vent Fan, or a Respirator. Or tunnel somewhere else.', 9); this._poLast = this.time;
       this.ui.toast({ icon: '😵', title: 'You passed out', text: why === 'air' ? 'You ran out of air. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.' : 'Dust. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.', ms: 7000 });
@@ -2843,11 +3178,18 @@ export class Game {
   }
 
   // feel a slide nearby: rumble, shake, dust. The first one teaches you why not to climb.
-  slideFeel(pd) {
+  // every topple calls this: the host feels it if close, and a guest standing near the slide is told so it can feel it too
+  slideEvent(x, z, pd) {
+    if (pd < 22) this.slideFeel(pd);
+    if (this.net.open && this.net.role === 'host' && this.slide.recent >= 3 && !(this._slideNet > this.time)) { this._slideNet = this.time + 0.45; this.netSend({ t: 'slide', x: +x.toFixed(1), z: +z.toFixed(1), r: this.slide.recent }); }
+  }
+
+  slideFeel(pd, recent = this.slide.recent) {
     const near = 1 - pd / 22;
+    if (pd >= 22) return;
     // only a real slide (several topples at once) shakes the screen; a stray plush rolling does not
-    if (this.slide.recent < 3) return;
-    this.shake = Math.max(this.shake, Math.min(0.8, 0.05 * this.slide.recent * near) * this.T.shakeMul);
+    if (recent < 3) return;
+    this.shake = Math.max(this.shake, Math.min(0.8, 0.05 * recent * near) * this.T.shakeMul);
     if (this.slideSnd === undefined || performance.now() - this.slideSnd > 450) { this.slideSnd = performance.now(); this.sound.rumble(0.25 + 0.5 * near); this.sound.soft(0.1); }
     if (pd < 12 && !this._slideHint) { this._slideHint = true; this.ui.hint('A slide! The pile is not stable under you or on a steep face. Stay low, brace with frames, or stay off it.', 6); }
   }
@@ -2858,14 +3200,25 @@ export class Game {
     // climbing is a gamble: the higher you are and the more you carry, the harder you load the face under you.
     // Near the floor this stays far below what the slide rules need, so walking on a low pile is safe.
     // Climbing Gear (pitons, rope, grippy soles) takes 25% off the load per tier
-    if (!this.isGuest() && p.pos.y > 8) this.slide.trigger(fc.i, fc.j, fc.k, (0.1 + p.pos.y * 0.1 + this.S.carry.length * 0.02 + strength * 0.12 + (stomp ? 0.3 : 0)) * (1 - 0.25 * this.T.climb));
+    if (p.pos.y > 8) {
+      const e = (0.1 + p.pos.y * 0.1 + this.S.carry.length * 0.02 + strength * 0.12 + (stomp ? 0.3 : 0)) * (1 - 0.25 * this.T.climb) * (this.ropedIn(p.pos) ? 0.15 : 1);
+      if (this.isGuest()) { if (e > 0.3) this.cmd('tread', { i: fc.i, j: fc.j, k: fc.k, e: +e.toFixed(3) }); }   // the slide rules run on the host: it loads the face under the guest's boots
+      else this.slide.trigger(fc.i, fc.j, fc.k, e);
+    }
+  }
+
+  // within 6 m of a rope anchor the slope holds
+  ropedIn(pos) {
+    for (const it of this.machines.items.values()) { const e = it.ent; if (e.type === 'rope' && Math.hypot(e.x - pos.x, e.z - pos.z) < 6 && Math.abs(e.y - pos.y) < 5) return true; }
+    return false;
   }
 
   // High on the pile there is nothing solid to stand on. Above ~8 m the face under your boots starts to give: first it shifts and
   // rumbles, then a patch lets go, shoves you down the slope, hurts, and sets off a real slide. Climbing Gear cuts the odds and the damage.
   climbRisk(dt) {
     const p = this.player, fc = p.footCell;
-    if (this.isGuest() || this.dead || !fc || p.pos.y < 8 || !p.onGround) { this._climbT = 0; return; }
+    if (this.dead || this.blacking || !fc || p.pos.y < 8 || !p.onGround) { this._climbT = 0; return; }
+    if (this.ropedIn(p.pos)) { this._climbT = 0; if (!this._ropeHint) { this._ropeHint = true; this.ui.hint('Roped in: the slope holds here.', 3); } return; }
     const climb = this.T.climb || 0, h = p.pos.y;
     this._climbT = (this._climbT || 0) + dt; if (this._climbT < 1.5) return; this._climbT = 0;
     const odds = Math.min(0.6, (h - 6) / 45) * (1 - 0.25 * climb) * (1 + this.S.carry.length * 0.03);
@@ -2875,7 +3228,7 @@ export class Game {
     // the face gives way: find the steepest way down
     const w = this.world; let best = [0, 0], low = w.topAt(fc.i, fc.k);
     for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const t = w.topAt(fc.i + a, fc.k + b); if (t < low) { low = t; best = [a, b]; } }
-    this.slide.triggerPatch(fc.i, fc.k, 2.6 + h * 0.03, 3);
+    if (this.isGuest()) this.cmd('patch', { i: fc.i, k: fc.k, e: +(2.6 + h * 0.03).toFixed(3) }); else this.slide.triggerPatch(fc.i, fc.k, 2.6 + h * 0.03, 3);
     p.vel.x += best[0] * (4 + h * 0.15); p.vel.z += best[1] * (4 + h * 0.15); p.vel.y += 2.2; p.onGround = false;
     const lose = Math.min(this.S.carry.length, Math.ceil(this.S.carry.length / 2));
     for (let n = 0; n < lose; n++) { const it = this.S.carry.pop(); this.sim.spawn(it.sp, it.vr, p.pos.x, p.pos.y + 1.2, p.pos.z, best[0] * 2 + (Math.random() - 0.5), 2, best[1] * 2 + (Math.random() - 0.5), 0); }
@@ -2955,7 +3308,9 @@ export class Game {
     const d = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
     if (d < 18 && v > 5) { this.sound.debris(Math.min(0.2, v * 0.015) * (1 - d / 22)); if (Math.random() < 0.5) this.fx.dust(x, y, z, 3, 0.7, 0.7); }
   }
-  onPlayerHit(v) {
+  onPlayerHit(v, remote) {
+    // plush that hit the other player's body: tell them, they are the one who gets hurt
+    if (remote) { if (this.net.open && v > 4.5 && !(this._rhitCd > this.time)) { this._rhitCd = this.time + 0.1; this.netSend({ t: 'hit', v: +v.toFixed(2) }); } return; }
     if (v > 5) { this.shake = Math.max(this.shake, 0.35 * this.T.shakeMul); this.sound.thump(0.2, 130); if (this.T.shakeMul === 1) this.ui.hurt(0.25); }
     // falling plush hurt: a trickle is harmless, an avalanche is not
     if (v > 4.5 && this.dmgCd <= 0) { this.dmgCd = 0.22; this.hurtPlayer((v - 4) * 4.5 * (1 - (this.T.plushCut || 0)), 'were crushed under falling plush'); }
@@ -3060,6 +3415,7 @@ export class Game {
     if (w.get(n.i, n.j, n.k) === NEEDLE) return _v2.set(cellX(n.i), cellY(n.j), cellZ(n.k));
     const s = this.sim;
     for (let i = 0; i < s.n; i++) if (s.sp[i] === NEEDLE) return _v2.set(s.x[i], s.y[i], s.z[i]);
+    if (this.netBodies) for (const b of this.netBodies.values()) if (b.sp === NEEDLE) return _v2.set(b.x, b.y, b.z);   // a guest has no bodies of its own: it sees the host's
     return null;
   }
 
@@ -3074,12 +3430,12 @@ export class Game {
     }
     if (near < 14 && Math.random() < dt * 14) { for (const c of w.creaking.values()) { if (Math.random() < 0.08) { this.fx.dust(cellX(c.i), cellY(c.j) - 0.2, cellZ(c.k), 1, 0.2, 0.2); break; } } }
     if (near < 30) {
-      this.ui.setWarn(near < 16 ? 'ROOF CREAKING' : '');
+      this.ui.setWarn(this._fuseTxt || (near < 16 ? 'ROOF CREAKING' : ''));
       this.ui.setDanger(Math.max(0, 1 - near / 18));
       if (near < 14) this.shake = Math.max(this.shake, 0.08 * (1 - near / 14));
     } else if (this.T.slopeProbe && p.footCell && p.onGround && p.pos.y > 0.6 && this.slide.unstableAt(p.footCell.i, p.footCell.j + 1, p.footCell.k)) {
-      this.ui.setWarn('UNSTABLE SLOPE'); this.ui.setDanger(0);
-    } else { this.ui.setWarn(''); this.ui.setDanger(0); }
+      this.ui.setWarn(this._fuseTxt || 'UNSTABLE SLOPE'); this.ui.setDanger(0);
+    } else { this.ui.setWarn(this._fuseTxt || ''); this.ui.setDanger(0); }
     // buried
     const buried = p.buried > 0.8;
     this.ui.setBuried(buried);
@@ -3105,15 +3461,22 @@ export class Game {
 
     if (this.hudT > 0) return;
     this.hudT = 0.1;
+    this.updateBotHud();
+    if (this.ui.openModal === 'crew') this.ui.updateCrewLive();
     this.ui.setCartLine(this.S.cart ? this.S.cart.load.length : -1, this.S.cart ? CART_CAP[this.S.cart.tier] : 0, this.S.cart ? this.S.cart.mode : '');
     const depth = this.trackDepth();
-    this.ui.setDepth(depth > 0.3 ? `DEPTH ${depth.toFixed(1)} m` : p.pos.y > 6 ? `ALTITUDE ${p.pos.y.toFixed(0)} m` : '');
+    { const out = Math.hypot(p.pos.x, p.pos.z), left = Math.max(0, EXIT_X - p.pos.x);
+      // BURIED is how far under the pile surface you are (it cannot pass the 43 m ceiling); FROM BAY is how far you have really come
+      const parts = []; if (depth > 0.3) parts.push(`BURIED ${depth.toFixed(1)} m`); else if (p.pos.y > 6) parts.push(`ALTITUDE ${p.pos.y.toFixed(0)} m`);
+      if (out > 30) parts.push(`${out >= 1000 ? (out / 1000).toFixed(2) + ' km' : Math.round(out) + ' m'} FROM BAY`); if (out > 300) parts.push(`EXIT ${left >= 1000 ? (left / 1000).toFixed(2) + ' km' : Math.round(left) + ' m'}`);
+      this.ui.setDepth(parts.join('  ·  ')); }
+    { const ct = this.stowed ? null : this.curTool(); const inf = ct && ct.kind !== 'hammer' ? null : infoFor(this, findInfoRef(this)); if (inf) this.ui.setTileInfo(true, inf.title, inf.lines.filter(Boolean), inf.lit); else this.ui.setTileInfo(false); }
     {
       const net = this.isGuest() ? this.guestGrid : (this.hasGen() ? this.power.nearest(p.pos.x, p.pos.y + 1, p.pos.z) : null);
       if (net) { const used = Math.min(net.demand, net.supply); this.ui.setPower(true, net.supply > 0 ? Math.min(1, net.demand / Math.max(0.01, net.supply)) : 1, net.supply <= 0 ? 'NO FUEL' : `${net.demand.toFixed(1)} / ${net.supply.toFixed(1)} kW${net.sat < 0.99 ? ' BROWNOUT' : ''}`); void used; }
       else this.ui.setPower(false);
       const dd = this.dust;
-      this.ui.setAir(T.airmon && (dd.level > 0.03 || dd.lung > 0.03), dd.level, dd.lung, dd.lung > 0.6 ? 'COUGHING' : dd.level > 0.3 ? 'DUSTY' : 'CLEAR');
+      { const dep = Math.hypot(p.pos.x, p.pos.z), sp = fanSpacing(dep); this.ui.setAir(T.airmon && (dd.level > 0.03 || dd.lung > 0.03 || staleAt(dep) > 0.1), dd.level, dd.lung, dd.lung > 0.6 ? 'COUGHING' : dd.level > 0.3 ? (staleAt(dep) > dd.level * 0.8 ? 'STALE AIR' : 'DUSTY') : isFinite(sp) && staleAt(dep) > 0.1 ? `FAN EVERY ${Math.floor(sp)} M` : 'CLEAR'); }
     }
     // compass to exit
     if (T.compass) {
@@ -3133,7 +3496,7 @@ export class Game {
         const lc = this.locCache;
         if (lc) {
           markers.push({ b: deg(Math.atan2(lc.x - p.pos.x, -(lc.z - p.pos.z))), label: 'GEAR', color: '#c79bff' });
-          if (lc.d < 14 && Math.random() < 0.18) this.sound.tone('sine', 880, 880, 0.15, 0.06);
+          if (lc.d < 14 && !(this._locNext > this.time)) { this._locNext = this.time + 0.6 + lc.d * 0.12; this.sound.tone('sine', 880, 880, 0.15, 0.06); } // a slow ping that speeds up as you close in
         }
       }
       const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -3169,6 +3532,7 @@ export class Game {
       }
       this.ui.setAssay(true, Math.min(1, Math.max(0, (v - 0.55) / 0.4)), ptr);
     } else this.ui.setAssay(false, 0);
+    this.updateSurvey();
     // needle scanner
     const np = this.needlePos();
     if (T.scan > 0 && np) {

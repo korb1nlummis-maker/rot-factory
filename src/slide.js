@@ -123,7 +123,7 @@ export class Slides {
     this.recent += 1;
     this.active = 2;
     // a real slide is a dozen plush or more in motion at once, not a stray plush rolling off
-    this.burstN = (this.burstN || 0) + 1; if (this.burstN >= 12 && !this.burstCool) { this.burstCool = 15; this.burstN = 0; g.S.stats.bigSlides = (g.S.stats.bigSlides || 0) + 1; }
+    this.burstN = Math.min(24, (this.burstN || 0) + 1); if (this.burstN >= 12 && !this.burstCool) { this.burstCool = 15; this.burstN = 0; g.S.stats.bigSlides = (g.S.stats.bigSlides || 0) + 1; }
     g.S.stats.slides = (g.S.stats.slides || 0) + 1;
     this.hot.set(key(i + a, j, k + b), g.time + 3);
     const x = cellX(i), y = cellY(j), z = cellZ(k);
@@ -144,6 +144,6 @@ export class Slides {
     this.add(i + a, j, k + b, e * 0.5);
     // feel it
     const pd = Math.hypot(x - g.player.pos.x, z - g.player.pos.z);
-    if (pd < 22) g.slideFeel(pd);
+    g.slideEvent(x, z, pd);
   }
 }

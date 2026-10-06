@@ -32,12 +32,20 @@ const GENERAL = [
   'Hammer is on slot one. It is not a toy. It is also a toy.',
   'The chalkboard by the bin is correct. It has been correct since the first shift.',
   'Everything that rolls out of the pile goes through a gate. Everything. Even the interns.',
-  'Reminder: the pile is 960 kinds of plush. Please stop trying to name the last one.',
+  'Reminder: the pile is well over a thousand kinds of plush. Please stop trying to name the last one.',
+  'Wood is for the first hundred meters. Past that the wood starts to talk. You do not want to hear what it says.',
+  'Every support has a depth rating stamped on it. The mountain does not read stamps, but it does read depth.',
+  'A fan under the top beam, facing the way you came. Fresh air follows you in. Dust follows you out.',
+  'If your vision goes brown at the edges, you are not tired. You are breathing the tunnel. Leave.',
+  'Veins of rare plush run through the whole pile. The assay can find them. So can luck. Luck is cheaper and less reliable.',
+  'One in sixty thousand is a Razzo. You will know it when it ticks. Throw it far. Do not throw it at a frame.',
+  'Bend the tunnel when the road ahead is bad. Frames turn. The pile is not a ruler and neither are you.',
+  'It is a new day, they say. We cannot tell down here. The clock does, and the clock is never wrong, only late.',
 ];
 const DEEP = [
   'Unit calling from the far corner... static ...it is warm here. It knows you are coming.',
   'This is the last depot on the map. After this the map is blank. Draw your own.',
-  'The east door is three kilometers out. The gold one is further. It is not on the way.',
+  'The east door is nearly five kilometers out. The gold one is further. It is not on the way.',
   'Hello? I have been digging for a long time. What shift is it?',
 ];
 
