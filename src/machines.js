@@ -207,8 +207,14 @@ export class Machines {
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     let ddx = 0, ddz = 0;
     if (Math.abs(fx) > Math.abs(fz)) ddx = Math.sign(fx); else ddz = Math.sign(fz);
-    // needs solid face ahead
-    if (!w.solid(i + ddx, j + 1, k + ddz)) return { ok: false, why: 'Face the pile wall' };
+    // needs a solid face ahead: look a few cells along the way you face (the wall of a slope leans), and set the borer in front of it
+    let found = false;
+    for (let st = 0; st < 5 && !found; st++) {
+      const ci = i + ddx * st, ck = k + ddz * st;
+      if (w.solid(ci, j, ck) && st > 0) break; // something solid right at the floor in front: stop looking
+      if (w.solid(ci + ddx, j, ck + ddz) || w.solid(ci + ddx, j + 1, ck + ddz) || w.solid(ci + ddx, j + 2, ck + ddz)) { i = ci; k = ck; found = true; }
+    }
+    if (!found) return { ok: false, why: 'Face the pile wall' };
     return { ok: true, ent: { i, j, k, dx: ddx, dz: ddz, w: T.borerW, h: T.borerH, x: cellX(i), y: j * C, z: cellZ(k) } };
   }
 

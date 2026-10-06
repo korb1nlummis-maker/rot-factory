@@ -313,7 +313,14 @@ export class UI {
       const el = document.createElement('div');
       el.className = 'card';
       if (isMat) el.style.borderColor = 'rgba(154,107,58,0.6)';
-      el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? 'have ' + have : ''}</small></h3><p>${r.desc}</p>${matLine}<div style="display:flex;gap:6px">${r.batch.map((n) => `<button data-n="${n}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('')}</div>`;
+      const isCart = r.kind === 'cart';
+      const owned = isCart && /already have|In use|in your pack/.test(r.status);
+      const btns = isCart
+        ? `<button data-n="1" ${owned || g.S.money < r.price ? 'disabled' : ''} style="flex:1">${owned ? 'Owned' : /Upgrade/.test(r.status) ? 'Upgrade' : 'Craft'} · ◈${fmt(r.price)}</button>`
+        : r.batch.map((n) => `<button data-n="${n}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('');
+      const statusLine = r.status ? `<p style="color:var(--accent2);font-size:11.5px">${r.status}</p>` : '';
+      const useLine = r.use ? `<p style="color:var(--dim);font-size:11.5px"><b>How to use:</b> ${r.use}</p>` : '';
+      el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? (isCart ? '' : 'have ' + have) : ''}</small></h3><p>${r.desc}</p>${matLine}${statusLine}${useLine}<div style="display:flex;gap:6px">${btns}</div>`;
       for (const b of el.querySelectorAll('button')) b.onclick = () => { if (g.craftItem(r.id, +b.dataset.n)) this.renderCraft(); };
       grid.appendChild(el);
     }

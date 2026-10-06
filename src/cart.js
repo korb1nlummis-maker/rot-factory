@@ -109,7 +109,12 @@ export class Cart {
     const dist = Math.hypot(px - c.x, pz - c.z);
     if (c.mode === 'follow') {
       const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
-      tx = px - fx * 1.8 + fz * 0.9; tz = pz - fz * 1.8 - fx * 0.9;
+      // rides beside you, a little ahead, so you can see it and throw plush into it; in a tunnel with no room it tucks in behind
+      tx = px + fx * 0.3 + fz * 1.6; tz = pz + fz * 0.3 - fx * 1.6;
+      if (w.solid(toI(tx), toJ(p.pos.y + 0.5), toK(tz)) || w.solid(toI(tx), toJ(p.pos.y + 1.1), toK(tz))) {
+        tx = px - fx * 1.8 + fz * 0.5; tz = pz - fz * 1.8 - fx * 0.5;
+        if (w.solid(toI(tx), toJ(p.pos.y + 0.5), toK(tz))) { tx = px - fx * 1.0; tz = pz - fz * 1.0; }
+      }
       if (dist > 45) { // it catches up when you have left it far behind
         c.x = tx; c.z = tz; c.y = p.pos.y; this.vy = 0;
         g.fx.sparkle(c.x, c.y + 0.5, c.z, 10, 0.8, 0.9, 1);
