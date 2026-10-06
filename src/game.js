@@ -743,7 +743,7 @@ export class Game {
     } else {
       // grabbing is instant (see gPress); hold the key to keep grabbing until your hands (or cart) are full
       this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
-      if (this.keys.KeyG && tg && this.storeRoom() && this.grabCd <= 0 && !this.vacT) this.instantGrab(tg);
+      if (this.keys.KeyG && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 280 && tg && this.storeRoom() && this.grabCd <= 0 && !this.vacT) this.instantGrab(tg);
       G.p = 0; this.ui.setGrab(0, false);
     }
     if (building) this.updateBuild(tool, eye, dir);
@@ -829,7 +829,8 @@ export class Game {
     this.registerDex(item.sp);
     if (item.sp === NEEDLE) { this.foundNeedle('your hands'); return; }
     const carried = { sp: item.sp, vr: item.vr };
-    if (!(!sp.volatile && this.routeToCart(carried, pos))) {
+    // hands first (so you can throw them at the cart); once your hands are full the rest ride on the cart
+    if (sp.volatile || S.carry.length < this.T.carry || !this.routeToCart(carried, pos)) {
       S.carry.push(carried);
       if (sp.volatile && !quiet) this.lightFuse(carried);
     }
@@ -954,19 +955,18 @@ export class Game {
   holdGrab() { return this.grabWant || !!this.keys.KeyG; }
 
   // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
-  // F / left click: grab what you are looking at, instantly. Press again with hands full (or nothing in reach) and you throw.
+  // F / left click. Empty hands: a tap grabs what you look at. Holding something: a single tap throws it.
+  // Hold the button to keep grabbing until you are full (see interact).
   gPress() {
     const tg = this.curTargetRef;
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
-    const full = !this.storeRoom();
-    if (tg && !full) {
-      if (performance.now() - (this._lastGrabAt || 0) < 90) return; // only guards against a double-registered key; a real second click always counts
-      if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
-      this.instantGrab(tg);
-      return;
-    }
-    if (this.S.carry.length) this.throwOne();
-    else if (tg && full) this.ui.hint('Hands full. Walk to the SORT bin.', 2);
+    this.gDownAt = performance.now();
+    if (this.S.carry.length) { this.holdBlock = true; this.throwOne(); return; }
+    this.holdBlock = false;
+    if (!tg) return;
+    if (!this.storeRoom()) { this.ui.hint('Hands full. Walk to the SORT bin.', 2); return; }
+    if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
+    this.instantGrab(tg);
   }
 
   instantGrab(tg) {
