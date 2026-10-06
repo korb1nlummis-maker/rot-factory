@@ -305,7 +305,7 @@ export class Crew {
         }
         b.tx = p[0]; b.tz = p[1];
         if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) { b.pi++; if (b.gatePending && b.pi === 1) { b.scanT = 0.9; const gt = g.logi.byId.get(b.gatePending); if (gt) { g.logi.setGate(gt, false); g.sound.tone('sine', 700, 1100, 0.3, 0.04); } } }
-        b.battery -= dt * 0.004;
+        b.battery -= dt * 0.004 / T.crewBattery;
         break;
       }
       case 'unload': {

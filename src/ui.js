@@ -326,7 +326,7 @@ export class UI {
       const reqU = u.req ? UPGRADES.find((x) => x.id === u.req.id) : null;
       const gearNote = '';
       el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p>${gearNote}<div class="pips">${pips}</div>
-        <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : nt ? nt : !unlocked ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : `Buy  ◈ ${fmt(cost)}`}</button>`;
+        <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : (reqU && (g.S.up[reqU.id] || 0) < u.req.lvl) ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : nt ? nt : !unlocked ? 'Locked' : `Buy  ◈ ${fmt(cost)}`}</button>`;
       el.querySelector('button').onclick = () => { if (g.buy(u.id)) this.renderShop(); };
       grid.appendChild(el);
     }
@@ -360,7 +360,7 @@ export class UI {
       const owned = isCart && /already have|In use|in your pack/.test(r.status);
       const btns = isCart
         ? `<button data-n="1" ${owned || g.S.money < r.price ? 'disabled' : ''} style="flex:1">${owned ? 'Owned' : /Upgrade/.test(r.status) ? 'Upgrade' : 'Craft'} · ◈${fmt(r.price)}</button>`
-        : r.batch.map((n) => `<button data-n="${n}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('');
+        : [...new Set(r.batch)].map((n) => `<button data-n="${n}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('');
       const statusLine = r.status ? `<p style="color:var(--accent2);font-size:11.5px">${r.status}</p>` : '';
       const useLine = r.use ? `<p style="color:var(--dim);font-size:11.5px"><b>How to use:</b> ${r.use}</p>` : '';
       el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? (isCart ? '' : 'have ' + have) : ''}</small></h3><p>${r.desc}</p>${matLine}${statusLine}${useLine}<div style="display:flex;gap:6px">${btns}</div>`;

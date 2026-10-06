@@ -46,7 +46,7 @@ export async function runSelfTest(g, only = '') {
     S().up = { ...up }; S().items = {}; S().mats = {}; S().carry = []; S().cart = null; g.cart.sync();
     S().money = 1e12; S().stats.plush = 1e9; S().stats.maxDist = 0; S().hotbar = ['hammer', null, null, null, null, null, null, null, null]; g.buildIdx = 0;
     S().contracts = []; S().ending = null; S().needleLost = false;
-    g.hp = 100; g.hpMax = 100; g.dead = false; g.trapOn = false; g.airLeft = undefined; g.suffocating = false; g.blacking = false;
+    g.grabCd = 0; g.hp = 100; g.hpMax = 100; g.dead = false; g.trapOn = false; g.airLeft = undefined; g.suffocating = false; g.blacking = false;
     p().embedded = false; p().buried = 0; p().vel.set(0, 0, 0);
     g.dust.cells.clear(); g.dust.lung = 0;
     g.stowed = true; g.vacT = 0; g.holdBlock = false; g.keys = {}; // bare hands unless a test takes a tool out
@@ -232,13 +232,13 @@ export async function runSelfTest(g, only = '') {
     return ((S().stats.contracts || 0) > d0 && S().money >= m0 + 777) || 'not paid';
   });
   await T('sort.sorter-filters', async () => {
-    fresh({ power: 1, belts: 1, sorter: 1, vault: 1, optics: 5 }); const z = 2; for (let n = 0; n < 1; n++) { const a = await placeAtFloor('sorter', 3.0, z, 1.5); if (!a.ok) return 'sorter place: ' + a.why; const b = await placeAtFloor('vault', 3.6, z, 1.5); if (!b.ok) return 'vault place: ' + b.why; }
+    fresh({ power: 1, belts: 1, sorter: 1, vault: 1, optics: 5 }); const z = 2; for (let n = 0; n < 1; n++) { const a = await placeAtFloor('sorter', 8.0, z, 1.5); if (!a.ok) return 'sorter place: ' + a.why; const b = await placeAtFloor('vault', 8.6, z, 1.5); if (!b.ok) return 'vault place: ' + b.why; }
     const sorter = tiles().find((t) => t.type === 'sorter'), vault = tiles().find((t) => t.type === 'vault'); const byR = {}; species.forEach((sp, i) => { if (i > 0 && i < 500 && sp && byR[sp.rarity] === undefined) byR[sp.rarity] = i; });
     const check = (filter, expectKeptRarities) => { sorter.filter = filter; vault.stored.length = 0; sorter.q = []; for (const r of Object.keys(byR)) for (let q = 0; q < 2; q++) sorter.q.push({ sp: byR[r], vr: 0 }); for (let n = 0; n < 600; n++) { sorter.pw = 1; g.time += 0.05; L().update(0.05); if (!sorter.q.length && n > 40) break; } const kept = [...new Set(vault.stored.map((i) => species[i.sp].rarity))].sort().join(''); return kept === expectKeptRarities; };
     return (check(7, '') && check(1, '12345') && check(3, '345') && check(5, '5') && check(0, '012345')) || 'filter behavior wrong';
   });
   await T('sort.sorter-cycle-modes', async () => {
-    fresh({ power: 1, belts: 1, sorter: 1, optics: 5 }); const a = await placeAtFloor('sorter', 3.0, 2, 1.5); if (!a.ok) return a.why; const t = tiles().find((x) => x.type === 'sorter'); const seen = new Set(); for (let q = 0; q < 9; q++) { g.useTile(t); seen.add(t.filter); } return seen.size >= 7 || 'modes ' + [...seen].join();
+    fresh({ power: 1, belts: 1, sorter: 1, optics: 5 }); const a = await placeAtFloor('sorter', 8.0, 2, 1.5); if (!a.ok) return a.why; const t = tiles().find((x) => x.type === 'sorter'); const seen = new Set(); for (let q = 0; q < 9; q++) { g.useTile(t); seen.add(t.filter); } return seen.size >= 7 || 'modes ' + [...seen].join();
   });
 
 
@@ -629,7 +629,7 @@ export async function runSelfTest(g, only = '') {
     return bad.length === 0 || bad.slice(0, 6).join('; ');
   });
   await T('craft.materials-stock-then-shortfall', async () => {
-    fresh(mkUp()); S().money = 1000; craft('mat:timber', 10); const st = S().mats.timber; craft('frame:timber', 3); const used = st - (S().mats.timber || 0); return (st === 10 && used === 10 && S().items['frame:timber'] === 3 && Math.abs(S().money - (1000 - 18 * 10 - 2 * 9)) < 1) || `stock ${st} used ${used} money ${S().money}`;
+    fresh(mkUp()); S().money = 1000; craft('mat:timber', 10); const st = S().mats.timber; craft('frame:timber', 3); const used = st - (S().mats.timber || 0); return (st === 10 && used === 10 && S().items['frame:timber'] === 3 && Math.abs(S().money - (1000 - 6 * 10 - 2 * 9)) < 1) || `stock ${st} used ${used} money ${S().money}`;
   });
   await T('craft.ui-cards-have-no-undefined-text', async () => {
     fresh(mkUp({ cart: 5, firstaid: 1, power: 1, belts: 1, sorter: 1, vault: 1, fans: 1, detector: 1, mech: 1, claw: 1, borer: 1, depots: 1 })); g.openModal('craft'); g.ui.renderCraft(); const t = document.getElementById('craftGrid').textContent; g.ui.closeModals(); return !/undefined|NaN|\[object/.test(t) || 'bad text on the bench';
@@ -745,6 +745,11 @@ export async function runSelfTest(g, only = '') {
     return (open && above && closed && /Il Rotto Supremo/.test(text) && /hotbar/i.test(text) && /Detector Gate/.test(text) && !/undefined/.test(text)) || `open ${open} above ${above} closed ${closed}`;
   });
   await T('menu.title-never-flickers', async () => { fresh(); g.mode = 'title'; const l = g.hall.flicker[0].color; const vals = new Set(); for (let n = 0; n < 400; n++) { g.hall.calm = true; g.hall.update(n * 0.016, g.renderer.camera.position); vals.add(+l.r.toFixed(2)); } g.hall.calm = false; g.mode = 'play'; return vals.size === 1 || 'ceiling light varied on the title: ' + [...vals].join(); });
+
+  // extra test modules: src/tests/*.js each export default async (ctx) => { await ctx.T('area.name', async () => true | 'reason') }
+  const mods = import.meta.glob('./tests/*.js', { eager: true });
+  const ctx = { g, S, w, p, sim, L, V3, THREE, cfg, cellX, cellY, cellZ, toI, toJ, toK, UPGRADES, FRAME_TYPES, effLevels, computeTuning, recipes, MATERIALS, CART_CAP, CART_NAMES, species, NEEDLE, fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, plushWall, standBeforeWall, newWorld, realSleep, sleep, WORLD_TESTS };
+  for (const path of Object.keys(mods).sort()) { const fn = mods[path].default; if (typeof fn === 'function') await fn(ctx); }
 
   return { results, errs: (g.errCount || 0) - errs0, helpers: { fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, resetEntities, sleep, V3 } };
 }

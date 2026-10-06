@@ -22,7 +22,7 @@ import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
-import { UPGRADES, FRAME_TYPES, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
+import { UPGRADES, FRAME_TYPES, STRUT_DEPTH, supportDepth, betterThan, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
 import { Cart, CART_CAP, CART_NAMES, dims as cartDims } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { RARITY, species, pools, NEEDLE, BULK, REMAINS, CACHE, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
@@ -2058,6 +2058,8 @@ export class Game {
     if (!this.keys.KeyB) this.lastPaint = '';
     if (plan) {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
+      else if (this.strainOf(tool, plan).state === 'break') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>Too deep for ${st.name}.</b> It is rated to ${st.max} m and this is ${Math.round(st.d)} m in: it will break the moment you set it. ${st.next ? 'Use ' + FRAME_TYPES[st.next].name + ' or better.' : ''}`, 0.4); }
+      else if (this.strainOf(tool, plan).state === 'creak') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>${st.name} is near its limit here.</b> Rated to ${st.max} m, this is ${Math.round(st.d)} m in. It will hold, but it is creaking. <kbd>B</kbd> set down`, 0.4); }
       else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square, dig the section out first · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
@@ -2130,10 +2132,10 @@ export class Game {
     if (this.isGuest()) return;
     if (S.entities.some((e) => e.free)) return;
     if (S.freeGate === 'gone') return;
-    const r = this.gateClearance() + 3;
+    const r = this.gateClearance() + 0.8; // just outside the bin's pull, so it sits as close to the start as it can
     const bp = this.hall.binPos;
     let spot = null;
-    for (const [x, z] of [[0, 10], [0, 11], [-3, 10], [3, 10], [-5, 8], [5, 8], [0, 9], [-7, 6]]) {
+    for (const [x, z] of [[0, 3.6], [-2.4, 3.2], [2.4, 3.6], [-4, 1.2], [0, 5], [-4.2, -1.2], [-3, 5], [3, 5.5], [0, 7], [0, 10]]) {
       const i = toI(x), k = toK(z);
       if (w.solid(i, 0, k) || w.solid(i, 1, k) || w.solid(i, 2, k) || w.solid(i + 1, 0, k) || w.solid(i - 1, 0, k)) continue;
       if (Math.hypot(x - bp.x, z - bp.z) < r) continue;
@@ -2208,6 +2210,11 @@ export class Game {
     const id = this.nextId();
     let ent;
     const e = plan.ent;
+    if (tool.kind === 'frame' || tool.kind === 'strut' || tool.kind === 'jack') {
+      const st = this.strainOf(tool, plan);
+      if (st.state === 'break') { this.breakSupport(st, e); this.rebuildTools(); return; }
+      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: it holds here (rated to ${st.max} m, this is ${Math.round(st.d)} m in) but not much deeper.`; this.sound.creak(0.25); }
+    }
     if (tool.kind === 'bulk') {
       this.world.setCell(e.i, e.j, e.k, BULK, (Math.random() * 127) | 0);
       this.world.stabQueue.push({ i: e.i, j: e.j, k: e.k });
@@ -2275,7 +2282,7 @@ export class Game {
     this.fx.dust(e.cx ?? e.x, (e.y0 ?? e.y) + 0.3, e.cz ?? e.z, 8, 0.7, 0.8);
     if (tool.kind === 'frame') {
       // re-evaluate nearby roof: creaking cells may now be safe
-      this.ui.hint('Frame set. It anchors the roof around it: the unsupported tunnel length starts again from here. Place the next one on any side to extend.', 3);
+      if (this._strainNote) { this.ui.hint(this._strainNote, 5); this._strainNote = null; } else this.ui.hint(`${FRAME_TYPES[e.kind].name} set. It holds the roof within ${FRAME_TYPES[e.kind].radius} m of it, and the unsafe stretch starts again at the edge of that reach. Place the next one on any side to extend.`, 4);
     }
     this.trackDepth();
   }
@@ -2342,6 +2349,38 @@ export class Game {
     if (e.type === 'frame' || e.type === 'strut' || e.jack) {
       const w = this.world, ci = toI(e.cx ?? e.x), ck = toK(e.cz ?? e.z), cj = toJ(e.y0 ?? e.y ?? 0), R = e.type === 'frame' ? 6 : 4;
       for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: ci + a, j: cj + dj, k: ck + b });
+    }
+  }
+
+  // ======================= depth ratings =======================
+  // The mountain presses harder the deeper you dig. Every support has a depth it can stand at; near it the support creaks,
+  // past it the support breaks when you set it.
+  strainOf(tool, plan) {
+    const e = plan.ent, kind = tool.kind === 'frame' ? tool.fk : tool.kind;
+    const x = e.cx ?? e.x, z = e.cz ?? e.z, d = supportDepth(x, z);
+    const max = tool.kind === 'frame' ? FRAME_TYPES[kind].maxDepth : STRUT_DEPTH[kind];
+    const name = tool.kind === 'frame' ? FRAME_TYPES[kind].name : kind === 'jack' ? 'Hydraulic Jack' : 'Strut';
+    return { d, max, name, kind, next: tool.kind === 'frame' ? betterThan(kind) : (kind === 'strut' ? 'steel' : 'concrete'), state: d > max ? 'break' : d > max * 0.85 ? 'creak' : 'ok' };
+  }
+
+  breakSupport(st, e) {
+    const x = e.cx ?? e.x, z = e.cz ?? e.z, y = (e.y0 ?? e.y ?? 0) + 1.0;
+    this.fx.dust(x, y, z, 26, 1.6, 1.6); this.sound.thump(0.4, 90); this.sound.creak(0.35); this.shake = Math.max(this.shake, 0.3);
+    this.S.stats.brokenSupports = (this.S.stats.brokenSupports || 0) + 1;
+    this.ui.hint(`<b>The ${st.name} cracks and gives way.</b> It is rated to ${st.max} m and the mountain here is ${Math.round(st.d)} m deep. It is gone. ${st.next ? 'You need ' + (FRAME_TYPES[st.next] ? FRAME_TYPES[st.next].name : st.next) + ' or better down here.' : ''}`, 6);
+  }
+
+  // warns as you go deeper than a support you own can take: once when it starts to creak, once when it can no longer hold
+  depthCheck(dt) {
+    this._depthT = (this._depthT || 0) - dt; if (this._depthT > 0) return; this._depthT = 1;
+    const S = this.S, T = this.T; const d = supportDepth(this.player.pos.x, this.player.pos.z);
+    const fl = S.depthWarn || (S.depthWarn = {});
+    const noun = { timber: 'wood', steel: 'steel', concrete: 'concrete', rebar: 'rebar', titan: 'titanium', carbon: 'carbon weave', plasma: 'plasma', voidl: 'void lattice', neutron: 'neutron shell', horizon: 'horizon' };
+    for (const k of T.frames) {
+      const max = FRAME_TYPES[k].maxDepth; if (!isFinite(max)) continue;
+      const nx = betterThan(k), nn = nx ? FRAME_TYPES[nx].name : null;
+      if (d > max && !fl[k + 'b']) { fl[k + 'b'] = 1; fl[k + 'c'] = 1; this.sound.creak(0.3); this.ui.hint(`<b>The ${noun[k]} can't take it down here.</b> ${FRAME_TYPES[k].name}s are rated to ${max} m and break the moment you set them. ${nn ? 'You need ' + nn + 's (rated to ' + (isFinite(FRAME_TYPES[nx].maxDepth) ? FRAME_TYPES[nx].maxDepth + ' m' : 'any depth') + ') or better.' : ''}`, 8); break; }
+      if (d > max * 0.85 && !fl[k + 'c']) { fl[k + 'c'] = 1; this.sound.creak(0.3); this.ui.hint(`<b>The ${noun[k]} is starting to creak under the pressure of the mountain.</b> ${FRAME_TYPES[k].name}s are rated to ${max} m and you are ${Math.round(d)} m in. ${nn ? 'Get ' + nn + 's ready.' : ''}`, 8); break; }
     }
   }
 
@@ -2673,6 +2712,31 @@ export class Game {
     if (!this.isGuest() && p.pos.y > 8) this.slide.trigger(fc.i, fc.j, fc.k, (0.1 + p.pos.y * 0.1 + this.S.carry.length * 0.02 + strength * 0.12 + (stomp ? 0.3 : 0)) * (1 - 0.25 * this.T.climb));
   }
 
+  // High on the pile there is nothing solid to stand on. Above ~8 m the face under your boots starts to give: first it shifts and
+  // rumbles, then a patch lets go, shoves you down the slope, hurts, and sets off a real slide. Climbing Gear cuts the odds and the damage.
+  climbRisk(dt) {
+    const p = this.player, fc = p.footCell;
+    if (this.isGuest() || this.dead || !fc || p.pos.y < 8 || !p.onGround) { this._climbT = 0; return; }
+    const climb = this.T.climb || 0, h = p.pos.y;
+    this._climbT = (this._climbT || 0) + dt; if (this._climbT < 1.5) return; this._climbT = 0;
+    const odds = Math.min(0.6, (h - 6) / 45) * (1 - 0.25 * climb) * (1 + this.S.carry.length * 0.03);
+    if (!this._climbHint) { this._climbHint = true; this.ui.hint('<b>Loose footing up here.</b> The pile shifts under your boots the higher you climb. Climbing Gear in the terminal helps. Better yet: dig, do not climb.', 7); }
+    const r = Math.random();
+    if (r > odds) { if (r > 0.75) { this.sound.thump(0.12, 70); this.shake = Math.max(this.shake, 0.08); } return; }
+    // the face gives way: find the steepest way down
+    const w = this.world; let best = [0, 0], low = w.topAt(fc.i, fc.k);
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const t = w.topAt(fc.i + a, fc.k + b); if (t < low) { low = t; best = [a, b]; } }
+    this.slide.triggerPatch(fc.i, fc.k, 2.6 + h * 0.03, 3);
+    p.vel.x += best[0] * (4 + h * 0.15); p.vel.z += best[1] * (4 + h * 0.15); p.vel.y += 2.2; p.onGround = false;
+    const lose = Math.min(this.S.carry.length, Math.ceil(this.S.carry.length / 2));
+    for (let n = 0; n < lose; n++) { const it = this.S.carry.pop(); this.sim.spawn(it.sp, it.vr, p.pos.x, p.pos.y + 1.2, p.pos.z, best[0] * 2 + (Math.random() - 0.5), 2, best[1] * 2 + (Math.random() - 0.5), 0); }
+    if (lose) this.ui.setCarry(this.S.carry, this.T.carry);
+    this.hurtPlayer((4 + h * 0.5) * (1 - 0.2 * climb), 'the pile gave way');
+    this.sound.thump(0.4, 80); this.shake = Math.max(this.shake, 0.4);
+    this.ui.hint(`<b>The pile gives way under you!</b>${lose ? ' You drop ' + lose + ' plush.' : ''} Stay low, or get Climbing Gear.`, 4);
+    this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1;
+  }
+
   onKick(i, j, k, vx, vy, vz, speed, en) {
     this.kickBudget = this.kickBudget ?? 6;
     if (this.kickBudget <= 0 || speed < 3.2) return;
@@ -2745,7 +2809,7 @@ export class Game {
   onPlayerHit(v) {
     if (v > 5) { this.shake = Math.max(this.shake, 0.35 * this.T.shakeMul); this.sound.thump(0.2, 130); if (this.T.shakeMul === 1) this.ui.hurt(0.25); }
     // falling plush hurt: a trickle is harmless, an avalanche is not
-    if (v > 4.5 && this.dmgCd <= 0) { this.dmgCd = 0.22; this.hurtPlayer((v - 4) * 4.5, 'were crushed under falling plush'); }
+    if (v > 4.5 && this.dmgCd <= 0) { this.dmgCd = 0.22; this.hurtPlayer((v - 4) * 4.5 * (1 - (this.T.plushCut || 0)), 'were crushed under falling plush'); }
   }
 
   // ---- health. Death is not the end: you wake up on the floor of the sorting bay, the plush you carried spilled.
@@ -2875,6 +2939,7 @@ export class Game {
     // trapped: a pulsing countdown to dig out before the air runs out
     this.updateTrapped(dt);
     this.updateVitals(dt);
+    this.depthCheck(dt); this.climbRisk(dt);
     // emergency recall: hold U
     if (this.keys.KeyH) {
       this.recallHold += dt;
@@ -2954,14 +3019,14 @@ export class Game {
       if (d <= range) {
         const level = clamp(1 - d / range, 0, 1);
         this.sigLevel = clamp(1 - d / Math.min(range, 60), 0, 1);
-        const showMeter = T.scan >= 1;
+        const showMeter = T.scan >= 2;
         const aAng = Math.atan2(np.x - p.pos.x, np.z - p.pos.z);
         const rel = (p.yaw - aAng) * 180 / Math.PI - 90;
         let dtxt = '';
         if (T.scan >= 4) dtxt = d.toFixed(0) + ' m';
         if (T.scan >= 5) { const dy = np.y - cam.position.y; dtxt += dy > 0.5 ? `  ▲ ${dy.toFixed(0)}` : dy < -0.5 ? `  ▼ ${(-dy).toFixed(0)}` : ''; }
         this.ui.setSignal(showMeter, Math.pow(level, 0.6), rel, dtxt || (d < 8 ? 'very close' : ''), T.scan >= 3);
-      } else { this.sigLevel = 0; this.ui.setSignal(T.scan >= 1, 0, 0, 'no signal', false); }
+      } else { this.sigLevel = 0; this.ui.setSignal(T.scan >= 2, 0, 0, 'no signal', false); }
     } else { this.sigLevel = 0; this.ui.setSignal(false); }
   }
 

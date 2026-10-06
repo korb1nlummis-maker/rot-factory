@@ -85,3 +85,7 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - Frames are hollow 4x4 boxes (4 corner pillars, 4 top beams, open on every side). Placing one never digs: dig the 4x4 section out first, lay the frame, keep digging. Removing frames re-checks the roof, so a long tunnel with its supports taken out caves in.
 - Roof creaks need a real unsupported span: a small sealed pocket from grabbing plush no longer counts, and the creak sound waits to confirm the roof is still overloaded.
 - Exit signs: both faces now point east. One-time save wipe (WIPE_TOKEN in state.js; bump it to wipe everyone again).
+- Supports have a depth rating (metres from the start toward the exit): timber 150, steel 380, concrete 800, rebar 1300, titan 1800, carbon 2300, plasma 2700, void 3000, neutron 3500, horizon unlimited; struts 110, jacks 320. At 85% of the rating the game warns that the material is creaking under the mountain; past it a support breaks when you set it and is lost. The crew's auto-bolters skip tiers too weak for their depth.
+- High on the pile (above ~8 m) the footing gives way: a warning first, then a patch of the face lets go, shoves you down, hurts, drops half your load and sets off a real slide. Climbing Gear cuts the odds. The Rockslide achievement needs a dozen plush moving at once.
+- Free detector gate now sits about 5 m from the start; the start-area crates are gone.
+- Upgrade/crafting audit: every upgrade and recipe has tests in src/tests (upg.*); descriptions were corrected to match behavior.

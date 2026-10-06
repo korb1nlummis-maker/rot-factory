@@ -43,7 +43,7 @@ export const ACHIEVEMENTS = [
   A('km2', 'Two Kilometers', 'Be 2 km from Sorting Bay 07.', (S) => (S.stats.maxDist || 0) >= 2000, '📏'),
   A('km3', 'Almost Daylight', 'Be 3 km from Sorting Bay 07.', (S) => (S.stats.maxDist || 0) >= 3000, '📏'),
   A('km4', 'No One Comes This Far', 'Be 4 km from Sorting Bay 07.', (S) => (S.stats.maxDist || 0) >= 4000, '📏', true),
-  A('slide1', 'Rockslide', 'Start a slide by climbing.', (S) => (S.stats.slides || 0) >= 1, '🏔️'),
+  A('slide1', 'Rockslide', 'Set off a real slide: a dozen plush or more tumbling at once.', (S) => (S.stats.bigSlides || 0) >= 1, '🏔️'),
   A('belt1', 'Industrial Revolution', 'Build a conveyor belt.', (S) => (S.stats.built || 0) >= 1, '🛤️'),
   A('mech1', 'Robot Labor', 'Build a Mech Scooper.', (S) => S.entities.some((e) => e.type === 'mech'), '🤖'),
   A('bulk1', 'Wall It Off', 'Build a bulkhead.', (S) => (S.stats.bulk || 0) >= 1, '🪧'),

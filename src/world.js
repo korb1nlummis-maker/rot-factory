@@ -384,7 +384,8 @@ export class World {
     const over = Math.max(0, this.topAt(i, k) - j - 1);
     const sup = this.supportBonus(cellX(i), cellY(j), cellZ(k));
     // safe length: shrinks with the weight above and the distance from the bay, grows with tamping and strong frames
-    const limit = Math.max(MIN_SAFE, SAFE_LEN + 2 * this.stabBonus + 3 * sup - Math.floor(over / OB) - 2 * this.depthPenalty(i, k));
+    // (the floor applies to the pile's own weight; tamping and props are added on top, so they work at any depth)
+    const limit = Math.max(MIN_SAFE, SAFE_LEN - Math.floor(over / OB) - 2 * this.depthPenalty(i, k)) + 2 * this.stabBonus + 3 * sup;
     const L = this.cavityLen(i, j - 1, k, limit + 1);
     return { margin: limit - L, d: L, B: limit };
   }

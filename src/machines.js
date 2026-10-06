@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
-import { FRAME_TYPES } from './upgrades.js';
+import { FRAME_TYPES, supportDepth } from './upgrades.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 
@@ -168,7 +168,18 @@ export class Machines {
       let guard = 0;
       while (j > 0 && !w.solid(i, j - 1, k) && guard++ < 8) j--;
       if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'No floor here: aim at the floor, or next to another frame' };
-      m = axis === 'x' ? i : k; lo = (axis === 'x' ? k : i) - 1; j0 = j;
+      // fit the 4x4 section to the tunnel you dug: try the few windows around the aimed spot and take the one with the fewest
+      // plush still in the way (a clear window wins, and the one centred on your aim wins a tie)
+      m = axis === 'x' ? i : k; const lat0 = axis === 'x' ? k : i;
+      let bestC = 1e9;
+      for (const dl of [-2, -1, -3, 0]) for (const dj of [0, -1, 1]) {
+        const jj = j + dj; if (jj < 0) continue;
+        if (dj !== 0 && !w.solid(i, jj - 1, k) && jj > 0) continue; // a frame stands on the floor
+        const trial = this.frameEnt(axis, kind, m, lat0 + dl, jj); const n = trial.clear.length;
+        if (n < bestC) { bestC = n; lo = lat0 + dl; j0 = jj; }
+        if (n === 0) break;
+      }
+      if (lo === undefined) { lo = lat0 - 1; j0 = j; }
     }
     if (j0 < 0) return { ok: false, why: 'Below the floor' };
     const e = this.frameEnt(axis, kind, m, lo, j0);
@@ -178,7 +189,7 @@ export class Machines {
       if (b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0) return { ok: false, why: 'Frame already here' };
     }
     // a frame holds up a section that is already dug: it never digs for you
-    if (e.clear.length) return { ok: false, why: `Dig out the 4x4 section first (${e.clear.length} plush still in the way)`, ent: e };
+    if (e.clear.length) return { ok: false, why: `This tunnel is too tight for a 4x4 frame: dig out ${e.clear.length} more plush (a frame needs 4 wide and 4 high)`, ent: e };
     if (best) e.snap = best.side;
     return { ok: true, ent: e };
   }
@@ -229,6 +240,7 @@ export class Machines {
     for (const kind of kinds) {
       const cost = FRAME_TYPES[kind].cost;
       if (g.S.money < cost) continue;
+      if (supportDepth(cellX(i), cellZ(k)) > FRAME_TYPES[kind].maxDepth) continue; // too weak for this depth: the crew will not set it
       const plan = this.frameFromCell(i, j, k, axis, kind);
       if (!plan.ok) return false;
       const e = plan.ent;
@@ -316,12 +328,27 @@ export class Machines {
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
-    if (key !== this.ghostKey) this.setGhost(make(), key);
+    if (key !== this.ghostKey) { this.setGhost(make(), key); this.addReach(tool, plan); }
     const e = plan.ent;
     if (tool.kind === 'frame') this.ghost.position.set(e.cx, e.y0, e.cz);
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
+  }
+
+  // a faint wire sphere and floor ring showing how far this support holds the roof (frames, struts and jacks)
+  addReach(tool, plan) {
+    if (!this.ghost || !plan.ent) return;
+    const e = plan.ent; let r = 0, col = 0x9dffc4, cy = 0;
+    if (tool.kind === 'frame') { const ft = FRAME_TYPES[e.kind]; if (!ft) return; r = ft.radius; col = plan.ok ? 0x9dffc4 : 0xff8a7a; cy = e.h / 2; }
+    else if (tool.kind === 'strut') { r = 1.9; cy = 0.6; } else if (tool.kind === 'jack') { r = 2.7; cy = 0.6; } else return;
+    const mat = new THREE.MeshBasicMaterial({ color: col, wireframe: true, transparent: true, opacity: 0.1, depthWrite: false });
+    const sph = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), mat); sph.position.y = cy; sph.name = 'reach';
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.04, r, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03 - (tool.kind === 'frame' ? 0 : 0);
+    // the ghost group is rotated for x-axis frames; keep the reach un-rotated by counter-rotating
+    const grp = new THREE.Group(); grp.add(sph, ring); grp.name = 'reach'; if (tool.kind === 'frame' && e.axis === 'x') grp.rotation.y = -Math.PI / 2;
+    this.ghost.add(grp);
   }
 
   // ---------- builders ----------

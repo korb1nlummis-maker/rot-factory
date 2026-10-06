@@ -48,6 +48,16 @@ export class Slides {
     for (const [a, b, c] of [[0, 0, 0], [0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 2, 0], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1]]) this.add(i + a, j + b, k + c, e * (b ? 0.95 : 1));
   }
 
+  // a whole patch of the surface lets go at once (the slope giving way under a climber): seeds every surface plush within r columns
+  triggerPatch(i, k, e = 2.6, r = 3) {
+    const w = this.g.world;
+    for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) {
+      const d = Math.hypot(a, b); if (d > r + 0.3) continue;
+      const t = w.topAt(i + a, k + b); if (t <= 1) continue;
+      for (let dj = 1; dj <= 2; dj++) if (t - dj > 0) this.add(i + a, t - dj, k + b, e * (1 - 0.08 * d) * (dj > 1 ? 0.9 : 1));
+    }
+  }
+
   add(i, j, k, e) {
     const id = key(i, j, k), o = this.q.get(id);
     if (o) { if (e > o.e) o.e = e; } else this.q.set(id, { i, j, k, e });
@@ -55,6 +65,7 @@ export class Slides {
 
   update(dt) {
     this.recent = Math.max(0, this.recent - dt * 3);
+    this.burstN = Math.max(0, (this.burstN || 0) - dt * 1.5); this.burstCool = Math.max(0, (this.burstCool || 0) - dt);
     if (this.hot.size > 600) { const now = this.g.time; for (const [k2, t] of this.hot) if (t < now) this.hot.delete(k2); }
     if (!this.q.size) { this.active = Math.max(0, this.active - dt); return; }
     const g = this.g, w = g.world;
@@ -111,6 +122,8 @@ export class Slides {
     if (!it) return;
     this.recent += 1;
     this.active = 2;
+    // a real slide is a dozen plush or more in motion at once, not a stray plush rolling off
+    this.burstN = (this.burstN || 0) + 1; if (this.burstN >= 12 && !this.burstCool) { this.burstCool = 15; this.burstN = 0; g.S.stats.bigSlides = (g.S.stats.bigSlides || 0) + 1; }
     g.S.stats.slides = (g.S.stats.slides || 0) + 1;
     this.hot.set(key(i + a, j, k + b), g.time + 3);
     const x = cellX(i), y = cellY(j), z = cellZ(k);

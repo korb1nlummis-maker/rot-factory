@@ -7,7 +7,7 @@ const USE = {
   marker: 'Aim at the floor and press B. It shows on your compass so you can find your way back.',
   glow: 'Aim and press B. A soft green light for 10 minutes, no power needed.',
   flare: 'Aim and press B. A bright light for 4 minutes, no power needed.',
-  strut: 'Aim at the floor under a roof you do not trust and press B. It anchors the roof within about 2 m.',
+  strut: 'Aim at the floor under a roof you do not trust and press B. It anchors the roof within about 1.9 m.',
   jack: 'Aim at the floor under bad ground and press B. A strong prop: anchors the roof within about 2.7 m.',
   dynamite: 'Aim at the pile and press B, then run. 4 second fuse, small blast. It hurts if you stand close.',
   charge: 'Aim at the pile and press B, then run. 6 second fuse, bigger blast. It hurts if you stand close.',
@@ -29,7 +29,7 @@ const USE = {
   cart: 'Press U to roll it out. It stays near you, plush you grab ride on it once your hands are full, and it unloads near the bin. U parks it or calls it back, X stows it when empty.',
   medkit: 'Press K to heal 50 health.',
   canister: 'Automatic: it kicks in when you run out of air while trapped.',
-  mat: 'Raw building material. Frames, struts and bulkheads use it automatically when you craft them.',
+  mat: 'Raw building material. Frames, struts, jacks and bulkheads use it automatically when you craft them.',
 };
 
 const FRAME_NOTE = {
@@ -58,7 +58,7 @@ export function recipes(g) {
   const list = [];
   const out = [];
   const K = 3; // crafting is not cheap either
-  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Anchors the roof within ${FRAME_TYPES[k].radius} m, so the unsupported tunnel length starts again from here. Stronger frames reach further.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
+  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Anchors the roof within ${FRAME_TYPES[k].radius} m, so the unsupported tunnel length starts again from here. Stronger frames reach further. Rated to ${isFinite(FRAME_TYPES[k].maxDepth) ? FRAME_TYPES[k].maxDepth + ' m deep' : 'any depth'}: set deeper than that and it breaks.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
   for (const k of T.frames) list.push({ id: 'mat:' + k, kind: 'mat', mk: k, icon: MATERIALS[k].icon, name: MATERIALS[k].name, short: MATERIALS[k].name, desc: 'Building material. Frames use ' + MATFRAME + ' each. Stock up here at a discount, or find it in caches and old workings.', price: Math.max(1, Math.round(MATERIALS[k].unit * 0.7)), batch: [10, 50, 250] });
   for (let t = 1; t <= T.cartTier; t++) list.push({ id: 'cart:' + t, kind: 'cart', icon: '🛒', name: CART_NAMES[t], short: CART_NAMES[t], desc: `Press U to roll it out. Follows you, carries ${CART_CAP[t]} plush and unloads near the bin.`, price: CART_PRICE[t], batch: [1] });
   if (T.markers) {
@@ -66,14 +66,14 @@ export function recipes(g) {
     list.push({ id: 'glow', kind: 'glow', icon: '🟢', name: 'Glow Stick', short: 'Glow', desc: 'A soft green light for ten minutes. Dimmer than a flare, lasts more than twice as long. Needs no power.', price: 5, batch: [1, 10, 25] });
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
-  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. Anchors the roof within about 2.7 m and adds safe length. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
+  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. Anchors the roof within about 2.7 m. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
   if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. Anchors the roof within about 1.9 m. Goes anywhere.', price: 8, batch: [1, 5, 25], mat: 'timber', matN: 1 });
   if (T.firstAid) {
     list.push({ id: 'medkit', kind: 'supply', icon: '🩹', name: 'Medkit', short: 'Medkit', desc: 'Press K to heal 50 health.', price: 30, batch: [1, 5, 10] });
     list.push({ id: 'canister', kind: 'supply', icon: '🫧', name: 'Air Canister', short: 'Canister', desc: 'Kicks in by itself when you run out of air while trapped: 40 more seconds to dig out.', price: 55, batch: [1, 3, 5] });
   }
-  if (T.dynamite) list.push({ id: 'dynamite', kind: 'dynamite', icon: '🧨', name: 'Dynamite', short: 'Dynamite', desc: 'A stick with a 4 second fuse. Blows a small hole about 1.3 m across. Cheap, fast, and loud. Run.', price: 14, batch: [1, 5, 10] });
-  if (T.charges) list.push({ id: 'charge', kind: 'charge', icon: '🧨', name: 'Blasting Charge', short: 'Charge', desc: `Blows a hole about ${[0, 1.8, 2.4, 3.0][T.charges]} m across after 6 seconds. Run.`, price: 40 * T.charges, batch: [1, 3, 5] });
+  if (T.dynamite) list.push({ id: 'dynamite', kind: 'dynamite', icon: '🧨', name: 'Dynamite', short: 'Dynamite', desc: 'A stick with a 4 second fuse. Blows a small hole about 1.3 m in radius. Cheap, fast, and loud. Run.', price: 14, batch: [1, 5, 10] });
+  if (T.charges) list.push({ id: 'charge', kind: 'charge', icon: '🧨', name: 'Blasting Charge', short: 'Charge', desc: `Blows a hole about ${[0, 1.8, 2.4, 3.0][T.charges]} m in radius after 6 seconds. Run.`, price: 40 * T.charges, batch: [1, 3, 5] });
   if (T.lantern) list.push({ id: 'lantern', kind: 'lantern', icon: '🏮', name: 'Work Lantern', short: 'Lantern', desc: 'Hang it up to light a tunnel.', price: 6, batch: [1, 5, 10] });
   if (T.bulkhead) list.push({ id: 'bulk', kind: 'bulk', icon: '🪧', name: 'Bulkhead Panel', short: 'Bulkhead', desc: 'A solid plank wall cell. Never falls. Hold the pile back.', price: 10, batch: [1, 10, 50], mat: 'timber', matN: 2 });
   if (T.machines.includes('belt')) {
@@ -94,13 +94,13 @@ export function recipes(g) {
   const cartTier = g.S.cart ? g.S.cart.tier : [5, 4, 3, 2, 1].find((t) => (g.S.items['cart:' + t] || 0) > 0) || 0;
   const status = (r) => {
     if (r.kind === 'cart') { const t = +r.id.split(':')[1]; return cartTier >= t ? (cartTier === t ? (g.S.cart ? `In use: rolled out (${g.S.cart.load.length}/${CART_CAP[t]})` : 'You have this one in your pack') : 'You already have a better cart') : (cartTier ? `Upgrade from your ${CART_NAMES[cartTier]}: +${CART_CAP[t] - CART_CAP[cartTier]} capacity` : 'You have no cart yet'); }
-    if (r.kind === 'frame') { const f = FRAME_TYPES[r.fk]; return `Reach ${f.radius} m: about one every ${Math.round(f.radius * 2 + 4)} m of tunnel near the surface, closer when deep. ${FRAME_NOTE[r.fk] || ''}`; }
+    if (r.kind === 'frame') { const f = FRAME_TYPES[r.fk]; return `Rated to ${isFinite(f.maxDepth) ? f.maxDepth + ' m' : 'any'} depth. Reach ${f.radius} m: about one every ${Math.round(f.radius * 2 + 4)} m of tunnel near the surface, closer when deep. ${FRAME_NOTE[r.fk] || ''}`; }
     if (r.kind === 'claw') return `${g.machines.count('claw')} of ${g.T.rigMax} rigs placed`;
     if (r.kind === 'mech') return `${g.logi.count('mech')} of ${g.T.mechMax} mechs placed`;
     if (r.kind === 'borer') return `${g.machines.count('borer')} of ${g.T.borerMax} borers placed`;
     return '';
   };
-  for (const r of list) { const rr = r.kind === 'frame' ? r : { ...r, price: Math.round(r.price * K) }; out.push({ ...rr, use: USE[r.id] || USE[r.kind] || '', status: status(r) }); }
+  for (const r of list) { const rr = (r.kind === 'frame' || r.kind === 'mat') ? r : { ...r, price: Math.round(r.price * K) }; out.push({ ...rr, use: USE[r.id] || USE[r.kind] || '', status: status(r) }); }
   return out;
 }
 
@@ -135,6 +135,8 @@ export function craftGear(g, id) {
 
 export function craft(g, id, n) {
   const S = g.S;
+  n = Math.floor(+n);
+  if (!(n >= 1) && id.indexOf('cart:') !== 0) return false;
   const r = recipes(g).find((x) => x.id === id);
   if (!r) return false;
   S.mats = S.mats || {};

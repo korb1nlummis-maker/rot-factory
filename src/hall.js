@@ -318,19 +318,6 @@ export function buildHall(scene) {
   };
   hall.drawKiosk(null, 0);
 
-  // crates, pallets, props
-  const crateMat = new THREE.MeshStandardMaterial({ color: 0x8a7650, roughness: 0.8 });
-  const palletMat = new THREE.MeshStandardMaterial({ color: 0x6b5233, roughness: 0.9 });
-  const props = [[-5.8, -2.8, 1.1, 0.4], [-5.0, -3.6, 0.8, 1.1], [6.2, -6.2, 1.2, 0.2], [5.3, -7.0, 0.9, 0.7], [-1.2, -8.2, 1.0, 0.1]];
-  for (const [px, pz, s, ry] of props) {
-    const c = new THREE.Mesh(new THREE.BoxGeometry(s, s * 0.9, s), crateMat);
-    c.position.set(px, s * 0.45 + 0.14, pz); c.rotation.y = ry;
-    const p = new THREE.Mesh(new THREE.BoxGeometry(s * 1.15, 0.14, s * 1.15), palletMat);
-    p.position.set(px, 0.07, pz); p.rotation.y = ry;
-    scene.add(c, p);
-    hall.colliders.push({ x: px, z: pz, r: s * 0.72, h: s * 0.9 + 0.14 });
-  }
-
   // ---- signage: real-looking warehouse signs ----
   const signFont = 'Helvetica, Arial, sans-serif';
   // ISO-style emergency EXIT: green field, white border, running man and arrow, lit from inside
