@@ -560,7 +560,7 @@ export class Game {
       if (i === 0) { L.set(this.hall.binPos.x, 1.1, this.hall.binPos.z, 7); Lc.setRGB(1.3, 0.55, 0.15); continue; }
       if (i === 5) { if (rp) { L.set(rp.pos.x, rp.pos.y + 1.55, rp.pos.z, 11); Lc.setRGB(2.4, 2.2, 1.8); } else { L.set(0, -999, 0, 1); Lc.setRGB(0, 0, 0); } continue; }
       const e = ls[i - 1];
-      if (e) { L.set(e.x, e.y, e.z, 9); Lc.setRGB(2.2, 1.7, 0.9); } else { L.set(0, -999, 0, 1); Lc.setRGB(0, 0, 0); }
+      if (e) { L.set(e.x, e.y, e.z, e.glow ? 6 : 9); if (e.glow) Lc.setRGB(0.5, 1.9, 0.9); else Lc.setRGB(2.2, 1.7, 0.9); } else { L.set(0, -999, 0, 1); Lc.setRGB(0, 0, 0); }
     }
 
     // --- interaction
@@ -692,6 +692,35 @@ export class Game {
     return null;
   }
 
+  // while you hold the grab button and the crosshair has nothing exact on it, take the nearest plush in front of you within reach
+  nearestGrab(eye, dir) {
+    const T = this.T, w = this.world, sim = this.sim;
+    const reach = T.reach;
+    const cx = eye.x + dir.x * 1.2, cy = eye.y + dir.y * 1.2, cz = eye.z + dir.z * 1.2;
+    let best = null, bd = 1e9;
+    for (let i = 0; i < sim.n; i++) {
+      const dx = sim.x[i] - eye.x, dy = sim.y[i] - eye.y, dz = sim.z[i] - eye.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > reach || (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1) < 0.25) continue;
+      const sc = Math.hypot(sim.x[i] - cx, sim.y[i] - cy, sim.z[i] - cz);
+      if (sc < bd) { bd = sc; best = { type: 'body', idx: i, t: d, sp: sim.sp[i], vr: sim.vr[i] }; }
+    }
+    if (best) return best;
+    const ci = toI(cx), cj = toJ(cy), ck = toK(cz);
+    for (let dk = -3; dk <= 3; dk++) for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) {
+      const i = ci + di, j = cj + dj, k = ck + dk;
+      const sp = w.get(i, j, k);
+      if (!sp || sp === BULK || sp === REMAINS || sp === CACHE) continue;
+      if (w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1)) continue;
+      const x = cellX(i), y = cellY(j), z = cellZ(k);
+      const dx = x - eye.x, dy = y - eye.y, dz = z - eye.z, d = Math.hypot(dx, dy, dz);
+      if (d > reach || (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1) < 0.25) continue;
+      const sc = Math.hypot(x - cx, y - cy, z - cz);
+      if (sc < bd) { bd = sc; best = { type: 'cell', i, j, k, t: d, sp, vr: w.getVr(i, j, k) }; }
+    }
+    return best;
+  }
+
   targetInfo(tg) {
     const s = species[tg.sp];
     const r = RARITY[s.rarity];
@@ -745,7 +774,11 @@ export class Game {
     } else {
       // grabbing is instant (see gPress); hold the key to keep grabbing until your hands (or cart) are full
       this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
-      if (this.keys.KeyG && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 280 && tg && this.storeRoom() && this.grabCd <= 0 && !this.vacT) this.instantGrab(tg);
+      if (this.keys.KeyG && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
+        // holding: fill your hands (and then the cart) as fast as the gloves allow, even when the crosshair drifts off the plush
+        const t2 = tg || this.nearestGrab(eye, dir);
+        if (t2) { this.instantGrab(t2, true); }
+      }
       G.p = 0; this.ui.setGrab(0, false);
     }
     if (building) this.updateBuild(tool, eye, dir);
@@ -971,9 +1004,9 @@ export class Game {
     this.instantGrab(tg);
   }
 
-  instantGrab(tg) {
+  instantGrab(tg, fast) {
     // the small timer left is a short cooldown between grabs; gloves shorten it
-    this.grabCd = 0.12 + 0.28 * (this.T.grabTime / 1.5);
+    this.grabCd = fast ? 0.05 + 0.1 * (this.T.grabTime / 1.5) : 0.12 + 0.28 * (this.T.grabTime / 1.5);
     this._lastGrabAt = performance.now();
     this.collect(tg);
     this.sound.soft(0.05);
@@ -1580,8 +1613,15 @@ export class Game {
       if (open) {
         this.sound.dingDong(true);
         this.ui.toast({ icon: '🌅', title: 'Warehouse open', text: 'Morning shift. The lights come back on.', ms: 6000 });
+        this._shift = { earn: this.S.totalEarned || 0, plush: this.S.stats.plush || 0, dug: this.S.stats.cells || 0, deaths: this.S.stats.deaths || 0 };
       } else {
         this.sound.dingDong(false);
+        if (this._shift) {
+          const sh = this._shift, S2 = this.S;
+          const earn = Math.round((S2.totalEarned || 0) - sh.earn), plush = (S2.stats.plush || 0) - sh.plush, dug = (S2.stats.cells || 0) - sh.dug, died = (S2.stats.deaths || 0) - sh.deaths;
+          this.ui.toast({ icon: '📋', title: 'Shift report', text: `Earned ◈ ${fmt(earn)}. ${plush} plush handled, ${dug} cells dug${died ? `, ${died} death${died > 1 ? 's' : ''}` : ''}. ${earn <= 0 ? 'Management is not pleased.' : earn > 50000 ? 'Management is suspicious.' : 'Management nods.'}`, ms: 10000 });
+          this._shift = null;
+        }
         this.ui.toast({ icon: '🌙', title: 'Warehouse closed', text: 'Ding dong. The facility is now closed. The lights go out in a moment. Your helmet lamp is all you have.', ms: 9000 });
         this.closingGrace = 6;
       }
@@ -1882,7 +1922,7 @@ export class Game {
     const yaw = this.player.yaw;
     if (tool.kind === 'frame') { plan = this.machines.planFrame(eye, dir, yaw, tool.fk); cost = FRAME_TYPES[tool.fk].cost; }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
-    else if (['marker', 'flare', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
+    else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
     else if (tool.kind === 'claw') {
       plan = this.machines.planRig(eye, dir); cost = this.rigCost();
@@ -2079,6 +2119,7 @@ export class Game {
     if (tool.kind === 'frame') { ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h }; S.stats.props++; }
     else if (tool.kind === 'lantern') { ent = { id, type: 'lantern', x: e.x, y: e.y, z: e.z }; S.stats.lanterns++; }
     else if (tool.kind === 'marker') { ent = { id, type: 'marker', x: e.x, y: e.y, z: e.z }; }
+    else if (tool.kind === 'glow') { ent = { id, type: 'flare', glow: true, x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'flare') { ent = { id, type: 'flare', x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'strut') { ent = { id, type: 'strut', x: e.x, y: e.y, z: e.z }; S.stats.props++; }
     else if (tool.kind === 'jack') { ent = { id, type: 'strut', jack: true, x: e.x, y: e.y, z: e.z }; S.stats.props++; }
@@ -2150,7 +2191,7 @@ export class Game {
     const best = this.machines.items.get(ref.id);
     if (!best) return;
     const e = best.ent;
-    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.jack ? 'jack' : e.type);
+    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.jack ? 'jack' : e.glow ? 'glow' : e.type);
     if (e.type === 'beacon') this.world.reserved.delete((e.j * NZ + e.k) * NX + e.i);
     this.machines.disposeObj(best.obj);
     this.machines.root.remove(best.obj);

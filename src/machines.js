@@ -228,7 +228,7 @@ export class Machines {
       if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
-      else if (['marker', 'flare', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
+      else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
       else if (tool.kind === 'claw') { key = `c${plan.ok}`; make = () => ghostify(this.makeRig().group, plan.ok); }
       else if (tool.kind === 'borer') { key = `b${e.dx}${e.dz}${e.w}${e.h}${plan.ok}`; make = () => ghostify(this.makeBorer(e).group, plan.ok); }
     } else { if (this.ghost) this.setGhost(null); return; }
@@ -236,7 +236,7 @@ export class Machines {
     const e = plan.ent;
     if (tool.kind === 'frame') this.ghost.position.set(e.cx, e.y0, e.cz);
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
-    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
+    else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
   }
 
@@ -261,6 +261,10 @@ export class Machines {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 1.3, 6), MATS.dark); pole.position.y = 0.65;
       const flag = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.01), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(2) })); flag.position.set(0.15, 1.15, 0);
       g.add(pole, flag);
+    } else if (kind === 'glow') {
+      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.4, 1.0) })); stick.position.y = 0.04; stick.rotation.z = Math.PI / 2;
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.01, 4, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.4, 1.0) })); tip.name = 'tip'; tip.visible = false;
+      g.add(stick, tip);
     } else if (kind === 'flare') {
       const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), new THREE.MeshStandardMaterial({ color: 0xaa2218, roughness: 0.8 })); stick.position.y = 0.17; stick.rotation.z = 0.5;
       const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.2, 1.2, 0.5) })); tip.position.set(-0.09, 0.32, 0); tip.name = 'tip';
@@ -387,7 +391,7 @@ export class Machines {
       it.obj.position.set(ent.x, ent.y, ent.z);
       w.reserved.add((ent.j * NZ + ent.k) * NX + ent.i);
     } else if (['marker', 'flare', 'charge', 'strut'].includes(ent.type)) {
-      it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.jack ? 'jack' : ent.type, ent);
+      it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.jack ? 'jack' : ent.glow ? 'glow' : ent.type, ent);
       it.obj.position.set(ent.x, ent.y, ent.z);
       if (ent.type === 'strut') w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: ent.jack ? 2.7 : 1.9, b: ent.jack ? 2 : 1, id: ent.id });
       if (ent.type === 'flare') ent.born = ent.born ?? game.S.stats.playSecs;
@@ -451,7 +455,7 @@ export class Machines {
       else if (e.type === 'borer') this.updateBorer(it, dt, time);
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
       else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
-      else if (e.type === 'flare') { if (game.S.stats.playSecs - e.born > 240) this.expire.push(e); else { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); } }
+      else if (e.type === 'flare') { if (game.S.stats.playSecs - e.born > (e.glow ? 600 : 240)) this.expire.push(e); else { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); } }
       else if (e.type === 'charge') {
         e.fuse -= dt;
         const led = it.obj.getObjectByName('led'); if (led) led.visible = Math.sin(e.fuse * (e.fuse < 2 ? 22 : 9)) > 0;

@@ -19,6 +19,7 @@ export function recipes(g) {
   for (let t = 1; t <= T.cartTier; t++) list.push({ id: 'cart:' + t, kind: 'cart', icon: '🛒', name: CART_NAMES[t], short: CART_NAMES[t], desc: `Press U to roll it out. Follows you, carries ${CART_CAP[t]} plush and unloads near the bin.`, price: CART_PRICE[t], batch: [1, 1, 1] });
   if (T.markers) {
     list.push({ id: 'marker', kind: 'marker', icon: '🚩', name: 'Survey Marker', short: 'Marker', desc: 'Shows on your compass. Plant them to mark junctions and the way home.', price: 6, batch: [1, 5, 10] });
+    list.push({ id: 'glow', kind: 'glow', icon: '🟢', name: 'Glow Stick', short: 'Glow', desc: 'A soft green light for ten minutes. Dimmer than a flare, lasts more than twice as long. Needs no power.', price: 5, batch: [1, 10, 25] });
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
   if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. +2 roof strength within about 2.7 m. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
