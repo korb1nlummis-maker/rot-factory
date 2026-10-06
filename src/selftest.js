@@ -637,5 +637,30 @@ export async function runSelfTest(g, only = '') {
   });
   await T('ui.controls-lists-mention-every-key', async () => { const html = document.getElementById('pause').textContent + document.querySelector('.how').textContent; const need = ['punch', 'inventory', 'flashlight', 'medkit', 'recall', 'grab']; const miss = need.filter((n) => !html.toLowerCase().includes(n)); return miss.length === 0 || 'controls text is missing ' + miss.join(); });
 
+
+  // ================================================================== PLUSH VARIETY
+  const pd = await import('./plushdata.js'); const pg = await import('./plushgeo.js');
+  await T('plush.960-species-with-unique-names-and-valid-fields', async () => {
+    if (pd.speciesCount !== 960) return 'count ' + pd.speciesCount; const names = new Set(); const bad = [];
+    for (let id = 1; id <= pd.speciesCount; id++) { const sp = pd.species[id]; if (!sp) { bad.push('missing ' + id); continue; } if (names.has(sp.name)) bad.push('dup name ' + sp.name); names.add(sp.name); if (sp.arch < 0 || sp.arch >= pd.ARCH_COUNT || !pd.PALETTES[sp.pal] || !pd.PREFIXES[sp.pal] || !pd.ARCH_NAMES[sp.arch]) bad.push('bad fields ' + id); if (/undefined/.test(sp.name)) bad.push('undefined name ' + id); }
+    return bad.length === 0 || bad.slice(0, 4).join('; ');
+  });
+  await T('plush.original-576-never-change', async () => {
+    const ok = pd.species[1].arch === 0 && pd.species[1].pal === 0 && pd.species[36].arch === 35 && pd.species[37].arch === 0 && pd.species[37].pal === 1 && pd.species[576].arch === 35 && pd.species[576].pal === 15 && pd.species[1].name === 'Gnocchi Bean' && pd.species[576].name === 'Affogato Lampadina';
+    const counts = [0, 0, 0, 0, 0, 0]; for (let id = 1; id <= 576; id++) counts[pd.species[id].rarity]++; return (ok && counts.join() === '262,160,90,44,14,6') || 'old ids moved: ' + counts.join();
+  });
+  await T('plush.new-species-rarity-spread', async () => { const c = [0, 0, 0, 0, 0, 0]; for (let id = 577; id <= 960; id++) c[pd.species[id].rarity]++; return (c.join() === '175,107,60,29,9,4' && c.reduce((a, b) => a + b, 0) === 384) || 'spread ' + c.join(); });
+  await T('plush.ids-stay-clear-of-special-cells', async () => pd.speciesCount < 990 || 'species ids collide with decoys/specials');
+  await T('plush.every-shape-builds-at-both-detail-levels', async () => {
+    const bad = []; for (let a = 0; a < pd.ARCH_COUNT; a++) for (const lod of [0, 1]) { try { const geo = pg.makeArchGeometry(a, lod); const n = geo.attributes.position.count; geo.computeBoundingSphere(); const r = geo.boundingSphere.radius; if (n < 12) bad.push(`arch ${a} lod ${lod}: ${n} verts`); if (r < 0.18 || r > 0.7) bad.push(`arch ${a} lod ${lod}: radius ${r.toFixed(2)}`); geo.dispose(); } catch (e) { bad.push(`arch ${a} lod ${lod} threw ${e.message}`); } }
+    return bad.length === 0 || bad.slice(0, 5).join('; ');
+  });
+  await T('plush.specials-use-shifted-shapes', async () => (pd.species[pd.NEEDLE].arch === pd.ARCH_COUNT && pd.species[pd.BULK].arch === pd.ARCH_COUNT + 1 && pd.species[pd.REMAINS].arch === pd.ARCH_COUNT + 2 && pd.species[pd.CACHE].arch === pd.ARCH_COUNT + 7 && pd.DECOYS.every((d, n) => pd.species[d].arch === pd.ARCH_COUNT + 3 + n) && pg.ARCH_NEEDLE === pd.ARCH_COUNT) || 'special shapes');
+  await T('plush.new-shapes-found-in-the-pile-and-dex', async () => {
+    fresh(); const seen = new Set(); const sp = spot(); for (let i = sp.i; i < sp.i + 60; i++) for (let k = sp.k - 6; k < sp.k + 6; k++) for (let j = 0; j < 20; j++) { const s = w().get(i, j, k); if (s && s < 990) seen.add(pd.species[s].arch); }
+    const newShapes = [...seen].filter((a) => a >= 36).length; S().dex = {}; g.registerDex(700); const dexOk = S().dex[700] === 1; S().dex = {}; return (newShapes >= 4 && dexOk) || `new shapes seen ${newShapes}`;
+  });
+  await T('plush.dex-modal-lists-all-960', async () => { fresh(); g.openModal('dex'); const total = document.getElementById('dexTotal').textContent; const cards = document.querySelectorAll('#dexGrid > *').length; g.ui.closeModals(); return (String(total) === '960') || `dex total ${total} cards ${cards}`; });
+
   return { results, errs: (g.errCount || 0) - errs0, helpers: { fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, resetEntities, sleep, V3 } };
 }

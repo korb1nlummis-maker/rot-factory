@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeArchGeometry } from './plushgeo.js';
+import { makeArchGeometry, ARCH_NEEDLE } from './plushgeo.js';
 import { species, PALETTES, NEEDLE } from './plushdata.js';
 
 // Renders species thumbnails with a tiny second WebGL context. Cached as data URLs.
@@ -46,7 +46,7 @@ export function needleFrames(n = 24, size = 192) {
   if (frames) return frames;
   if (!rig) init();
   const { r, scene, cam, geos, mesh, mat, canvas } = rig;
-  mesh.geometry = geos[36] || (geos[36] = makeArchGeometry(36, 1));
+  mesh.geometry = geos[ARCH_NEEDLE] || (geos[ARCH_NEEDLE] = makeArchGeometry(ARCH_NEEDLE, 1));
   mat.color.set(0xffd24a);
   const oldPos = cam.position.clone();
   frames = [];

@@ -386,7 +386,7 @@ export class UI {
   renderDex() {
     const g = this.game;
     const grid = $('dexGrid');
-    $('dexCount').textContent = Object.keys(g.S.dex).filter((k) => +k < 900).length;
+    $('dexCount').textContent = Object.keys(g.S.dex).filter((k) => +k < 990).length;
     $('dexTotal').textContent = speciesCount;
     grid.innerHTML = '';
     const frag = document.createDocumentFragment();
@@ -490,7 +490,7 @@ export class UI {
       ['Fluff earned', fmt(S.totalEarned)], ['Tunnel dug', (s.cells * 0.1).toFixed(0) + ' m'],
       ['Collapses', s.collapses], ['Times buried', s.buried],
       ['Frames placed', s.props], ['Best streak', 'x' + s.bestStreak],
-      ['Species found', Object.keys(S.dex).filter((k) => +k < 900).length + ' / ' + speciesCount],
+      ['Species found', Object.keys(S.dex).filter((k) => +k < 990).length + ' / ' + speciesCount],
       ['Deepest', s.maxDepth.toFixed(1) + ' m'], ['Distance walked', fmt(s.walked) + ' m'],
     ];
   }
