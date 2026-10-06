@@ -92,6 +92,18 @@ export class Sound {
     this.tone('triangle', f * 1.6, f * 1.1, 0.12, 0.07, 0.07);
   }
   stepConcrete(v = 0.08) { this.noise(0.05, 2400, 900, v, 'bandpass', 0, 2.5); this.tone('sine', 150, 80, 0.06, v * 0.7); }
+  // station chime: two bell notes, falling when the warehouse closes, rising when it opens
+  dingDong(opening) {
+    if (!this.ctx) return;
+    const [a, b] = opening ? [523, 659] : [659, 523];
+    const bell = (f, delay) => {
+      this.tone('sine', f, f, 1.8, 0.16, delay);
+      this.tone('sine', f * 2.01, f * 2.01, 1.2, 0.06, delay);
+      this.tone('sine', f * 3.97, f * 3.97, 0.6, 0.03, delay);
+    };
+    bell(a, 0); bell(b, 0.65);
+    this.noise(0.3, 1800, 800, 0.03, 'bandpass', 1.4, 3); // PA click
+  }
   cough() { if (!this.ctx) return; this.noise(0.12, 900, 300, 0.22, 'bandpass', 0, 1.2); this.noise(0.14, 800, 250, 0.2, 'bandpass', 0.16, 1.2); this.tone('sawtooth', 160, 110, 0.12, 0.07); }
   squeak(pitch = 1, vol = 0.18) {
     if (!this.ctx) return;

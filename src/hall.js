@@ -362,8 +362,14 @@ export function buildHall(scene) {
   scene.add(motes);
   hall.motes = motes;
 
-  hall.lightsOn = true;
-  hall.setLights = (on) => { hall.lightsOn = on; const c = on ? new THREE.Color(3.2, 3.4, 2.9) : new THREE.Color(0.25, 0.05, 0.03); lightsA.material.color.copy(c); lightsB.material.color.copy(c); sun.intensity = on ? 1.2 : 0.05; hemi.intensity = on ? 0.55 : 0.03; };
+  hall.level = 1;
+  // 0 = pitch dark (closed / grid down), 1 = lights on
+  hall.setLevel = (v) => {
+    hall.level = v;
+    const c = new THREE.Color(0.25, 0.05, 0.03).lerp(new THREE.Color(3.2, 3.4, 2.9), v);
+    lightsA.material.color.copy(c); lightsB.material.color.copy(c);
+    sun.intensity = 0.05 + 1.15 * v; hemi.intensity = 0.03 + 0.52 * v;
+  };
   hall.update = (t, camPos) => {
     hall.relight(camPos);
     hall.doorLight.intensity = camPos.x > HALL_HX - 80 ? 14 : 0;

@@ -127,6 +127,39 @@ export class UI {
   setAir(on, dust, lung, txt) { const e = $('air'); e.classList.toggle('hidden', !on); if (on) { $('airFill').style.width = Math.min(100, dust * 100).toFixed(0) + '%'; $('lungFill').style.width = Math.min(100, lung * 100).toFixed(0) + '%'; $('airTxt').textContent = txt; } }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setCartLine(n, cap, mode) { const e = $('cartLine'); e.classList.toggle('hidden', n < 0); if (n >= 0) { $('cartN').textContent = n; $('cartMax').textContent = cap; $('cartMode').textContent = mode === 'follow' ? 'following' : 'parked'; } }
+  setClock(min, open, helmet) {
+    const e = $('clock');
+    e.classList.toggle('hidden', !helmet);
+    if (!helmet) return;
+    const cv = $('clockCv'), g = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H - 18, R = W / 2 - 14;
+    // dial: horizon + arc, sun by day, moon by night
+    g.lineWidth = 3; g.strokeStyle = 'rgba(243,246,226,0.35)';
+    g.beginPath(); g.arc(cx, cy, R, Math.PI, 0); g.stroke();
+    g.beginPath(); g.moveTo(cx - R - 6, cy); g.lineTo(cx + R + 6, cy); g.stroke();
+    g.fillStyle = 'rgba(243,246,226,0.4)';
+    for (let i = 0; i <= 12; i++) { const a = Math.PI + (i / 12) * Math.PI; g.beginPath(); g.arc(cx + Math.cos(a) * R, cy + Math.sin(a) * R, i % 3 === 0 ? 2.6 : 1.4, 0, 7); g.fill(); }
+    // sun travels 06:00 -> 18:00, moon 18:00 -> 06:00
+    const day = min >= 360 && min < 1080;
+    const t = day ? (min - 360) / 720 : ((min - 1080 + 1440) % 1440) / 720;
+    const a = Math.PI + t * Math.PI;
+    const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    if (day) {
+      g.fillStyle = '#ffd86a'; g.shadowColor = '#ffb030'; g.shadowBlur = 12;
+      g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.shadowBlur = 0;
+      g.strokeStyle = '#ffd86a'; g.lineWidth = 2;
+      for (let i = 0; i < 8; i++) { const r = (i / 8) * Math.PI * 2; g.beginPath(); g.moveTo(x + Math.cos(r) * 11, y + Math.sin(r) * 11); g.lineTo(x + Math.cos(r) * 15, y + Math.sin(r) * 15); g.stroke(); }
+    } else {
+      g.fillStyle = '#dfe8ff'; g.shadowColor = '#8fb4ff'; g.shadowBlur = 10;
+      g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.shadowBlur = 0;
+      g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(x + 4, y - 2, 7, 0, 7); g.fill(); g.globalCompositeOperation = 'source-over';
+    }
+    const h = Math.floor(min / 60), m = Math.floor(min % 60);
+    $('clockTxt').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const st = $('clockState'); st.textContent = open ? 'OPEN' : 'CLOSED'; st.style.color = open ? '#7ef0c4' : '#ff8a7a';
+  }
   setDepth(txt) { $('depth').textContent = txt; }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {

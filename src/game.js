@@ -173,6 +173,8 @@ export class Game {
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
     if (!Array.isArray(S.stats.rar) || S.stats.rar.length < 7) S.stats.rar = [0, 0, 0, 0, 0, 0, 0];
     if (!S.gear) { S.gear = {}; for (const id of GEAR) S.gear[id] = S.up[id] || 0; }
+    if (S.gear.helmet === undefined) S.gear.helmet = 1; // every worker starts with a hard hat, a lamp and a clock
+    if (S.gameMin === undefined) S.gameMin = 0;
     S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
     this.T = this.tune();
     this.world.stabBonus = this.T.stabBonus;
@@ -285,6 +287,7 @@ export class Game {
       this.sound.resume();
       if (isNew) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>G</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
       else this.ui.hint('Welcome back to Warehouse 07.', 4);
+      if (isNew) setTimeout(() => this.ui.hint('You wear a hard hat with a lamp and a clock. At 19:00 the warehouse closes, a chime sounds, and the lights go out until 07:00.', 11), 14000);
     }, 60);
   }
 
@@ -449,15 +452,15 @@ export class Game {
   }
 
   renderEnv(dt, camPos) {
+    const lo = 0.04 + 0.96 * this.hall.level;
     // sky factor at the camera
     const w = this.world;
     const i = clamp(toI(camPos.x), 0, NX - 1), j = toJ(camPos.y), k = clamp(toK(camPos.z), 0, NZ - 1);
     const top = w.topAt(i, k);
     const sky = j >= top ? 1 : Math.exp(-(top - j - 1) * 0.3);
     this.camSky += (sky - this.camSky) * Math.min(1, dt * 4);
-    U.uCamSky.value = this.camSky;
+    U.uCamSky.value = this.camSky * lo;
     const cs = 0.12 + 0.88 * this.camSky;
-    const lo = this.hall.lightsOn === false ? 0.04 : 1;
     this.hall.hemi.intensity = 0.55 * cs * lo;
     this.hall.sun.intensity = 1.2 * cs * lo;
     U.uSunColor.value.setRGB(1.05 * lo, 1.1 * lo, 0.95 * lo);
@@ -466,7 +469,7 @@ export class Game {
     this.sound.setAmbientMuffle(1 - this.camSky);
     // fog tint dims in tunnels
     const f = this.renderer.scene.fog;
-    f.color.copy(U.uFogColor.value).multiplyScalar(0.06 + 0.94 * this.camSky);
+    f.color.copy(U.uFogColor.value).multiplyScalar((0.06 + 0.94 * this.camSky) * lo);
     this.renderer.scene.background.copy(f.color);
   }
 
@@ -548,6 +551,7 @@ export class Game {
     this.crew.update(dt, this.time);
     this.cart.update(dt);
     this.radio.update(dt);
+    this.updateClock(dt);
     this.updateGolden(dt);
     this.updateScavenge(dt);
     this.dust.update(dt);
@@ -1017,6 +1021,38 @@ export class Game {
     this.cart.stow();
     this.sound.thump(0.12, 140);
     return true;
+  }
+
+  // ======================= the working day =======================
+  // 1 game minute = 2 real seconds. The hall is lit from 07:00 to 19:00. At closing there is a chime and then it is dark.
+  dayMinute() { return ((7 * 60 + (this.S.gameMin || 0)) % 1440 + 1440) % 1440; }
+  isOpen() { const m = this.dayMinute(); return m >= 420 && m < 1140; }
+
+  updateClock(dt) {
+    const S = this.S;
+    S.gameMin = (S.gameMin || 0) + dt / 2;
+    const open = this.isOpen();
+    if (this.wasOpen === undefined) this.wasOpen = open;
+    if (open !== this.wasOpen) {
+      this.wasOpen = open;
+      if (open) {
+        this.sound.dingDong(true);
+        this.ui.toast({ icon: '🌅', title: 'Warehouse open', text: 'Morning shift. The lights come back on.', ms: 6000 });
+      } else {
+        this.sound.dingDong(false);
+        this.ui.toast({ icon: '🌙', title: 'Warehouse closed', text: 'Ding dong. The facility is now closed. The lights go out in a moment. Your helmet lamp is all you have.', ms: 9000 });
+        this.closingGrace = 6;
+      }
+    }
+    if (this.closingGrace > 0) this.closingGrace -= dt;
+    const lit = (open || this.closingGrace > 0) && !(this.outage > 0);
+    const target = lit ? 1 : 0;
+    this.lightLevel = this.lightLevel ?? 1;
+    const k = Math.min(1, dt * (lit ? 2.5 : 0.9));
+    this.lightLevel += (target - this.lightLevel) * k;
+    if (Math.abs(this.hall.level - this.lightLevel) > 0.004) this.hall.setLevel(this.lightLevel);
+    this._clkT = (this._clkT || 0) - dt;
+    if (this._clkT <= 0) { this._clkT = 0.5; this.ui.setClock(this.dayMinute(), open, this.S.gear && this.S.gear.helmet > 0); }
   }
 
   // ======================= golden hour =======================
@@ -1654,7 +1690,7 @@ export class Game {
     if (this.surgeT === undefined) this.surgeT = 1500 + Math.random() * 1200;
     if (this.outage > 0) {
       this.outage -= dt;
-      if (this.outage <= 0) { this.power.outage = false; this.power.markDirty(); this.hall.setLights(true); this.ui.toast({ icon: '💡', title: 'Power restored', text: 'The grid came back.', ms: 3000 }); }
+      if (this.outage <= 0) { this.power.outage = false; this.power.markDirty(); this.ui.toast({ icon: '💡', title: 'Power restored', text: 'The grid came back.', ms: 3000 }); }
       return;
     }
     if (!this.hasGen()) return;
@@ -1663,7 +1699,7 @@ export class Game {
       this.surgeT = 1800 + Math.random() * 2400;
       this.outage = 40;
       this.power.outage = true; this.power.markDirty();
-      this.hall.setLights(false);
+      this.sound.rumble(0.5);
       this.sound.rumble(0.6);
       this.ui.toast({ icon: '⚡', title: 'Grid surge', text: 'Everything is down for about 40 seconds. The hall lights died too.', ms: 6000 });
       S.stats.surges = (S.stats.surges || 0) + 1;

@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { C, NX, NY, NZ, CS, CX, CY, CZ, QUALITY, cellX, cellY, cellZ } from './config.js';
 import { h32, quatFromHash } from './util.js';
 import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, ARCH_COUNT } from './plushdata.js';
@@ -161,6 +162,14 @@ export class Renderer {
     this.grade = new ShaderPass(gradeShader);
     this.grade.uniforms.uCA.value = this.q.ca ? 0.0016 : 0;
     this.composer.addPass(this.grade);
+    this.fxaa = null;
+    if (this.q.fxaa) { this.fxaa = new ShaderPass(FXAAShader); this.composer.addPass(this.fxaa); this.updateFxaa(); }
+  }
+
+  updateFxaa() {
+    if (!this.fxaa) return;
+    const pr = this.renderer.getPixelRatio();
+    this.fxaa.uniforms.resolution.value.set(1 / (window.innerWidth * pr), 1 / (window.innerHeight * pr));
   }
 
   // adaptive resolution: scale the internal pixel ratio between 0.5x and 1x of the preset
@@ -173,6 +182,7 @@ export class Renderer {
     this.composer.setPixelRatio(pr);
     this.composer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.updateFxaa();
   }
 
   setQuality(name) {
@@ -192,10 +202,11 @@ export class Renderer {
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.updateFxaa();
   }
 
   // ---------------- chunks ----------------
-  scanChunk(cx, cy, cz) {
+  scanChunk(cx, cy, cz, deep = false) {
     const w = this.world;
     const ci = (cy * CZ + cz) * CX + cx;
     const i0 = cx * CS, j0 = cy * CS, k0 = cz * CS;
@@ -211,19 +222,34 @@ export class Renderer {
       }
       if (j0 + CS < minT || j0 > maxT + 1) return { n: 0, data: null };
     }
-    // padded copy of the chunk (1 cell border) so neighbor tests are plain array reads
-    const P = CS + 2;
-    const pad = this._pad || (this._pad = new Uint16Array(P * P * P));
+    // padded copy of the chunk (2 cell border) so neighbor tests are plain array reads
+    const B = 2, P = CS + 2 * B;
+    const pad = this._pad2 || (this._pad2 = new Uint16Array(P * P * P));
     for (let dj = 0; dj < P; dj++) for (let dk = 0; dk < P; dk++) for (let di = 0; di < P; di++) {
-      const i = i0 - 1 + di, j = j0 - 1 + dj, k = k0 - 1 + dk;
+      const i = i0 - B + di, j = j0 - B + dj, k = k0 - B + dk;
       pad[(dj * P + dk) * P + di] = (i < 0 || i >= NX || k < 0 || k >= NZ || j < 0 || j >= NY) ? 0xffff : w.get(i, j, k);
+    }
+    // near the camera the shell is one layer thicker so you never see between the lumps of the surface you stand on
+    let ring = null;
+    if (deep) {
+      ring = this._ring || (this._ring = new Uint8Array(P * P * P));
+      ring.fill(0);
+      for (let dj = 1; dj < P - 1; dj++) for (let dk = 1; dk < P - 1; dk++) for (let di = 1; di < P - 1; di++) {
+        const pi2 = (dj * P + dk) * P + di;
+        if (!pad[pi2]) continue;
+        let open = false;
+        for (let a2 = -1; a2 <= 1 && !open; a2++) for (let b2 = -1; b2 <= 1 && !open; b2++) for (let c2 = -1; c2 <= 1; c2++) {
+          if (!pad[pi2 + a2 * P * P + b2 * P + c2]) { open = true; break; }
+        }
+        if (open) ring[pi2] = 1;
+      }
     }
     const out = [];
     const pose = new Float32Array(9);
     for (let j = j0; j < j1; j++) {
       for (let k = k0; k < k1; k++) {
         for (let i = i0; i < i1; i++) {
-          const pi = (j - j0 + 1) * P * P + (k - k0 + 1) * P + (i - i0 + 1);
+          const pi = (j - j0 + B) * P * P + (k - k0 + B) * P + (i - i0 + B);
           const s = pad[pi];
           if (!s) continue;
           let cnt = 0, skyBest = 0;
@@ -237,7 +263,14 @@ export class Renderer {
             const w2 = (di && dj ? 0 : 1) * (di && dk ? 0 : 1) * (dj && dk ? 0 : 1) ? 1 : 0.8;
             if (sk * w2 > skyBest) skyBest = sk * w2;
           }
-          if (cnt === 26) continue;
+          if (cnt === 26) {
+            if (!deep) continue;
+            let near = false;
+            for (let dj = -1; dj <= 1 && !near; dj++) for (let dk = -1; dk <= 1 && !near; dk++) for (let di = -1; di <= 1; di++) {
+              if (ring[pi + dj * P * P + dk * P + di]) { near = true; break; }
+            }
+            if (!near) continue;
+          }
           const ao = Math.min(1, Math.max(0.3, 1 - (cnt - 14) * 0.075));
           const v = w.getVr(i, j, k);
           cellPose(i, j, k, v, pose);
@@ -285,6 +318,11 @@ export class Renderer {
         const ci = (cy * CZ + cz) * CX + cx;
         if (!this.chunks.has(ci)) { this.chunks.set(ci, { cx, cy, cz, n: 0, data: null, cold: true }); this.pending.push(ci); }
       }
+      for (const [ci2, ch2] of this.chunks) {
+        if (ch2.cold || ch2.deep) continue;
+        const bx = ch2.cx * cs - (NX * C) / 2 + cs / 2 - cam.x, by = ch2.cy * cs + cs / 2 - cam.y, bz = ch2.cz * cs - (NZ * C) / 2 + cs / 2 - cam.z;
+        if (bx * bx + by * by + bz * bz < 22 * 22) this.pending.push(ci2);
+      }
       // unload far
       for (const [ci, ch] of this.chunks) {
         const bx = ch.cx * cs - (NX * C) / 2, by = ch.cy * cs, bz = ch.cz * cs - (NZ * C) / 2;
@@ -309,7 +347,9 @@ export class Renderer {
         seen.add(ci);
         const ch = this.chunks.get(ci);
         if (!ch) continue;
-        const res = this.scanChunk(ch.cx, ch.cy, ch.cz);
+        const ccx = ch.cx * cs - (NX * C) / 2 + cs / 2 - cam.x, ccy = ch.cy * cs + cs / 2 - cam.y, ccz = ch.cz * cs - (NZ * C) / 2 + cs / 2 - cam.z;
+        ch.deep = ccx * ccx + ccy * ccy + ccz * ccz < 26 * 26;
+        const res = this.scanChunk(ch.cx, ch.cy, ch.cz, ch.deep);
         ch.n = res.n; ch.data = res.data; ch.cold = false;
         this.instDirty = true;
       }

@@ -21,8 +21,8 @@ export const toJ = (y) => Math.floor(y / C);
 export const toK = (z) => Math.floor(z / C + NZ / 2);
 
 export const QUALITY = {
-  ultra:  { pr: 2,    renderR: 38, hiR: 12, bloom: 0.55, msaa: 4, ca: 1 },
-  high:   { pr: 1.25, renderR: 30, hiR: 8,  bloom: 0.45, msaa: 0, ca: 1 },
-  medium: { pr: 1,    renderR: 24, hiR: 5,  bloom: 0.35, msaa: 0, ca: 0 },
-  low:    { pr: 0.7,  renderR: 18, hiR: 3,  bloom: 0,    msaa: 0, ca: 0 },
+  ultra:  { pr: 2,    renderR: 38, hiR: 12, bloom: 0.55, msaa: 4, ca: 1, fxaa: false },
+  high:   { pr: 1.25, renderR: 30, hiR: 8,  bloom: 0.45, msaa: 0, ca: 1, fxaa: true },
+  medium: { pr: 1,    renderR: 24, hiR: 5,  bloom: 0.35, msaa: 0, ca: 0, fxaa: true },
+  low:    { pr: 0.7,  renderR: 18, hiR: 3,  bloom: 0,    msaa: 0, ca: 0, fxaa: false },
 };
