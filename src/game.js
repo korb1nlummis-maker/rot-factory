@@ -345,6 +345,7 @@ export class Game {
     else if (e.code === 'KeyE') this.useKey();
     else if (e.code === 'KeyF') this.toggleLamp();
     else if (e.code === 'KeyZ') this.throwOne();
+    else if (e.code === 'KeyP') this.punch();
     else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.rebuildTools(); this.ui.hint(this.stowed ? 'Build item stowed. <kbd>Q</kbd> brings it back.' : 'Build item ready. <kbd>B</kbd> places it.', 2); }
     else if (e.code === 'KeyX') this.deconstruct();
     else if (e.code === 'KeyU') this.useCart();
@@ -915,6 +916,42 @@ export class Game {
     this.lampOn = this.lampOn === false;
     this.sound.tone('square', this.lampOn ? 1500 : 900, this.lampOn ? 1900 : 600, 0.04, 0.07);
     this.ui.hint(this.lampOn ? 'Flashlight on.' : 'Flashlight off.', 1.2);
+  }
+
+  // P: punch your way out. Smashes the plush right in front of you (or above you when looking up) and knocks them loose.
+  punch(auto) {
+    const p = this.player, w = this.world, t = performance.now();
+    if (this.punchT && t - this.punchT < 320) return;
+    this.punchT = t;
+    const dir = p.forward(new THREE.Vector3());
+    const eye = p.eyePos(new THREE.Vector3());
+    let n = 0;
+    const seen = new Set();
+    for (const d of [0.45, 0.75, 1.05, 1.35]) {
+      const x = eye.x + dir.x * d, y = eye.y + dir.y * d, z = eye.z + dir.z * d;
+      const ci = toI(x), cj = toJ(y), ck = toK(z);
+      for (let dk = -1; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const i = ci + di, j = cj + dj, k = ck + dk;
+        const key = i + ',' + j + ',' + k;
+        if (seen.has(key)) continue;
+        const cx = cellX(i), cy = cellY(j), cz = cellZ(k);
+        if (Math.hypot(cx - x, cy - y, cz - z) > 0.55) continue;
+        if (Math.hypot(cx - eye.x, cy - eye.y, cz - eye.z) > 1.7) continue;
+        seen.add(key);
+        const sp = w.get(i, j, k);
+        if (!sp || sp === REMAINS || sp === CACHE || sp === BULK) continue;
+        if (n >= 4 || this.sim.n > 2300) continue;
+        const it = w.removeCell(i, j, k, false);
+        if (!it) continue;
+        this.sim.spawn(it.sp, it.vr, cx, cy, cz, dir.x * 3.2 + (Math.random() - 0.5) * 1.2, dir.y * 3.2 + 0.8, dir.z * 3.2 + (Math.random() - 0.5) * 1.2, 2);
+        this.loosen(i, j, k, 0.8);
+        n++;
+      }
+    }
+    this.sound.thump(0.35, 110);
+    this.shake = Math.max(this.shake, 0.12);
+    if (n) { this.fx.dust(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 6, 0.6, 0.6); this.dust && this.dust.add(eye.x + dir.x, eye.y + dir.y, eye.z + dir.z, 0.05 * n); }
+    else if (!auto) this.ui.hint('Nothing in reach to punch. Face the plush wall (or look up) and tap <kbd>P</kbd>.', 2);
   }
 
   holdGrab() { return this.grabWant || !!this.keys.KeyG; }
@@ -2431,6 +2468,8 @@ export class Game {
       if (this.recallHold > 2.5) { this.recallHold = 0; this.recall(); }
       else this.ui.hint(`Recalling… hold <kbd>H</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
     } else this.recallHold = 0;
+    if (this.keys.Space && (p.embedded || p.buried > 0.3 || (!p.onGround && p.vel.y < 0.2 && p.pos.y > 0.6 && p.penetration(p.pos.x, p.pos.y + 0.3, p.pos.z) > 0.05))) this.punch(true);
+    if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>P</kbd> (or hold <kbd>Space</kbd>) to punch your way out.', 8); }
     if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the sorting bay.', 8); }
 
     if (this.S.stats && this.T.scan > 0) this.sound.geiger(dt, this.sigLevel > 0 ? Math.pow(this.sigLevel, 0.7) : 0);
