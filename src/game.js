@@ -325,7 +325,7 @@ export class Game {
       this.requestLock();
       this.sound.resume();
       if (after) after();
-      if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>F</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
+      if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('Look at a plush and click to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
       else this.ui.hint('Welcome back to Warehouse 07.', 4);
       if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('You wear a hard hat with a lamp and a clock. At 19:00 the warehouse closes, a chime sounds, and the lights go out until 07:00.', 11), 14000);
     } catch (err) {
@@ -354,11 +354,10 @@ export class Game {
   onKey(e, down) {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return; // typing in a box
     if (down && e.code === 'Enter' && this.mode === 'play' && this.net.open && !this.ui.isModalOpen()) { const c = document.getElementById('chatIn'); c.classList.remove('hidden'); c.value = ''; c.focus(); e.preventDefault(); return; }
-    if (e.code === 'KeyG') return; // G is retired: F or left click grab, and grab again to throw
+    if (e.code === 'KeyG') return; // G is retired: left click grabs, and clicking again throws. F is the flashlight.
     if (e.repeat && down) { if (e.code === 'Tab') e.preventDefault(); return; }
     if (e.code === 'Tab') e.preventDefault();
     this.keys[e.code] = down;
-    if (e.code === 'KeyF') this.keys.KeyG = down; // F (and left click) hold the grab flag
     if (!down) return;
     if (this.mode !== 'play') return;
     if (e.code === 'Escape' && this.crewSel) this.crewDeselect();
@@ -379,7 +378,7 @@ export class Game {
     else if (e.code === 'KeyV') this.openModal('crew');
     else if (e.code === 'KeyT') this.crewFarmAhead();
     else if (e.code === 'KeyY') this.crewHomeAll();
-    else if (e.code === 'KeyF') this.gPress();
+    else if (e.code === 'KeyF') this.toggleLamp();
     else if (e.code === 'KeyJ') this.openModal('ach');
     else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < 9) this.selectTool(n, true); }
     else if (e.code === 'KeyB') this.bPress();
@@ -854,7 +853,7 @@ export class Game {
       this.ui.setCross(true);
     } else { this.ui.setTarget(null); this.renderer.setGhost(0); this.ui.setCross(false); }
 
-    // vacuum burst (tap F once the Plush Vacuum is owned); special targets always use the single grab
+    // vacuum burst (tap left click once the Plush Vacuum is owned); special targets always use the single grab
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
     if (T.vac > 0 && !special) {
       if (this.keys.KeyG && !special) this.vacT = Math.max(this.vacT || 0, 0.3);
@@ -1097,10 +1096,10 @@ export class Game {
   holdGrab() { return this.grabWant || !!this.keys.KeyG; }
 
   // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
-  // F / left click. Empty hands: a tap grabs what you look at. Holding something: a single tap throws it.
+  // Left click. Empty hands: a tap grabs what you look at. Holding something: a single tap throws it.
   // Hold the button to keep grabbing until you are full (see interact).
   gPress() {
-    // a tool in your hand: F or click uses it (hammer hits, building items are set down). Empty slot = bare hands: grab and throw.
+    // a tool in your hand: click uses it (hammer hits, building items are set down). Empty slot = bare hands: grab and throw.
     const held = this.curTool();
     if (held.kind !== 'hands') { this.useTool(held); return; }
     const tg = this.curTargetRef;
@@ -1129,7 +1128,7 @@ export class Game {
   }
 
   useTool(t) {
-    if (t.kind === 'hands') { this.ui.hint('Empty hands: <kbd>F</kbd> or click grabs. Pick a tool with <kbd>1-9</kbd> (open the inventory with <kbd>I</kbd>).', 2.5); return; }
+    if (t.kind === 'hands') { this.ui.hint('Empty hands: click grabs, <kbd>F</kbd> is the flashlight. Pick a tool with <kbd>1-9</kbd> (open the inventory with <kbd>I</kbd>).', 2.5); return; }
     if (t.kind === 'hammer') { this.hammerHit(); return; }
     if (t.kind === 'cart') { this.useCart(); return; }
     if (t.kind === 'supply') { if (t.id === 'medkit') this.useMedkit(); else this.ui.hint('Air Canisters work by themselves: one kicks in when you run out of air while trapped.', 3); return; }
@@ -2263,7 +2262,7 @@ export class Game {
       this.plan = null; this.machines.setGhost(null); this.machines.showPreview(null, null); this.renderer.setGhost(0);
       const ref = this.hammerTarget(); const name = this.describeRef(ref);
       this.ui.setCross(!!ref);
-      this.ui.hint(name ? `<kbd>F</kbd> / click: knock down <b>${name}</b> (you get it back) · <kbd>Q</kbd> put away` : 'Hammer: aim at something you built · <kbd>Q</kbd> put away', 0.4);
+      this.ui.hint(name ? `Click: knock down <b>${name}</b> (you get it back) · <kbd>Q</kbd> put away` : 'Hammer: aim at something you built · <kbd>Q</kbd> put away', 0.4);
       return;
     }
     if (tool.kind === 'frame') {
@@ -2963,7 +2962,7 @@ export class Game {
   lightFuse(item) {
     this.fuses = this.fuses || [];
     this.fuses.push({ item, t: 3.2, bid: undefined, lost: 0 });
-    this.ui.toast({ icon: '🧨', title: 'RAZZO! Fuse lit', text: 'It will bring the roof down. Throw it as far away as you can (F or click), and run from your tunnel.', ms: 4200 });
+    this.ui.toast({ icon: '🧨', title: 'RAZZO! Fuse lit', text: 'It will bring the roof down. Throw it as far away as you can (click), and run from your tunnel.', ms: 4200 });
     this.sound.tone('square', 900, 900, 0.05, 0.08); this.shake = Math.max(this.shake, 0.25);
   }
 

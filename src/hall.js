@@ -392,10 +392,10 @@ export function buildHall(scene) {
     g.textAlign = 'left'; g.font = `500 41px ${hand}`;
     const rules = [
       'Millions of plush. ONE matters: the Rotto.',
-      'F or click = grab. Click again = throw.',
+      'Click = grab. Click again = throw.',
       'Stand near the bin: it eats what you carry.',
       'Cash buys bags, tools, crew (desk: E).',
-      'Dig tunnels. Prop the roof or it falls.',
+      'Dig tunnels. Prop the roof. F = flashlight.',
       'DO NOT CLIMB. Piles slide.',
       'Cannot find it? Exit is 4.9 km EAST  →',
     ];

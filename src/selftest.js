@@ -172,12 +172,12 @@ export async function runSelfTest(g, only = '') {
   });
   await T('hands.hold-fills-capacity', async () => {
     fresh({ bag: 2, gloves: 3, reach: 3 }); plushWall(40); standBeforeWall(); await sleep(40);
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' })); g.gDownAt = 0;
+    g.onMouse({ button: 0, preventDefault() {} }, true); g.gDownAt = 0;
     for (let n = 0; n < 200; n++) { g.grabCd = Math.max(0, g.grabCd - 0.016); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); g.interact(0.016, eye, dir); }
-    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' })); return S().carry.length === g.T.carry || `held grabs ${S().carry.length} of capacity ${g.T.carry}`;
+    g.onMouse({ button: 0, preventDefault() {} }, false); return S().carry.length === g.T.carry || `held grabs ${S().carry.length} of capacity ${g.T.carry}`;
   });
   await T('hands.autogrip-two-per-grab', async () => {
-    const run = async (up) => { fresh({ bag: 8, gloves: 3, reach: 3, ...up }); plushWall(40); standBeforeWall(); await sleep(40); window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' })); g.gDownAt = 0; for (let n = 0; n < 30; n++) { g.grabCd = Math.max(0, g.grabCd - 0.016); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); g.interact(0.016, eye, dir); } window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' })); return S().carry.length; };
+    const run = async (up) => { fresh({ bag: 8, gloves: 3, reach: 3, ...up }); plushWall(40); standBeforeWall(); await sleep(40); g.onMouse({ button: 0, preventDefault() {} }, true); g.gDownAt = 0; for (let n = 0; n < 30; n++) { g.grabCd = Math.max(0, g.grabCd - 0.016); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); g.interact(0.016, eye, dir); } g.onMouse({ button: 0, preventDefault() {} }, false); return S().carry.length; };
     const a = await run({}), b = await run({ repeat: 1 }); return (a > 0 && b >= a * 2) || `${a} vs ${b}`;
   });
   await T('hands.scoop-takes-more', async () => {
@@ -503,7 +503,7 @@ export async function runSelfTest(g, only = '') {
     r = await hit(4, 5); if (r) return r; if (tiles().some((t) => t.type === 'belt' && !t.free)) return 'belt not removed'; return true;
   });
   await T('tools.hammer-frame-returns-item-and-support', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k, 24, 2, 3, false); craft('frame:steel'); selectTool('frame:steel'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); placeNow(); const e = S().entities.find((x) => x.type === 'frame');
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 24, 5, 4, false); craft('frame:steel'); selectTool('frame:steel'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); const pl = await plan(); placeNow(); const e = S().entities.find((x) => x.type === 'frame');
     selectTool('hammer'); g.stowed = false; aimPoint(e.cx, e.y0 + 1.2, e.cz, 1.6); adv(0.15); const ref = g.hammerTarget(); if (!ref) return 'hammer found nothing'; g.hammerHit(); return (!S().entities.some((x) => x.id === e.id) && S().items['frame:steel'] === 1 && !w().supports.some((q) => q.id === e.id)) || 'frame/support not removed';
   });
   await T('tools.hammer-takes-down-bulkhead', async () => { fresh(mkUp()); craft('bulk'); selectTool('bulk'); aimPoint(0, 0, 6.5, 2.2); const pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const e = pl.ent; selectTool('hammer'); g.stowed = false; aimPoint(cellX(e.i), cellY(e.j), cellZ(e.k), 1.4); adv(0.15); const ref = g.hammerTarget(); if (!ref || ref.kind !== 'bulk') return 'no bulk target'; g.hammerHit(); return (w().get(e.i, e.j, e.k) === 0) || 'bulk still there'; });

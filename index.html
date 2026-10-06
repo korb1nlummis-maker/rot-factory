@@ -46,7 +46,7 @@
     <div class="sig-meter"><i id="sigFill"></i></div>
     <div class="sig-row"><span id="sigArrow">➤</span><span id="sigDist"></span></div>
   </div>
-  <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Tap F or left click on the plush around you, or punch with R.</span></div>
+  <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Left click on the plush around you, or punch with R.</span></div>
   <div id="vig"></div>
   <div id="blackout"></div>
   <div id="tileInfo" class="hidden"><b id="tiTitle"></b><div id="tiLines"></div></div>
@@ -71,7 +71,7 @@
       <button id="btnHow" class="big alt">How to Play</button>
     </div>
     <div class="how">
-      <div><kbd>WASD</kbd> move &nbsp; <kbd>F</kbd> / click grab &nbsp; <kbd>R</kbd> / right click punch &nbsp; <kbd>I</kbd> inventory &nbsp; <kbd>Esc</kbd> pause</div>
+      <div><kbd>WASD</kbd> move &nbsp; click grab &nbsp; <kbd>F</kbd> flashlight &nbsp; <kbd>R</kbd> / right click punch &nbsp; <kbd>I</kbd> inventory &nbsp; <kbd>Esc</kbd> pause</div>
       <div style="opacity:0.7">New here? <b>How to Play</b> has the rules and every key.</div>
     </div>
     <div class="build-tag" id="buildTag"></div>
@@ -110,11 +110,11 @@
     <header><h2>HOW TO PLAY</h2><button class="x" data-close>&#10005;</button></header>
     <div id="howBody">
       <section><h3>The goal</h3><p>The warehouse is full of millions of plush, and exactly one of them matters: <b>Il Rotto Supremo</b>. The Dossier computer shows what it looks like. Find it to win. Or give up and dig out of the exit, 4.9 km east.</p></section>
-      <section><h3>Your first minutes</h3><ol><li>Walk to the pile and look at a plush. <kbd>F</kbd> or left click grabs it, instantly. Hold to keep grabbing until your hands are full.</li><li>Walk near the <b>SORT bin</b>. It eats what you carry and pays you. Click again while holding plush to throw one in (the bin sucks thrown plush in).</li><li><kbd>E</kbd> at the desk (or <kbd>Tab</kbd>) buys upgrades: a bigger bag, faster hands, tools, crew. <kbd>E</kbd> at the bench crafts things.</li></ol></section>
-      <section><h3>Tools and the hotbar</h3><p>Open the inventory with <kbd>I</kbd>. Put tools and building items on the 9-slot hotbar and use <kbd>1</kbd>-<kbd>9</kbd> to take one out; <kbd>Q</kbd> puts it away. <b>An empty slot is your bare hands.</b> With a tool out, <kbd>F</kbd> or click (or <kbd>B</kbd>) uses it. The <b>hammer</b> in slot 1 knocks down anything you built and gives it back.</p></section>
+      <section><h3>Your first minutes</h3><ol><li>Walk to the pile and look at a plush. Left click grabs it, instantly. Hold to keep grabbing until your hands are full.</li><li>Walk near the <b>SORT bin</b>. It eats what you carry and pays you. Click again while holding plush to throw one in (the bin sucks thrown plush in).</li><li><kbd>E</kbd> at the desk (or <kbd>Tab</kbd>) buys upgrades: a bigger bag, faster hands, tools, crew. <kbd>E</kbd> at the bench crafts things.</li></ol></section>
+      <section><h3>Tools and the hotbar</h3><p>Open the inventory with <kbd>I</kbd>. Put tools and building items on the 9-slot hotbar and use <kbd>1</kbd>-<kbd>9</kbd> to take one out; <kbd>Q</kbd> puts it away. <b>An empty slot is your bare hands.</b> With a tool out, click (or <kbd>B</kbd>) uses it. The <b>hammer</b> in slot 1 knocks down anything you built and gives it back.</p></section>
       <section><h3>Digging and staying alive</h3><ul><li>Dig tunnels by grabbing plush straight ahead of you. A tunnel stands for about 7 m on its own; the deeper and heavier the pile above, the shorter. Past that the roof creaks and falls.</li><li><b>Frames</b> are 4x4 squares that carve their own section and hold the roof around them. Aim next to a frame and the next one snaps on any side. Struts and jacks are quick props.</li><li><b>Do not climb the piles.</b> The higher you go, the likelier the slope slides under you.</li><li>Buried? You have an air countdown. <kbd>R</kbd> or right click punches plush out of the way (hold <kbd>Space</kbd> to punch up). Run out of air or health and you die, then wake on the bay floor with your hands empty. <kbd>K</kbd> uses a medkit.</li><li>Dust builds in tunnels. A respirator, vent fans and clean air help.</li></ul></section>
       <section><h3>Automate it</h3><p>Digging by hand is just the start. Hire <b>Scrapper Bots</b> (<kbd>V</kbd>) and send them digging (<kbd>T</kbd>). Build <b>belts, sorters, vaults, mechs and borers</b> on a generator and poles. Put <b>Detector Gates</b> on your lines: they beep green for ordinary plush and sound a red alarm, and stop the belt, if The One rolls through. Anything that reaches the bin without being scanned is sold, and The One cannot be bought back. Then spend your own time building tunnels and conveyors.</p></section>
-      <section><h3>Controls</h3><div class="keys"><span><kbd>WASD</kbd> move</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span><span><kbd>C</kbd> crouch</span><span><kbd>F</kbd> / click grab, throw, use tool</span><span><kbd>R</kbd> / right click punch</span><span><kbd>1-9</kbd> hotbar</span><span><kbd>Q</kbd> put tool away</span><span><kbd>I</kbd> inventory</span><span><kbd>E</kbd> use</span><span><kbd>B</kbd> use tool</span><span><kbd>U</kbd> cart</span><span><kbd>V</kbd> crew</span><span><kbd>O</kbd> flashlight</span><span><kbd>K</kbd> medkit</span><span><kbd>H</kbd> hold to recall</span><span><kbd>N</kbd> dex</span><span><kbd>L</kbd> journal</span><span><kbd>J</kbd> goals</span><span><kbd>Enter</kbd> chat</span><span><kbd>Esc</kbd> pause</span></div></section>
+      <section><h3>Controls</h3><div class="keys"><span><kbd>WASD</kbd> move</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span><span><kbd>C</kbd> crouch</span><span>click: grab, throw, use tool</span><span><kbd>R</kbd> / right click punch</span><span><kbd>1-9</kbd> hotbar</span><span><kbd>Q</kbd> put tool away</span><span><kbd>I</kbd> inventory</span><span><kbd>E</kbd> use</span><span><kbd>B</kbd> use tool</span><span><kbd>U</kbd> cart</span><span><kbd>V</kbd> crew</span><span><kbd>F</kbd> flashlight</span><span><kbd>K</kbd> medkit</span><span><kbd>H</kbd> hold to recall</span><span><kbd>N</kbd> dex</span><span><kbd>L</kbd> journal</span><span><kbd>J</kbd> goals</span><span><kbd>Enter</kbd> chat</span><span><kbd>Esc</kbd> pause</span></div></section>
       <section><h3>Playing together</h3><p>Choose <b>Play Together</b>. The host gets a 4 digit code, the friend types it in. One shared warehouse, one shared company.</p></section>
     </div>
   </div>
@@ -211,7 +211,7 @@
       <label>Mouse sensitivity <input id="rngSens" type="range" min="0.3" max="2.5" step="0.05" value="1"></label>
       <details open class="how" style="font-size:12px;line-height:1.9;color:var(--dim)"><summary style="cursor:pointer;color:var(--ink)">Controls</summary>
         <div><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>C</kbd> crouch · mouse looks</div>
-        <div><kbd>F</kbd> / left click: tap to grab, hold to keep grabbing until full, tap while holding plush to throw it · <kbd>Z</kbd> throw · <kbd>E</kbd> use · <kbd>O</kbd> flashlight · <kbd>Tab</kbd> upgrades</div>
+        <div>left click: tap to grab, hold to keep grabbing until full, tap while holding plush to throw it · <kbd>Z</kbd> throw · <kbd>E</kbd> use · <kbd>O</kbd> flashlight · <kbd>Tab</kbd> upgrades</div>
         <div><b style="color:var(--ink)"><kbd>R</kbd>, <kbd>P</kbd> or right click: punch out</b> of a hole (knocks loose a bunch of plush ahead) · hold <kbd>Space</kbd> when trapped to punch up</div>
         <div><kbd>B</kbd> build / place (dynamite, charges, belts…, hold for lines) · <kbd>1-9</kbd> <kbd>[</kbd><kbd>]</kbd> pick item · <kbd>Q</kbd> stow · <kbd>R</kbd> flip ramp (when holding one) · <kbd>X</kbd> remove</div>
         <div><kbd>U</kbd> cart · <kbd>V</kbd> crew · <kbd>T</kbd>/<kbd>Y</kbd> crew farm ahead / home · <kbd>H</kbd> hold to recall · <kbd>K</kbd> medkit</div>
