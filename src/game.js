@@ -22,6 +22,7 @@ import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
+import { capacityOf, loadOn, WARN_AT } from './loadtrace.js';
 import { UPGRADES, FRAME_TYPES, STRUT_DEPTH, supportDepth, betterThan, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
 import { Cart, CART_CAP, CART_NAMES, dims as cartDims } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
@@ -627,6 +628,7 @@ export class Game {
       world.updateStability(dt, T.warn, {
         onCreak: (x, y, z, n) => this.onCreak(x, y, z, n),
         release: (i, j, k2) => this.releaseCell(i, j, k2),
+        onRegion: (x, y, z) => this.queueLoad(x, y, z),
       });
       this.updateAfters(dt);
       this.slide.update(dt);
@@ -1098,7 +1100,7 @@ export class Game {
     if (!ref) return null;
     if (ref.kind === 'cart') return 'your cart';
     if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : t.splitter ? 'Belt Splitter' : t.type) : null; }
-    if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4)` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.type; }
+    if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4)${(() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })()}` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.type; }
     if (ref.kind === 'bulk') return 'Bulkhead Panel';
     return null;
   }
@@ -2058,8 +2060,8 @@ export class Game {
     if (!this.keys.KeyB) this.lastPaint = '';
     if (plan) {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
-      else if (this.strainOf(tool, plan).state === 'break') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>Too deep for ${st.name}.</b> It is rated to ${st.max} m and this is ${Math.round(st.d)} m in: it will break the moment you set it. ${st.next ? 'Use ' + FRAME_TYPES[st.next].name + ' or better.' : ''}`, 0.4); }
-      else if (this.strainOf(tool, plan).state === 'creak') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>${st.name} is near its limit here.</b> Rated to ${st.max} m, this is ${Math.round(st.d)} m in. It will hold, but it is creaking. <kbd>B</kbd> set down`, 0.4); }
+      else if (this.strainOf(tool, plan).state === 'break') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>Too much weight for ${st.name}: ${st.pct}% load.</b> It will break the moment you set it (${Math.round(st.d)} m deep, rated ${isFinite(st.max) ? st.max + ' m' : 'any depth'}). ${st.next && FRAME_TYPES[st.next] ? 'Use ' + FRAME_TYPES[st.next].name + ' or better, or hold the roof up with more supports.' : 'Add more supports to share the load.'}`, 0.4); }
+      else if (this.strainOf(tool, plan).state === 'creak') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>${st.name} would carry ${st.pct}% load.</b> It holds, but it is creaking under the mountain. More supports nearby share the weight. <kbd>B</kbd> set down`, 0.4); }
       else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square, dig the section out first · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
@@ -2213,7 +2215,7 @@ export class Game {
     if (tool.kind === 'frame' || tool.kind === 'strut' || tool.kind === 'jack') {
       const st = this.strainOf(tool, plan);
       if (st.state === 'break') { this.breakSupport(st, e); this.rebuildTools(); return; }
-      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: it holds here (rated to ${st.max} m, this is ${Math.round(st.d)} m in) but not much deeper.`; this.sound.creak(0.25); }
+      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: ${st.pct}% load. It holds, but the next one nearby should share it.`; this.sound.creak(0.25); }
     }
     if (tool.kind === 'bulk') {
       this.world.setCell(e.i, e.j, e.k, BULK, (Math.random() * 127) | 0);
@@ -2349,6 +2351,7 @@ export class Game {
     if (e.type === 'frame' || e.type === 'strut' || e.jack) {
       const w = this.world, ci = toI(e.cx ?? e.x), ck = toK(e.cz ?? e.z), cj = toJ(e.y0 ?? e.y ?? 0), R = e.type === 'frame' ? 6 : 4;
       for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: ci + a, j: cj + dj, k: ck + b });
+      this.queueLoad(e.cx ?? e.x, (e.y0 ?? e.y ?? 0) + 1, e.cz ?? e.z);
     }
   }
 
@@ -2356,18 +2359,61 @@ export class Game {
   // The mountain presses harder the deeper you dig. Every support has a depth it can stand at; near it the support creaks,
   // past it the support breaks when you set it.
   strainOf(tool, plan) {
+    if (tool.kind !== 'frame' && tool.kind !== 'strut' && tool.kind !== 'jack') return { state: 'ok' };
     const e = plan.ent, kind = tool.kind === 'frame' ? tool.fk : tool.kind;
     const x = e.cx ?? e.x, z = e.cz ?? e.z, d = supportDepth(x, z);
     const max = tool.kind === 'frame' ? FRAME_TYPES[kind].maxDepth : STRUT_DEPTH[kind];
     const name = tool.kind === 'frame' ? FRAME_TYPES[kind].name : kind === 'jack' ? 'Hydraulic Jack' : 'Strut';
-    return { d, max, name, kind, next: tool.kind === 'frame' ? betterThan(kind) : (kind === 'strut' ? 'steel' : 'concrete'), state: d > max ? 'break' : d > max * 0.85 ? 'creak' : 'ok' };
+    const key = `${kind}|${x.toFixed(2)}|${z.toFixed(2)}|${(e.y0 ?? e.y ?? 0).toFixed(2)}|${this.world.diffCount}|${this.world.supports.length}`;
+    if (!this._strainC || this._strainC.key !== key) {
+      const sup = tool.kind === 'frame' ? { x, y: e.y0 + e.h / 2, z, r: FRAME_TYPES[kind].radius, kind } : { x, y: e.y + 0.6, z, r: kind === 'jack' ? 2.7 : 1.9, kind };
+      sup.cap = capacityOf(kind);
+      this._strainC = { key, ratio: isFinite(sup.cap) ? loadOn(this.world, sup) / sup.cap : 0 };
+    }
+    const ratio = this._strainC.ratio;
+    return { d, max, name, kind, ratio, pct: Math.round(ratio * 100), next: tool.kind === 'frame' ? betterThan(kind) : (kind === 'strut' ? 'steel' : 'concrete'), state: ratio > 1 ? 'break' : ratio > WARN_AT ? 'creak' : 'ok' };
   }
 
   breakSupport(st, e) {
     const x = e.cx ?? e.x, z = e.cz ?? e.z, y = (e.y0 ?? e.y ?? 0) + 1.0;
     this.fx.dust(x, y, z, 26, 1.6, 1.6); this.sound.thump(0.4, 90); this.sound.creak(0.35); this.shake = Math.max(this.shake, 0.3);
     this.S.stats.brokenSupports = (this.S.stats.brokenSupports || 0) + 1;
-    this.ui.hint(`<b>The ${st.name} cracks and gives way.</b> It is rated to ${st.max} m and the mountain here is ${Math.round(st.d)} m deep. It is gone. ${st.next ? 'You need ' + (FRAME_TYPES[st.next] ? FRAME_TYPES[st.next].name : st.next) + ' or better down here.' : ''}`, 6);
+    this.ui.hint(`<b>The ${st.name} cracks and gives way.</b> It would have carried ${st.pct}% of what it can bear, at ${Math.round(st.d)} m deep. It is gone. ${st.next ? 'You need ' + (FRAME_TYPES[st.next] ? FRAME_TYPES[st.next].name : st.next) + ' or better down here, or more supports to share the weight.' : ''}`, 6);
+  }
+
+  // ---- live load tracing: every support keeps track of what the roof under its reach weighs and buckles when it is too much ----
+  queueLoad(x, y, z) {
+    const q = this.loadQ || (this.loadQ = new Set());
+    for (const s of this.world.supports) if (s.cap !== undefined && Math.hypot(s.x - x, s.z - z) < 12) q.add(s.id);
+  }
+
+  updateLoads(dt) {
+    this._loadT = (this._loadT || 0) - dt; if (this._loadT > 0 || !this.loadQ || !this.loadQ.size || this.isGuest()) return; this._loadT = 0.35;
+    const w = this.world; let n = 0;
+    for (const id of [...this.loadQ]) {
+      this.loadQ.delete(id); if (++n > 2) { break; }
+      const s = w.supports.find((q) => q.id === id); if (!s || s.cap === undefined) continue;
+      const ratio = isFinite(s.cap) ? loadOn(w, s) / s.cap : 0; s.load = ratio;
+      if (ratio > 1 && this.time - (s.born || 0) > 1.5) { this.failSupport(s, ratio); continue; }
+      if (ratio > WARN_AT) { if (!s.warned) { s.warned = true; if (Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z) < 30) { this.sound.creak(0.3); this.ui.hint(`<b>A ${s.kind === 'jack' ? 'jack' : s.kind === 'strut' ? 'strut' : (FRAME_TYPES[s.kind] || { name: 'frame' }).name.toLowerCase()} is carrying ${Math.round(ratio * 100)}% of its limit and creaking.</b> Put another support next to it to share the weight.`, 6); } } }
+      else if (ratio < 0.7) s.warned = false;
+    }
+  }
+
+  failSupport(s, ratio) {
+    const w = this.world, S = this.S;
+    const ent = S.entities.find((e) => e.id === s.id); const it = this.machines.items.get(s.id);
+    w.supports = w.supports.filter((q) => q.id !== s.id);
+    if (it) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(s.id); }
+    S.entities = S.entities.filter((e) => e.id !== s.id); this.netSend({ t: 'ent-', id: s.id });
+    S.stats.brokenSupports = (S.stats.brokenSupports || 0) + 1;
+    const pd = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
+    this.fx.dust(s.x, s.y, s.z, 22, 1.4, 1.4);
+    if (pd < 40) { this.sound.thump(0.35, 85); this.sound.creak(0.35); this.shake = Math.max(this.shake, Math.max(0.05, 0.4 - pd * 0.01)); }
+    if (pd < 25) this.ui.hint(`<b>${ent && ent.type === 'frame' ? (FRAME_TYPES[ent.kind] || { name: 'A frame' }).name : s.kind === 'jack' ? 'A jack' : 'A strut'} buckles under the weight of the mountain!</b> (${Math.round(ratio * 100)}% load). Its share lands on the supports around it.`, 6);
+    // the roof it was holding comes back under the tunnel rule, and the supports that shared its load are re-weighed
+    for (let a = -6; a <= 6; a += 4) for (let b = -6; b <= 6; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: toI(s.x) + a, j: toJ(s.y) + dj - 2, k: toK(s.z) + b });
+    this.queueLoad(s.x, s.y, s.z);
   }
 
   // warns as you go deeper than a support you own can take: once when it starts to creak, once when it can no longer hold
@@ -2939,7 +2985,7 @@ export class Game {
     // trapped: a pulsing countdown to dig out before the air runs out
     this.updateTrapped(dt);
     this.updateVitals(dt);
-    this.depthCheck(dt); this.climbRisk(dt);
+    this.depthCheck(dt); this.climbRisk(dt); this.updateLoads(dt);
     // emergency recall: hold U
     if (this.keys.KeyH) {
       this.recallHold += dt;

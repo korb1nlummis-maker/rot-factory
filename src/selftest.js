@@ -8,6 +8,7 @@ import { CART_CAP, CART_NAMES } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { NEEDLE, species } from './plushdata.js';
 import { Slides } from './slide.js';
+import { capacityOf, loadOn } from './loadtrace.js';
 
 const { cellX, cellY, cellZ, toI, toJ, toK } = cfg;
 
@@ -21,7 +22,7 @@ export async function runSelfTest(g, only = '') {
   // ------------------------------------------------------------------ helpers
   const adv = (sec, dt = 0.05) => { for (let n = 0; n < sec / dt; n++) { g.time += dt; g.updatePlay(dt); } };
   const stepSim = (sec, dt = 1 / 60) => {
-    const hooks = { onCreak: (x, y, z, n) => g.onCreak(x, y, z, n), release: (a, b, c) => g.releaseCell(a, b, c) };
+    const hooks = { onCreak: (x, y, z, n) => g.onCreak(x, y, z, n), release: (a, b, c) => g.releaseCell(a, b, c), onRegion: (x, y, z) => g.queueLoad(x, y, z) };
     for (let n = 0; n < sec / dt; n++) { g.time += dt; g.slide.update(dt); sim().step(dt); w().updateStability(dt, g.T.warn, hooks); g.updateAfters(dt); }
   };
   const clearBodies = () => { while (sim().n > 0) sim().remove(sim().n - 1); };
@@ -748,7 +749,7 @@ export async function runSelfTest(g, only = '') {
 
   // extra test modules: src/tests/*.js each export default async (ctx) => { await ctx.T('area.name', async () => true | 'reason') }
   const mods = import.meta.glob('./tests/*.js', { eager: true });
-  const ctx = { g, S, w, p, sim, L, V3, THREE, cfg, cellX, cellY, cellZ, toI, toJ, toK, UPGRADES, FRAME_TYPES, effLevels, computeTuning, recipes, MATERIALS, CART_CAP, CART_NAMES, species, NEEDLE, fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, plushWall, standBeforeWall, newWorld, realSleep, sleep, WORLD_TESTS };
+  const ctx = { capacityOf, loadOn, g, S, w, p, sim, L, V3, THREE, cfg, cellX, cellY, cellZ, toI, toJ, toK, UPGRADES, FRAME_TYPES, effLevels, computeTuning, recipes, MATERIALS, CART_CAP, CART_NAMES, species, NEEDLE, fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, plushWall, standBeforeWall, newWorld, realSleep, sleep, WORLD_TESTS };
   for (const path of Object.keys(mods).sort()) { const fn = mods[path].default; if (typeof fn === 'function') await fn(ctx); }
 
   return { results, errs: (g.errCount || 0) - errs0, helpers: { fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, resetEntities, sleep, V3 } };

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { FRAME_TYPES, supportDepth } from './upgrades.js';
+import { capacityOf, loadOn } from './loadtrace.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 
@@ -244,6 +245,7 @@ export class Machines {
       const plan = this.frameFromCell(i, j, k, axis, kind);
       if (!plan.ok) return false;
       const e = plan.ent;
+      { const cap = capacityOf(kind); if (isFinite(cap)) { const hyp = { x: e.cx, y: e.y0 + e.h / 2, z: e.cz, r: FRAME_TYPES[kind].radius, kind, cap }; if (loadOn(g.world, hyp) > cap) continue; } } // the crew will not set a frame that would buckle
       g.S.money -= cost; g.ui.setMoney(g.S.money);
       const ent = { id: g.nextId(), type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, paid: cost, auto: true };
       g.S.entities.push(ent);
@@ -496,7 +498,8 @@ export class Machines {
       it.obj.position.set(ent.cx, ent.y0, ent.cz);
       const ft = FRAME_TYPES[ent.kind];
       ent.supportId = ent.supportId || ent.id;
-      w.supports.push({ x: ent.cx, y: ent.y0 + ent.h / 2, z: ent.cz, r: ft.radius, b: ft.bonus, id: ent.id });
+      w.supports.push({ x: ent.cx, y: ent.y0 + ent.h / 2, z: ent.cz, r: ft.radius, b: ft.bonus, id: ent.id, kind: ent.kind, cap: capacityOf(ent.kind), born: game.time });
+      game.queueLoad && game.queueLoad(ent.cx, ent.y0 + ent.h / 2, ent.cz);
     } else if (ent.type === 'beacon') {
       it.obj = this.makeBeacon();
       it.obj.position.set(ent.x, ent.y, ent.z);
@@ -504,7 +507,7 @@ export class Machines {
     } else if (['marker', 'flare', 'charge', 'strut'].includes(ent.type)) {
       it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.jack ? 'jack' : ent.glow ? 'glow' : ent.type, ent);
       it.obj.position.set(ent.x, ent.y, ent.z);
-      if (ent.type === 'strut') w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: ent.jack ? 2.7 : 1.9, b: ent.jack ? 2 : 1, id: ent.id });
+      if (ent.type === 'strut') { w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: ent.jack ? 2.7 : 1.9, b: ent.jack ? 2 : 1, id: ent.id, kind: ent.jack ? 'jack' : 'strut', cap: capacityOf(ent.jack ? 'jack' : 'strut'), born: game.time }); game.queueLoad && game.queueLoad(ent.x, ent.y + 0.6, ent.z); }
       if (ent.type === 'flare') ent.born = ent.born ?? game.S.stats.playSecs;
     } else if (ent.type === 'lantern') {
       it.obj = this.makeLantern();

@@ -432,6 +432,7 @@ export class World {
       const q = this.stabQueue.shift();
       const before = this.creaking.size;
       this.scanRegion(q.i, q.j, q.k, warn);
+      if (hooks.onRegion) hooks.onRegion(cellX(q.i), cellY(q.j), cellZ(q.k));
       if (this.creaking.size > before && hooks.onCreak) (this._announce || (this._announce = [])).push({ i: q.i, j: q.j, k: q.k, t: 0.7, n: this.creaking.size - before });
     }
     // a creak is only worth a sound once the roof has stayed overloaded for a moment (grabbing a few plush leaves pockets that
