@@ -216,6 +216,21 @@ export class Sim {
         const dx = pos.x - b.x, dz = pos.z - b.z;
         const d = Math.hypot(dx, dz);
         const bc = this.binCatch || 0;
+        // a plush thrown toward the bin gets sucked in: a pull toward the bin mouth that grows as it gets close
+        if (this.flag[i] === 1 && this.hooks.onBin) {
+          const sr = 2.6 + bc * 1.3;
+          if (d < sr && pos.y < 3.2 && pos.y > 0.15) {
+            const k = 1 - d / sr, inv = 1 / (d || 1);
+            const pull = (30 * k + 24) * k;
+            vx -= dx * inv * pull * dt; vz -= dz * inv * pull * dt;
+            if (pos.y < 1.5) vy += 16 * k * dt; else if (pos.y > 1.9) vy -= 22 * k * dt;
+            if (d < 1.6 && pos.y < 2.5 && pos.y > 0.25) {
+              this.hooks.onBin(i, pos.x, pos.y, pos.z);
+              this.flag[i] = 99;
+              pos.y = -100;
+            }
+          }
+        }
         if (d <= 0.86 + bc && pos.y < 1.0 + bc * 0.7 && pos.y > 0.2 && this.hooks.onBin && (d <= 0.86 || pos.y > 0.7)) {
           this.hooks.onBin(i, pos.x, pos.y, pos.z);
           this.flag[i] = 99;

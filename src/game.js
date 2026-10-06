@@ -191,7 +191,7 @@ export class Game {
     if (!S.gear) { S.gear = {}; for (const id of GEAR) S.gear[id] = S.up[id] || 0; }
     if (S.gear.helmet === undefined) S.gear.helmet = 1; // every worker starts with a hard hat, a lamp and a clock
     if (S.gameMin === undefined) S.gameMin = 0;
-    S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.mats = S.mats || {}; S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
+    S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.mats = S.mats || {}; if ((S.up.hardhat || 0) > 1) { S.up.hpmax = Math.max(S.up.hpmax || 0, S.up.hardhat); S.up.hardhat = 1; } if (S.up.binmag) { S.up.dump = Math.max(S.up.dump || 0, S.up.binmag); delete S.up.binmag; } S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
     this.T = this.tune();
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
@@ -777,7 +777,11 @@ export class Game {
       if (this.keys.KeyG && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
         // holding: fill your hands (and then the cart) as fast as the gloves allow, even when the crosshair drifts off the plush
         const t2 = tg || this.nearestGrab(eye, dir);
-        if (t2) { this.instantGrab(t2, true); }
+        if (t2) {
+          this.instantGrab(t2, true);
+          // Auto-Grip takes a second plush in the same motion
+          if (T.autoRepeat && this.storeRoom()) { const t3 = this.nearestGrab(eye, dir); if (t3 && !(t3.type === t2.type && t3.i === t2.i && t3.j === t2.j && t3.k === t2.k && t3.idx === t2.idx)) this.collect(t3); }
+        }
       }
       G.p = 0; this.ui.setGrab(0, false);
     }
