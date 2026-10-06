@@ -5,7 +5,13 @@ import { workingsNear, workingPlugged } from './remains.js';
 
 const NCX = NX >> 4, NCZ = NZ >> 4;
 const COLSZ = 256 * NY;
-export const OB = 16; // overburden cells per point of lost support
+// THE TUNNEL RULE. A tunnel (or room) stands as long as no stretch of it runs further than SAFE_LEN from an anchor:
+// an anchor is the open mouth of the cavity (no roof over it), or ground held by a frame, prop, strut, jack or bulkhead.
+// SAFE_LEN shrinks the heavier the pile above (overburden) and the further from the bay (denser plush), and grows with
+// Pile Tamping. Past that length the unsupported roof creaks, then comes down. Nothing else collapses a tunnel.
+export const SAFE_LEN = 12;     // cells (7.2 m) of tunnel you can dig unsupported near the surface
+export const OB = 14;           // every 14 cells of plush above the roof costs one cell of safe length
+export const MIN_SAFE = 3;      // never less than 1.8 m
 
 // The hall is a huge lattice of plush cells (0.6 m). Storage is lazy: 16x16 column chunks are generated from the
 // seed on first touch, and only modified columns are kept forever. Everything else can be evicted and regenerated.
@@ -310,6 +316,34 @@ export class World {
     return Math.floor(Math.max(0, d - 40) / 330);
   }
 
+  // length (in cells) from this cavity cell to the nearest anchor, searching through the cavity; Infinity if none within maxD
+  cavityLen(i, j, k, maxD) {
+    const open = (ci, ck) => this.topAt(ci, ck) <= j;
+    const anchored = (ci, ck) => open(ci, ck) || this.supportBonus(cellX(ci), cellY(j), cellZ(ck)) > 0 || this.get(ci + 1, j, ck) === BULK || this.get(ci - 1, j, ck) === BULK || this.get(ci, j, ck + 1) === BULK || this.get(ci, j, ck - 1) === BULK;
+    if (anchored(i, k)) return 0;
+    const seen = new Set([k * 16384 + i]);
+    let frontier = [[i, k]], visited = 1;
+    for (let d = 1; d <= maxD; d++) {
+      const next = [];
+      for (const [ci, ck] of frontier) {
+        for (let n = 0; n < 4; n++) {
+          const ni = ci + (n === 0 ? 1 : n === 1 ? -1 : 0);
+          const nk = ck + (n === 2 ? 1 : n === 3 ? -1 : 0);
+          const key = nk * 16384 + ni;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (this.solid(ni, j, nk)) continue;      // the cavity continues only through empty cells at this height
+          if (++visited > 500) return Infinity;
+          if (anchored(ni, nk)) return d;
+          next.push([ni, nk]);
+        }
+      }
+      frontier = next;
+      if (!frontier.length) break;
+    }
+    return Infinity;
+  }
+
   lateralDist(i, j, k, maxD) {
     const seen = new Set([k * 16384 + i]);
     let frontier = [[i, k]];
@@ -340,9 +374,10 @@ export class World {
     if (!s0 || s0 === BULK || this.solid(i, j - 1, k)) return null;
     const over = Math.max(0, this.topAt(i, k) - j - 1);
     const sup = this.supportBonus(cellX(i), cellY(j), cellZ(k));
-    const B = 1 + this.stabBonus + sup - Math.floor(over / OB) - this.depthPenalty(i, k);
-    const d = this.lateralDist(i, j, k, 6);
-    return { margin: B - d, d, B };
+    // safe length: shrinks with the weight above and the distance from the bay, grows with tamping and strong frames
+    const limit = Math.max(MIN_SAFE, SAFE_LEN + 2 * this.stabBonus + 3 * sup - Math.floor(over / OB) - 2 * this.depthPenalty(i, k));
+    const L = this.cavityLen(i, j - 1, k, limit + 1);
+    return { margin: limit - L, d: L, B: limit };
   }
 
   // Slope physics: how readily does this surface plush slide when something heavy presses on it?

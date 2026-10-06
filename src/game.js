@@ -182,7 +182,7 @@ export class Game {
     this.power.clear();
     this.dust.clear();
     this.crew.clear();
-    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest() && !this.slide.quiet) this.slide.trigger(i, j, k, 0.4); };
+    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); };
     for (const e of S.entities) this.addEntity(e);
     this.ensureFreeGate();
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
@@ -696,7 +696,7 @@ export class Game {
   // within a thin tube around the ray, closest along it first. Nothing off to the sides, so grabbing digs straight in.
   nearestGrab(eye, dir) {
     const T = this.T, w = this.world, sim = this.sim;
-    const reach = T.reach, TUBE = 0.42;
+    const reach = T.reach, TUBE = 0.9;
     let best = null, bs = 1e9;
     const consider = (dx, dy, dz, make) => {
       const t = dx * dir.x + dy * dir.y + dz * dir.z;
@@ -849,7 +849,7 @@ export class Game {
         const along = vx * dv.x + vy * dv.y + vz * dv.z;
         if (along < 0.2) continue;
         const perp = Math.hypot(vx - dv.x * along, vy - dv.y * along, vz - dv.z * along);
-        if (perp > 0.5) continue;
+        if (perp > 0.95) continue;
         near.push([perp * 3 + along, i, j, k]);
       }
       near.sort((a, b) => a[0] - b[0]);
@@ -2521,7 +2521,7 @@ export class Game {
   // pulling plush out or standing on a slope loosens its neighbors, which then slide
   loosen(i, j, k) {
     // taking plush out of the pile nudges its neighbours a very little (the slide rules decide if anything moves)
-    if (!this.isGuest()) this.slide.trigger(i, j, k, 0.25);
+    // grabbing never starts a slide: tunnels are judged by the tunnel rule in world.js
   }
 
   // feel a slide nearby: rumble, shake, dust. The first one teaches you why not to climb.
@@ -2539,14 +2539,15 @@ export class Game {
     if (!fc || p.pos.y < 0.4) return;
     // climbing is a gamble: the higher you are and the more you carry, the harder you load the face under you.
     // Near the floor this stays far below what the slide rules need, so walking on a low pile is safe.
-    if (!this.isGuest()) this.slide.trigger(fc.i, fc.j, fc.k, 0.1 + p.pos.y * 0.1 + this.S.carry.length * 0.02 + strength * 0.12 + (stomp ? 0.3 : 0));
+    // Climbing Gear (pitons, rope, grippy soles) takes 25% off the load per tier
+    if (!this.isGuest() && p.pos.y > 8) this.slide.trigger(fc.i, fc.j, fc.k, (0.1 + p.pos.y * 0.1 + this.S.carry.length * 0.02 + strength * 0.12 + (stomp ? 0.3 : 0)) * (1 - 0.25 * this.T.climb));
   }
 
   onKick(i, j, k, vx, vy, vz, speed, en) {
     this.kickBudget = this.kickBudget ?? 6;
     if (this.kickBudget <= 0 || speed < 3.2) return;
     if (Math.random() > 0.08 * (speed - 2.8)) return;
-    { const e = en > 0 ? en * 0.5 : Math.min(1.2, 0.05 + speed * 0.04); if (e > 0.3 && !this.isGuest()) this.slide.trigger(i, j, k, e); }
+    { const e = en > 0 ? en * 0.5 : (speed > 6 ? Math.min(1.2, 0.05 + speed * 0.04) : 0); if (e > 0.3 && !this.isGuest()) this.slide.trigger(i, j, k, e); }
     this.kickBudget--;
   }
 

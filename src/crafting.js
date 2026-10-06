@@ -14,7 +14,7 @@ export function recipes(g) {
   const list = [];
   const out = [];
   const K = 3; // crafting is not cheap either
-  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Props a tunnel roof. +${FRAME_TYPES[k].bonus} strength within ${FRAME_TYPES[k].radius} m.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
+  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Anchors the roof within ${FRAME_TYPES[k].radius} m, so the unsupported tunnel length starts again from here. Stronger frames reach further.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
   for (const k of T.frames) list.push({ id: 'mat:' + k, kind: 'mat', mk: k, icon: MATERIALS[k].icon, name: MATERIALS[k].name, short: MATERIALS[k].name, desc: 'Building material. Frames use ' + MATFRAME + ' each. Stock up here at a discount, or find it in caches and old workings.', price: Math.max(1, Math.round(MATERIALS[k].unit * 0.7)), batch: [10, 50, 250] });
   for (let t = 1; t <= T.cartTier; t++) list.push({ id: 'cart:' + t, kind: 'cart', icon: '🛒', name: CART_NAMES[t], short: CART_NAMES[t], desc: `Press U to roll it out. Follows you, carries ${CART_CAP[t]} plush and unloads near the bin.`, price: CART_PRICE[t], batch: [1, 1, 1] });
   if (T.markers) {
@@ -22,8 +22,8 @@ export function recipes(g) {
     list.push({ id: 'glow', kind: 'glow', icon: '🟢', name: 'Glow Stick', short: 'Glow', desc: 'A soft green light for ten minutes. Dimmer than a flare, lasts more than twice as long. Needs no power.', price: 5, batch: [1, 10, 25] });
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
-  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. +2 roof strength within about 2.7 m. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
-  if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. +1 roof strength within about 2 m. Goes anywhere.', price: 8, batch: [1, 5, 25], mat: 'timber', matN: 1 });
+  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. Anchors the roof within about 2.7 m and adds safe length. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
+  if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. Anchors the roof within about 1.9 m. Goes anywhere.', price: 8, batch: [1, 5, 25], mat: 'timber', matN: 1 });
   if (T.firstAid) {
     list.push({ id: 'medkit', kind: 'supply', icon: '🩹', name: 'Medkit', short: 'Medkit', desc: 'Press K to heal 50 health.', price: 30, batch: [1, 5, 10] });
     list.push({ id: 'canister', kind: 'supply', icon: '🫧', name: 'Air Canister', short: 'Canister', desc: 'Kicks in by itself when you run out of air while trapped: 40 more seconds to dig out.', price: 55, batch: [1, 3, 5] });
