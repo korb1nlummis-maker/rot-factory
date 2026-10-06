@@ -692,31 +692,31 @@ export class Game {
     return null;
   }
 
-  // while you hold the grab button and the crosshair has nothing exact on it, take the nearest plush in front of you within reach
+  // while you hold the grab button and the crosshair has nothing exact on it, take the plush nearest the AIM LINE:
+  // within a thin tube around the ray, closest along it first. Nothing off to the sides, so grabbing digs straight in.
   nearestGrab(eye, dir) {
     const T = this.T, w = this.world, sim = this.sim;
-    const reach = T.reach;
-    const cx = eye.x + dir.x * 1.2, cy = eye.y + dir.y * 1.2, cz = eye.z + dir.z * 1.2;
-    let best = null, bd = 1e9;
-    for (let i = 0; i < sim.n; i++) {
-      const dx = sim.x[i] - eye.x, dy = sim.y[i] - eye.y, dz = sim.z[i] - eye.z;
-      const d = Math.hypot(dx, dy, dz);
-      if (d > reach || (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1) < 0.25) continue;
-      const sc = Math.hypot(sim.x[i] - cx, sim.y[i] - cy, sim.z[i] - cz);
-      if (sc < bd) { bd = sc; best = { type: 'body', idx: i, t: d, sp: sim.sp[i], vr: sim.vr[i] }; }
-    }
+    const reach = T.reach, TUBE = 0.42;
+    let best = null, bs = 1e9;
+    const consider = (dx, dy, dz, make) => {
+      const t = dx * dir.x + dy * dir.y + dz * dir.z;
+      if (t < 0.15 || t > reach) return;
+      const px = dx - dir.x * t, py = dy - dir.y * t, pz = dz - dir.z * t;
+      const perp = Math.hypot(px, py, pz);
+      if (perp > TUBE) return;
+      const sc = perp * 3 + t * 0.6;
+      if (sc < bs) { bs = sc; best = make(t); }
+    };
+    for (let i = 0; i < sim.n; i++) consider(sim.x[i] - eye.x, sim.y[i] - eye.y, sim.z[i] - eye.z, (t) => ({ type: 'body', idx: i, t, sp: sim.sp[i], vr: sim.vr[i] }));
     if (best) return best;
-    const ci = toI(cx), cj = toJ(cy), ck = toK(cz);
-    for (let dk = -3; dk <= 3; dk++) for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) {
+    const rc = Math.ceil(reach / C) + 1;
+    const ci = toI(eye.x), cj = toJ(eye.y), ck = toK(eye.z);
+    for (let dk = -rc; dk <= rc; dk++) for (let dj = -rc; dj <= rc; dj++) for (let di = -rc; di <= rc; di++) {
       const i = ci + di, j = cj + dj, k = ck + dk;
       const sp = w.get(i, j, k);
       if (!sp || sp === BULK || sp === REMAINS || sp === CACHE) continue;
       if (w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1)) continue;
-      const x = cellX(i), y = cellY(j), z = cellZ(k);
-      const dx = x - eye.x, dy = y - eye.y, dz = z - eye.z, d = Math.hypot(dx, dy, dz);
-      if (d > reach || (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1) < 0.25) continue;
-      const sc = Math.hypot(x - cx, y - cy, z - cz);
-      if (sc < bd) { bd = sc; best = { type: 'cell', i, j, k, t: d, sp, vr: w.getVr(i, j, k) }; }
+      consider(cellX(i) - eye.x, cellY(j) - eye.y, cellZ(k) - eye.z, (t) => ({ type: 'cell', i, j, k, t, sp, vr: w.getVr(i, j, k) }));
     }
     return best;
   }
@@ -838,12 +838,19 @@ export class Game {
     if (tg.type === 'cell' && T.scoop > 0) {
       let left = T.scoop;
       const near = [];
-      for (let dk = -2; dk <= 2; dk++) for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const dv = this.player.forward(new THREE.Vector3());
+      for (let dk = -3; dk <= 3; dk++) for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) {
         if (!di && !dj && !dk) continue;
         const i = tg.i + di, j = tg.j + dj, k = tg.k + dk;
         if (!w.get(i, j, k)) continue;
         if (w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1)) continue;
-        near.push([di * di + dj * dj + dk * dk, i, j, k]);
+        // only plush further along the aim line, in a thin tube: straight in, never from the sides or underneath
+        const vx = di * C, vy = dj * C, vz = dk * C;
+        const along = vx * dv.x + vy * dv.y + vz * dv.z;
+        if (along < 0.2) continue;
+        const perp = Math.hypot(vx - dv.x * along, vy - dv.y * along, vz - dv.z * along);
+        if (perp > 0.5) continue;
+        near.push([perp * 3 + along, i, j, k]);
       }
       near.sort((a, b) => a[0] - b[0]);
       for (const [, i, j, k] of near) {
@@ -920,7 +927,7 @@ export class Game {
         const d = Math.hypot(x, y, z);
         if (d > reach || d < 0.3) continue;
         const cosA = (x * dir.x + y * dir.y + z * dir.z) / d;
-        if (cosA < 0.9) continue;
+        if (cosA < 0.95) continue;
         if (w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1)) continue;
         const sc = d * (2 - cosA);
         if (sc < bs) { bs = sc; best = { type: 'cell', i, j, k }; }
