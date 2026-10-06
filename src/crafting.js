@@ -15,6 +15,7 @@ const USE = {
   bulk: 'Aim at an empty cell and press B. A solid wall cell that never falls. F takes it down.',
   belt: 'Aim at the floor and press B (hold B to lay a line). Needs power from a generator and poles.',
   ramp: 'Like a belt, but it climbs or drops one step. R flips up or down while you hold it.',
+  splitter: 'Aim at a belt (it converts it) or the floor and press B. Plush arriving from behind leave forward, left and right in turn: feed several sorters, vaults or lines from one belt. Outputs that are full or missing are skipped.',
   gate: 'Aim at a belt (it converts it) or the floor and press B. Everything that passes is scanned. Not within a bin\'s pull. Walk through it to scan your bag.',
   gen: 'Place it, then press E on it with plush in your hands to feed it fuel (or belt plush in). Powers machines through poles.',
   pole: 'Place it near generators and machines to link the grid.',
@@ -79,6 +80,7 @@ export function recipes(g) {
     list.push({ id: 'belt', kind: 'belt', icon: '🛤️', name: 'Conveyor Belt', short: 'Belt', desc: 'Carries plush. Needs power. Place a line by holding B.', price: 3, batch: [10, 50, 100] });
     list.push({ id: 'ramp', kind: 'belt', ramp: true, icon: '📐', name: 'Belt Ramp', short: 'Ramp', desc: 'A belt that climbs or drops one step. R flips up/down.', price: 5, batch: [1, 5, 10] });
   }
+  if (T.machines.includes('splitter')) list.push({ id: 'splitter', kind: 'splitter', icon: '🔱', name: 'Belt Splitter', short: 'Splitter', desc: 'Sends plush forward, left and right in turn.', price: 30, batch: [1, 3, 5] });
   if (T.machines.includes('gate')) list.push({ id: 'gate', kind: 'gate', icon: '🚨', name: 'Detector Gate', short: 'Gate', desc: 'Set it over a belt (or on bare floor). Scans everything passing through. Red alarm and a held item if it is The One. Crew bots check in at the nearest gate before unloading.', price: 25, batch: [1, 3, 5] });
   if (T.machines.includes('gen')) list.push({ id: 'gen', kind: 'gen', icon: '🔥', name: 'Generator', short: 'Generator', desc: 'Burns Common to Rare plush for power.', price: g.genCost(), batch: [1, 2, 5] });
   if (T.machines.includes('pole')) list.push({ id: 'pole', kind: 'pole', icon: '⚡', name: 'Power Pole', short: 'Pole', desc: 'Links generators and feeds machines nearby.', price: 20, batch: [1, 5, 10] });

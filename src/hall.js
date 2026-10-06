@@ -459,7 +459,8 @@ export function buildHall(scene) {
   hall.update = (t, camPos) => {
     hall.relight(camPos);
     hall.doorLight.intensity = camPos.x > HALL_HX - 80 ? 14 : 0;
-    hall.flicker[0].color.setScalar(0.7 + 2.5 * (Math.sin(t * 31) * Math.sin(t * 7.3) > -0.82 ? 1 : 0.15));
+    // the ceiling panel flickers in the warehouse, but never behind the title screen (it read as the logo blinking)
+    hall.flicker[0].color.setScalar(hall.calm ? 1.9 : 0.7 + 2.5 * (Math.sin(t * 31) * Math.sin(t * 7.3) > -0.82 ? 1 : 0.15));
     hall.binRim.material.color.setRGB(0.4, 2.2 + Math.sin(t * 3) * 0.5, 0.9);
     hall.binLight.intensity = 5 + Math.sin(t * 9) * 0.8 + Math.sin(t * 23) * 0.6;
     motes.position.set(Math.round(camPos.x / 36) * 36, 0, Math.round(camPos.z / 36) * 36);

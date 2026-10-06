@@ -127,6 +127,7 @@ export class Logistics {
     this.game.world.reserved.add(key);
     if (ent.type !== 'belt') this.buildObj(ent);
     if (ent.type === 'belt' && ent.detector) this.buildGate(ent);
+    if (ent.type === 'belt' && ent.splitter) this.buildSplitter(ent);
     this.dirty = true;
     if (!ent.view) this.game.netEnt(ent);
   }
@@ -299,7 +300,10 @@ export class Logistics {
           it.t = Math.min(it.t + spd * pw * dt, Math.max(it.t, limit));
         }
         const f = its[0];
-        if (f.t >= 1 && pw > 0.02 && !this.visualOnly) {
+        if (f.t >= 1 && pw > 0.02 && !this.visualOnly && t.splitter) {
+          const outs = this.splitOuts(t);
+          for (let q = 0; q < outs.length; q++) { const o = outs[((t.rr || 0) + q) % outs.length]; if (this.accept(o.tile, f, o.dir)) { its.shift(); t.rr = ((t.rr || 0) + q + 1) % outs.length; break; } }
+        } else if (f.t >= 1 && pw > 0.02 && !this.visualOnly) {
           const nx = this.nextOf(t);
           if (nx && this.accept(nx, f, t.dir)) its.shift();
           else if (!nx && this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C)) { its.shift(); this.game.sellAuto(f.sp, f.vr, 1); }
@@ -329,6 +333,31 @@ export class Logistics {
     const lit = t.burn > 0;
     if (win) win.material = lit ? M.glowO : M.dark;
     if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18, t.j * C + 1.1, cellZ(t.k) - 0.15);
+  }
+
+  // ---- splitters: a belt piece that deals plush out forward, left and right in turn ----
+  buildSplitter(ent) {
+    const old = this.objs.get(ent.id); if (old) { this.game.machines.disposeObj(old); this.root.remove(old); }
+    const g = new THREE.Group();
+    g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
+    g.rotation.y = YAW[ent.dir || 0];
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.58), M.yellow); plate.position.y = 0.1;
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 0.12, 14), M.dark); hub.position.y = 0.18;
+    g.add(plate, hub);
+    for (const a of [0, Math.PI / 2, -Math.PI / 2]) { const ag = new THREE.Group(); ag.rotation.y = a; const arr = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.17, 4), M.glowG); arr.rotation.x = Math.PI / 2; arr.position.set(0, 0.21, 0.2); ag.add(arr); g.add(ag); }
+    this.root.add(g);
+    this.objs.set(ent.id, g);
+    ent.rr = ent.rr || 0;
+  }
+
+  // forward, left and right neighbours of a splitter that currently exist
+  splitOuts(t) {
+    const outs = [];
+    for (const d of [t.dir, (t.dir + 1) & 3, (t.dir + 3) & 3]) {
+      const n = this.tiles.get(idx(t.i + DX[d], t.j + (d === t.dir ? (t.rise || 0) : 0), t.k + DZ[d]));
+      if (n && n !== t) outs.push({ tile: n, dir: d });
+    }
+    return outs;
   }
 
   // ---- detector gates ----

@@ -26,6 +26,13 @@ const GENERAL = [
   'Reminder: air canisters are not a snack.',
   'Dynamite is a tool, not a personality. Fuse is four seconds. Count to five anyway.',
   'Your pay stub says lumber. We do not know what that means either.',
+  'Efficiency tip: if you are still digging by hand, a bot is digging somewhere you are not.',
+  'A splitter is just a belt that cannot make up its mind. Use it.',
+  'Frames snap on every side. The tunnel does not care how pretty it is, only how long.',
+  'Hammer is on slot one. It is not a toy. It is also a toy.',
+  'The chalkboard by the bin is correct. It has been correct since the first shift.',
+  'Everything that rolls out of the pile goes through a gate. Everything. Even the interns.',
+  'Reminder: the pile is 960 kinds of plush. Please stop trying to name the last one.',
 ];
 const DEEP = [
   'Unit calling from the far corner... static ...it is warm here. It knows you are coming.',

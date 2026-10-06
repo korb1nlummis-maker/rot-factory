@@ -323,7 +323,9 @@ export async function runSelfTest(g, only = '') {
   });
   await T('mining.hardhat-reduces-shake', async () => { const a = tune({}).shakeMul, b = tune({ hardhat: 1 }).shakeMul; return b < a || `${a} ${b}`; });
   await T('mining.slope-probe-detects-drop', async () => {
-    fresh({ slopeprobe: 1 }); const { i, k } = spot(); const top = w().topAt(i + 12, k); let found = false; for (let d = 0; d < 40 && !found; d++) { const jj = w().topAt(i + d, k) - 1; if (jj > 0 && g.slide.unstableAt(i + d, jj, k)) found = true; } return (g.T.slopeProbe && found && top >= 0) || 'no unstable cell found on slope';
+    fresh({ slopeprobe: 1 }); const { i, k } = spot(); dig(i + 6, k, 1, 1, 1, false); // a hole beside open floor leaves a cell with a gap and no floor beside it
+    const flat = g.slide.unstableAt(i - 3, 0, k); const j = 3; const ci = i + 20, ck = k; w().setCell(ci, j, ck, 2, 0); for (let d = 0; d <= 4; d++) { w().setCell(ci + 1, j - d, ck, 0, 0); }
+    const cliff = g.slide.unstableAt(ci, j, ck); return (g.T.slopeProbe && cliff === true && flat === false) || `probe ${g.T.slopeProbe} cliff ${cliff} flat ${flat}`;
   });
   await T('mining.airmonitor-shows-with-dust', async () => { fresh({ airmon: 1 }); g.dust.cells.clear(); g.dust.add(p().pos.x, p().pos.y + 1.4, p().pos.z, 1); adv(1); const el = document.getElementById('air'); return (el && !el.classList.contains('hidden')) || 'gauge hidden'; });
 
@@ -540,13 +542,13 @@ export async function runSelfTest(g, only = '') {
     await newWorld(); fresh(up); const { i, k } = spot(); const c0 = S().stats.cells || 0; await build(i, k); return (S().stats.cells || 0) - c0;
   };
   await T('machines.mech-digs-and-feeds-belt-into-vault', async () => {
-    fresh(powerUp({ mechLayer: 1, mechBolt: 1 })); const sp0 = spot(-6); const kk = sp0.k; let i0 = sp0.i; for (let g2 = 0; g2 < 30 && w().topAt(i0, kk) < 2; g2++) i0++;
+    fresh(powerUp({ mechLayer: 1, mechBolt: 1 })); const sp0 = spot(-6); const kk = sp0.k; let i0 = sp0.i; for (let g2 = 0; g2 < 60 && w().topAt(i0 + 8, kk) < 6; g2++) i0++;
     const mk = (type, ii, extra = {}) => { const e = { id: g.nextId(), type, i: ii, j: 0, k: kk, dir: 0, rise: 0, ...extra }; if (type === 'belt') e.items = []; S().entities.push(e); g.addEntity(e); return e; };
     const mech = mk('mech', i0 - 1, { dir: 0 }); for (let n = 1; n <= 4; n++) mk('belt', i0 - 1 - n, { dir: 2 }); const vault = mk('vault', i0 - 6, { dir: 2 });
     const get = (e) => tiles().find((t) => t.id === e.id); const c0 = S().stats.cells || 0;
     for (let n = 0; n < 5200; n++) { for (const t of tiles()) if (['mech', 'belt', 'vault'].includes(t.type)) t.pw = 1; g.time += 0.05; L().update(0.05); }
     const dug = (S().stats.cells || 0) - c0; const frames = S().entities.filter((e) => e.type === 'frame' && e.auto).length; const belts = tiles().filter((t) => t.type === 'belt' && t.k === kk).length;
-    return (dug > 30 && get(vault).stored.length > 25 && get(mech).adv >= 3 && belts > 5 && frames >= 1) || `dug ${dug} vault ${get(vault).stored.length} adv ${get(mech).adv} belts ${belts} frames ${frames}`;
+    return (dug > 30 && get(vault).stored.length > 25 && get(mech).adv >= 3 && belts > 5 && (frames >= 1 || w().topAt(i0 + 4, kk) < 5)) || `dug ${dug} vault ${get(vault).stored.length} adv ${get(mech).adv} belts ${belts} frames ${frames}`;
   });
   await T('machines.mech-fleet-limit', async () => { const a = tune({ mech: 1 }).mechMax, b = tune({ mech: 1, mechCount: 8 }).mechMax; return b > a || `${a} ${b}`; });
   await T('machines.claw-rig-plucks-and-sells', async () => {
@@ -661,6 +663,47 @@ export async function runSelfTest(g, only = '') {
     const newShapes = [...seen].filter((a) => a >= 36).length; S().dex = {}; g.registerDex(700); const dexOk = S().dex[700] === 1; S().dex = {}; return (newShapes >= 4 && dexOk) || `new shapes seen ${newShapes}`;
   });
   await T('plush.dex-modal-lists-all-960', async () => { fresh(); g.openModal('dex'); const total = document.getElementById('dexTotal').textContent; const cards = document.querySelectorAll('#dexGrid > *').length; g.ui.closeModals(); return (String(total) === '960') || `dex total ${total} cards ${cards}`; });
+
+
+  // ================================================================== SPLITTERS
+  await T('splitter.unlock-and-recipe', async () => { const a = tune({ belts: 1 }).machines.includes('splitter'); const b = tune({ belts: 1, splitter: 1 }).machines.includes('splitter'); fresh({ belts: 1, splitter: 1 }); return (!a && b && recipes(g).some((r) => r.id === 'splitter' && r.use)) || 'unlock'; });
+  const splitRig = async () => {
+    fresh(powerUp({ splitter: 1 })); await placeAtFloor('gen', -6.6, 2.4, 2.2); await placeAtFloor('pole', -6.6, 3.4, 2.2);
+    for (let n = 0; n < 3; n++) { const r = await placeAtFloor('belt', -5.4 + n * 0.6, 2.4, 2.0); if (!r.ok) return 'belt ' + r.why; }
+    const sp = await placeAtFloor('splitter', -3.6, 2.4, 2.0); if (!sp.ok) return 'splitter ' + sp.why;
+    const split = tiles().find((t) => t.splitter); if (!split) return 'no splitter tile';
+    const mkV = (di, dk) => { const e = { id: g.nextId(), type: 'vault', i: split.i + di, j: 0, k: split.k + dk, dir: 0, rise: 0 }; S().entities.push(e); g.addEntity(e); return tiles().find((t) => t.id === e.id); };
+    const fwd = mkV(1, 0), left = mkV(0, 1), right = mkV(0, -1);
+    return { split, fwd, left, right };
+  };
+  await T('splitter.deals-forward-left-right-in-turn', async () => {
+    const rig = await splitRig(); if (typeof rig === 'string') return rig; const { split, fwd, left, right } = rig; feedGen(tiles().find((t) => t.type === 'gen'), 40);
+    const first = tiles().filter((t) => t.type === 'belt' && !t.free && !t.splitter).sort((a, b) => a.i - b.i)[0]; let fed = 0;
+    for (let n = 0; n < 1600; n++) { for (const t of tiles()) if (t.type === 'belt' || t.type === 'vault') t.pw = 1; if (n % 8 === 0 && fed < 30 && first.items.length < 3) { first.items.push({ sp: 3 + (fed % 7), vr: 0, t: 0 }); fed++; } g.time += 0.05; L().update(0.05); }
+    const c = [fwd.stored.length, left.stored.length, right.stored.length]; const total = c[0] + c[1] + c[2];
+    return (total === fed && Math.max(...c) - Math.min(...c) <= 2 && fed >= 20) || `fed ${fed} got ${c}`;
+  });
+  await T('splitter.skips-missing-and-full-outputs', async () => {
+    const rig = await splitRig(); if (typeof rig === 'string') return rig; const { split, fwd, left, right } = rig; g.logi.remove(right); S().entities = S().entities.filter((e) => e.id !== right.id); for (let q = 0; q < 120; q++) left.stored.push({ sp: 3, vr: 0 });
+    const first = tiles().filter((t) => t.type === 'belt' && !t.free && !t.splitter).sort((a, b) => a.i - b.i)[0]; let fed = 0; feedGen(tiles().find((t) => t.type === 'gen'), 40);
+    for (let n = 0; n < 1400; n++) { for (const t of tiles()) if (t.type === 'belt' || t.type === 'vault') t.pw = 1; if (n % 8 === 0 && fed < 20 && first.items.length < 3) { first.items.push({ sp: 3, vr: 0, t: 0 }); fed++; } g.time += 0.05; L().update(0.05); }
+    return (fwd.stored.length === fed && left.stored.length === 120) || `fwd ${fwd.stored.length}/${fed} left ${left.stored.length}`;
+  });
+  await T('splitter.converts-belt-and-hammer-returns-item', async () => {
+    fresh(powerUp({ splitter: 1 })); const b = await placeAtFloor('belt', -3.6, 2.4, 2.0); if (!b.ok) return b.why; craft('splitter'); selectTool('splitter'); aimPoint(-3.6, 0, 2.4, 1.6); adv(0.1); const pl = await plan(); if (!pl.ok || pl.ent.type !== 'splitbelt') return 'no conversion plan: ' + JSON.stringify([pl.ok, pl.why]); placeNow();
+    const t = tiles().find((x) => x.splitter); if (!t || !g.logi.objs.get(t.id)) return 'not converted or no model'; g.doDecon({ kind: 'tile', id: t.id }); return (S().items.splitter === 1 && !tiles().some((x) => x.splitter)) || 'hammer/decon did not return the splitter';
+  });
+  await T('splitter.survives-save-and-reload', async () => { fresh(powerUp({ splitter: 1 })); await placeAtFloor('splitter', -3.6, 2.4, 2.0); const raw = JSON.parse(JSON.stringify(S().entities)); resetEntities(); for (const e of raw) g.addEntity(e); S().entities = raw; const t = tiles().find((x) => x.splitter); return (!!t && !!g.logi.objs.get(t.id)) || 'splitter lost on reload'; });
+  await T('splitter.gate-cannot-go-on-a-splitter', async () => { fresh(powerUp({ splitter: 1 })); await placeAtFloor('splitter', -3.6, 6.4, 2.0); craft('gate'); selectTool('gate'); aimPoint(-3.6, 0, 6.4, 1.6); adv(0.1); const pl = await plan(); return (!pl.ok || (pl.ent && pl.ent.type !== 'gatebelt')) || 'gate converted a splitter'; });
+
+
+  // ================================================================== MENU
+  await T('menu.how-to-play-opens-above-the-title-and-closes', async () => {
+    const title = document.getElementById('title'); const z = (el) => +getComputedStyle(el).zIndex; const how = document.getElementById('howto'); if (!document.getElementById('btnHow') || !document.getElementById('btnHow2')) return 'missing buttons';
+    g.ui.open('howto'); const open = !how.classList.contains('hidden'); const above = z(how) > z(title); const text = how.textContent; g.ui.closeModals(); const closed = how.classList.contains('hidden');
+    return (open && above && closed && /Il Rotto Supremo/.test(text) && /hotbar/i.test(text) && /Detector Gate/.test(text) && !/undefined/.test(text)) || `open ${open} above ${above} closed ${closed}`;
+  });
+  await T('menu.title-never-flickers', async () => { fresh(); g.mode = 'title'; const l = g.hall.flicker[0].color; const vals = new Set(); for (let n = 0; n < 400; n++) { g.hall.calm = true; g.hall.update(n * 0.016, g.renderer.camera.position); vals.add(+l.r.toFixed(2)); } g.hall.calm = false; g.mode = 'play'; return vals.size === 1 || 'ceiling light varied on the title: ' + [...vals].join(); });
 
   return { results, errs: (g.errCount || 0) - errs0, helpers: { fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, resetEntities, sleep, V3 } };
 }

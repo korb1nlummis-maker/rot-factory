@@ -98,7 +98,9 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
 .title-card { text-align: center; padding: 40px; max-width: 760px; }
 .eyebrow { letter-spacing: 0.4em; font-size: 12px; color: var(--accent); font-weight: 800; }
 h1 { font-size: clamp(64px, 11vw, 130px); line-height: 0.88; margin: 18px 0 14px; font-weight: 900; letter-spacing: -0.02em; text-transform: uppercase; }
-h1 span { background: linear-gradient(180deg, #ffd1ec, #ff8fc4 55%, #b69cff); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 24px rgba(255,143,196,0.35)); }
+h1 span { position: relative; display: inline-block; background: linear-gradient(180deg, #ffd1ec, #ff8fc4 55%, #b69cff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* the glow is its own blurred copy behind the text: a filter on the clipped text made single letters flicker over the moving scene */
+h1 span::before { content: attr(data-t); position: absolute; left: 0; top: 6px; z-index: -1; color: #ff8fc4; opacity: 0.32; filter: blur(16px); }
 .tag { font-size: 18px; color: var(--dim); line-height: 1.5; }
 .title-buttons { display: flex; gap: 14px; justify-content: center; margin: 30px 0 26px; }
 button.big { padding: 16px 38px; font-size: 18px; font-weight: 800; letter-spacing: 0.05em; border-radius: 16px; border: 0; background: var(--accent); color: #1a2008; box-shadow: 0 10px 30px rgba(215,242,106,0.25), inset 0 -3px 0 rgba(0,0,0,0.18); transition: transform 0.12s, filter 0.12s; }
@@ -208,7 +210,7 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 #chat { position: fixed; left: 24px; bottom: 120px; max-width: 360px; font-size: 13px; text-shadow: 0 1px 6px #000; pointer-events: none; z-index: 3; }
 #chat div { background: rgba(0,0,0,0.45); padding: 4px 10px; border-radius: 8px; margin-top: 4px; }
 
-#multi { z-index: 40; }
+#multi, #howto { z-index: 40; }
 #chatIn { position: fixed; left: 24px; bottom: 80px; width: 340px; z-index: 50; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(10,12,8,0.85); color: var(--ink); font: inherit; user-select: text; -webkit-user-select: text; }
 
 #trap { position: fixed; inset: 0; pointer-events: none; z-index: 30; --p: 0; --f: 0; }
@@ -248,3 +250,12 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 .islot.bar .k { position: absolute; left: 4px; top: 2px; font-size: 10px; color: var(--dim); }
 #hotbar .slot.empty { opacity: 0.32; min-width: 44px; }
 #hotbar .slot.spent { opacity: 0.45; }
+
+#howBody { padding: 8px 26px 24px; overflow: auto; display: grid; gap: 4px; line-height: 1.55; font-size: 14px; }
+#howBody section { padding: 10px 0 6px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+#howBody h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
+#howBody p, #howBody li { color: var(--ink); }
+#howBody ol, #howBody ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+#howBody .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 16px; color: var(--dim); font-size: 13px; }
+.title-buttons { flex-wrap: wrap; }
+.build-tag { margin-top: 18px; font-size: 11px; color: var(--dim); opacity: 0.55; letter-spacing: 0.15em; }

@@ -2,6 +2,7 @@ import './style.css';
 import { Game } from './game.js';
 
 const game = new Game();
+try { document.getElementById('buildTag').textContent = 'build ' + (typeof __BUILD__ === 'undefined' ? 'dev' : __BUILD__); } catch (e) { /* ignore */ }
 window.__game = game;
 game.boot().catch((e) => {
   console.error(e);

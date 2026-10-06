@@ -522,6 +522,7 @@ export class Game {
 
   updateTitle(dt) {
     this.titleT += dt;
+    this.hall.calm = true;
     const cam = this.renderer.camera;
     const a = this.titleT * 0.05;
     cam.position.set(Math.sin(a) * 0.6, 2.4, -2.4);
@@ -560,6 +561,7 @@ export class Game {
   }
 
   updatePlay(dt) {
+    if (this.hall && this.hall.calm) this.hall.calm = false;
     const S = this.S, T = this.T, p = this.player, world = this.world, cam = this.renderer.camera;
     const locked = document.pointerLockElement === this.canvas;
     const modal = this.ui.isModalOpen();
@@ -1095,7 +1097,7 @@ export class Game {
   describeRef(ref) {
     if (!ref) return null;
     if (ref.kind === 'cart') return 'your cart';
-    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : t.type) : null; }
+    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : t.splitter ? 'Belt Splitter' : t.type) : null; }
     if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4)` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.type; }
     if (ref.kind === 'bulk') return 'Bulkhead Panel';
     return null;
@@ -1334,6 +1336,8 @@ export class Game {
     $$('mpName').value = this.S.settings.name || '';
     $$('btnMulti').onclick = () => { this.sound.init(); this.ui.open('multi'); };
     $$('btnMulti2').onclick = () => this.ui.open('multi');
+    if ($$('btnHow')) $$('btnHow').onclick = () => { this.sound.init(); this.ui.open('howto'); };
+    if ($$('btnHow2')) $$('btnHow2').onclick = () => this.ui.open('howto');
     const hideAll = () => { for (const id of ['mpHostBox', 'mpJoinBox', 'mpHostShort', 'mpJoinShort']) $$(id).classList.add('hidden'); };
     $$('mpHost').onclick = async () => {
       if (this.mode !== 'play') { status('Start or continue your game first, then open Play Together from the pause menu.'); return; }
@@ -2043,9 +2047,9 @@ export class Game {
       plan = this.machines.planBorer(eye, dir, yaw); cost = this.borerCost();
       if (plan.ok && this.machines.count('borer') >= T.borerMax) plan = { ok: false, why: `Borer limit reached (${T.borerMax})`, ent: plan.ent };
     }
-    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) { ({ plan, cost } = this.planLogi(tool, eye, dir, yaw)); }
+    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) { ({ plan, cost } = this.planLogi(tool, eye, dir, yaw)); }
     this.plan = plan; this.planCost = cost;
-    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) this.showCellGhost(tool, plan);
+    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
     if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk')) {
       const key = `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
@@ -2080,10 +2084,15 @@ export class Game {
       const bad = this.logi.tiles.has(idx(last.i, last.j, last.k)) || near;
       return { plan: { ok: !bad, why: bad ? 'Too close' : null, ent: { type: 'bulk', ...last, dir: 0 } }, cost: 10 };
     }
+    if (kind === 'splitter') {
+      const bt = this.logi.pick(eye, dir, 4.5);
+      if (bt && bt.type === 'belt' && !bt.splitter && !bt.detector) return { plan: { ok: true, ent: { type: 'splitbelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: 0 } }, cost: 0 };
+      return { plan: this.logi.plan('belt', eye, dir, yaw, 0), cost: 0 };
+    }
     if (kind === 'gate') {
       const bt = this.logi.pick(eye, dir, 4.5);
       let pl;
-      if (bt && bt.type === 'belt' && !bt.detector) pl = { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } };
+      if (bt && bt.type === 'belt' && !bt.detector && !bt.splitter) pl = { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } };
       else pl = this.logi.plan('belt', eye, dir, yaw, 0);
       // a gate has to scan before anything reaches a bin: keep it out of every bin's pull
       if (pl && pl.ok && pl.ent) {
@@ -2171,7 +2180,7 @@ export class Game {
     if (this.machines.ghostKey !== key) {
       const g = new THREE.Group();
       const mat = new THREE.MeshBasicMaterial({ color: plan.ok ? 0x5dffa0 : 0xff5a4a, transparent: true, opacity: 0.4, depthWrite: false });
-      const flat = tool.kind === 'belt' || tool.kind === 'gate';
+      const flat = tool.kind === 'belt' || tool.kind === 'gate' || tool.kind === 'splitter';
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.56, flat ? 0.08 : 0.55, 0.56), mat);
       box.position.y = flat ? 0.05 : 0.28;
       if (e.rise) { box.rotation.x = -e.rise * Math.PI / 4; box.position.y += 0.3; box.scale.z = 1.4; }
@@ -2206,6 +2215,15 @@ export class Game {
       this.rebuildTools();
       return;
     }
+    if (tool.kind === 'splitter' && e.type === 'splitbelt') {
+      const tile = this.logi.byId.get(e.id);
+      if (tile && !tile.splitter && !tile.detector) {
+        tile.splitter = true; this.logi.buildSplitter(tile);
+        this.netSend({ t: 'ent-', id: tile.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(tile) });
+        this.sound.place(); this.S.stats.splitters = (this.S.stats.splitters || 0) + 1; this.rebuildTools();
+      }
+      return;
+    }
     if (tool.kind === 'gate' && e.type === 'gatebelt') {
       const tile = this.logi.byId.get(e.id);
       if (tile && !tile.detector) {
@@ -2215,8 +2233,9 @@ export class Game {
       }
       return;
     }
-    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) {
-      ent = { id, type: tool.kind === 'gate' ? 'belt' : tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
+    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) {
+      ent = { id, type: tool.kind === 'gate' || tool.kind === 'splitter' ? 'belt' : tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
+      if (tool.kind === 'splitter') { ent.splitter = true; S.stats.splitters = (S.stats.splitters || 0) + 1; }
       if (tool.kind === 'gate') { ent.detector = true; S.stats.gates = (S.stats.gates || 0) + 1; }
       S.entities.push(ent);
       this.addEntity(ent);
@@ -2299,7 +2318,7 @@ export class Game {
       this.netSend({ t: 'ent-', id: tile.id });
       const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
       for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
-      this.giveItem(tile.type === 'belt' ? (tile.detector ? 'gate' : tile.rise ? 'ramp' : 'belt') : tile.type);
+      this.giveItem(tile.type === 'belt' ? (tile.detector ? 'gate' : tile.splitter ? 'splitter' : tile.rise ? 'ramp' : 'belt') : tile.type);
       this.ui.setCarry(this.S.carry, this.T.carry);
       this.sound.thump(0.15, 140);
       if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
