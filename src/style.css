@@ -100,6 +100,9 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
 h1 { font-size: clamp(64px, 11vw, 130px); line-height: 0.88; margin: 18px 0 14px; font-weight: 900; letter-spacing: -0.02em; text-transform: uppercase; }
 h1 span { position: relative; display: inline-block; background: linear-gradient(180deg, #ffd1ec, #ff8fc4 55%, #b69cff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* the glow is its own blurred copy behind the text: a filter on the clipped text made single letters flicker over the moving scene */
+h1 .flick { font-style: normal; display: inline-block; background: linear-gradient(180deg, #ffd1ec, #ff8fc4 55%, #b69cff); -webkit-background-clip: text; background-clip: text; color: transparent; animation: cflick 5.5s linear infinite; }
+@keyframes cflick { 0%, 6%, 9%, 13%, 62%, 66%, 100% { opacity: 1; } 7% { opacity: 0.15; } 10% { opacity: 0.8; } 11% { opacity: 0.1; } 12% { opacity: 0.6; } 63% { opacity: 0.2; } 64% { opacity: 0.9; } 65% { opacity: 0.12; } }
+@media (prefers-reduced-motion: reduce) { h1 .flick { animation: none; } }
 h1 span::before { content: attr(data-t); position: absolute; left: 0; top: 6px; z-index: -1; color: #ff8fc4; opacity: 0.32; filter: blur(16px); }
 .tag { font-size: 18px; color: var(--dim); line-height: 1.5; }
 .title-buttons { display: flex; gap: 14px; justify-content: center; margin: 30px 0 26px; }

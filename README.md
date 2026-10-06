@@ -81,3 +81,4 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - Main menu has a How to Play button (also in the pause menu); the title screen keeps the ceiling lights steady, the build tag shows bottom right.
 - Splitter belt tiles send each plush down alternating outputs; detector gates stop the belt and pull a found Il Rotto aside.
 - Self-test suite: `__selftest(prefix)` in the dev console (menu., tools., mining., splitter., etc.).
+- The C in FACTORY flickers on purpose (neon sign look): .flick in style.css; the ceiling lights on the title stay steady.
