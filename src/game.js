@@ -165,7 +165,7 @@ export class Game {
     this.slide = new Slides(this);
     this.sim.hooks = {
       onStale: (sp, vr) => { this.sellAuto(sp, vr, 0.5); },
-      onFreeze: (i, j, k, flag, en) => { if (!this.isGuest()) { const e = en > 0 ? en * 0.72 : flag === 2 ? 0.55 : 0.3; if (e > 0.22) this.slide.trigger(i, j, k, e); } },
+      onFreeze: (i, j, k, flag, en) => { if (!this.isGuest()) { if (en > 0.3) this.slide.trigger(i, j, k, en * 0.72); } },
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
       onKick: (i, j, k, vx, vy, vz, sp, en) => this.onKick(i, j, k, vx, vy, vz, sp, en),
@@ -182,7 +182,7 @@ export class Game {
     this.power.clear();
     this.dust.clear();
     this.crew.clear();
-    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest() && !this.slide.quiet) this.slide.trigger(i, j, k, 1.1); };
+    this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (!this.isGuest() && !this.slide.quiet) this.slide.trigger(i, j, k, 0.4); };
     for (const e of S.entities) this.addEntity(e);
     this.ensureFreeGate();
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
@@ -2356,6 +2356,8 @@ export class Game {
       this.ui.hint('That was too close.', 3);
     }
     S.stats.blasts = (S.stats.blasts || 0) + 1;
+    // a blast shakes the whole slope around the hole
+    for (let q = 0; q < 30; q++) this.slide.trigger(ci + ((Math.random() * 2 - 1) * (RI + 3)) | 0, cj + ((Math.random() * 2 - 1) * (RI + 2)) | 0, ck + ((Math.random() * 2 - 1) * (RI + 3)) | 0, 2.2);
     // loosen everything around the hole
     for (let q = 0; q < 12; q++) w.stabQueue.push({ i: ci + ((Math.random() * 2 - 1) * (R + 2)) | 0, j: cj + ((Math.random() * 2 - 1) * (R + 1)) | 0, k: ck + ((Math.random() * 2 - 1) * (R + 2)) | 0 });
   }
@@ -2510,14 +2512,9 @@ export class Game {
   }
 
   // pulling plush out or standing on a slope loosens its neighbors, which then slide
-  loosen(i, j, k, strength) {
-    const w = this.world;
-    for (let n = 0; n < 5; n++) {
-      const a = n === 0 ? 1 : n === 1 ? -1 : 0, b = n === 2 ? 1 : n === 3 ? -1 : 0, c = n === 4 ? 1 : 0;
-      const ni = i + a, nj = j + c, nk = k + b;
-      const s = w.slipChance(ni, nj, nk, strength);
-      if (s && Math.random() < s.p) this.slipCell(ni, nj, nk, s.dx * 1.6, 0.5, s.dz * 1.6);
-    }
+  loosen(i, j, k) {
+    // taking plush out of the pile nudges its neighbours a very little (the slide rules decide if anything moves)
+    if (!this.isGuest()) this.slide.trigger(i, j, k, 0.25);
   }
 
   // feel a slide nearby: rumble, shake, dust. The first one teaches you why not to climb.
@@ -2533,34 +2530,17 @@ export class Game {
   treadOn(strength, stomp) {
     const fc = this.player.footCell, p = this.player;
     if (!fc || p.pos.y < 0.4) return;
-    // climbing is a gamble: the higher you are and the more you carry, the harder you load the face under you
-    if (!this.isGuest()) this.slide.trigger(fc.i, fc.j, fc.k, 0.5 + p.pos.y * 0.09 + this.S.carry.length * 0.02 + strength * 0.25 + (stomp ? 0.5 : 0));
-    const w = this.world;
-    const cells = stomp ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]];
-    let slid = 0;
-    for (const [a, b] of cells) {
-      const i = fc.i + a, k = fc.k + b;
-      let j = fc.j;
-      if (!w.get(i, j, k)) continue;
-      const s = w.slipChance(i, j, k, strength * (a || b ? 0.6 : 1));
-      if (s && Math.random() < s.p) {
-        if (this.slipCell(i, j, k, s.dx * 1.8 + p.vel.x * 0.2, 0.4, s.dz * 1.8 + p.vel.z * 0.2)) { slid++; this.S.stats.slides = (this.S.stats.slides || 0) + 1; }
-      }
-    }
-    if (slid) {
-      this.sound.soft(0.12); this.shake = Math.max(this.shake, 0.12);
-      if (!this._slideHint) { this._slideHint = true; this.ui.hint('The pile shifts under your feet. Steep slopes slide when you climb them.', 5); }
-    }
+    // climbing is a gamble: the higher you are and the more you carry, the harder you load the face under you.
+    // Near the floor this stays far below what the slide rules need, so walking on a low pile is safe.
+    if (!this.isGuest()) this.slide.trigger(fc.i, fc.j, fc.k, 0.1 + p.pos.y * 0.1 + this.S.carry.length * 0.02 + strength * 0.12 + (stomp ? 0.3 : 0));
   }
 
   onKick(i, j, k, vx, vy, vz, speed, en) {
     this.kickBudget = this.kickBudget ?? 6;
     if (this.kickBudget <= 0 || speed < 3.2) return;
     if (Math.random() > 0.08 * (speed - 2.8)) return;
-    { const e = en > 0 ? en * 0.5 : Math.min(1.1, 0.12 + speed * 0.06); if (e > 0.22 && !this.isGuest()) this.slide.trigger(i, j, k, e); }
-    if (en > 0) return; // bodies that are part of a slide only feed the slide engine, which fades
-    const s = this.world.slipChance(i, j, k, 1.8);
-    if (s && Math.random() < s.p) { this.kickBudget--; this.slipCell(i, j, k, vx * 0.25 + s.dx, 0.3, vz * 0.25 + s.dz); }
+    { const e = en > 0 ? en * 0.5 : Math.min(1.2, 0.05 + speed * 0.04); if (e > 0.3 && !this.isGuest()) this.slide.trigger(i, j, k, e); }
+    this.kickBudget--;
   }
 
   // ======================= stability + collapse =======================
@@ -2594,6 +2574,7 @@ export class Game {
       this._inCascade = true;
       const w = this.world;
       const over = Math.max(0, w.topAt(i, k) - j - 1);
+      if (!this.isGuest()) this.slide.trigger(i, j + 1, k, 1.6);
       if (over > 2 && Math.random() < 0.9) {
         const H = Math.min(10, 2 + Math.floor(over / 4));
         let n = 0;
@@ -2700,8 +2681,7 @@ export class Game {
       if (f.t > 0) continue;
       f.n--; f.t = 2 + Math.random() * 6;
       const i = f.i + ((Math.random() * 7) | 0) - 3, k = f.k + ((Math.random() * 7) | 0) - 3, j = f.j + ((Math.random() * 5) | 0) - 1;
-      const sl = w.slipChance(i, j, k, 1.4);
-      if (sl && Math.random() < sl.p + 0.15) this.slipCell(i, j, k, sl.dx, 0.3, sl.dz);
+      if (!this.isGuest()) this.slide.trigger(i, j, k, 1.0);
       this.onCreak(cellX(i), cellY(j), cellZ(k), 1);
       this.dropRoof(i, j, k);
       if (f.n <= 0) this.afters.splice(a, 1);

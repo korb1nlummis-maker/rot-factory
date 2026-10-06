@@ -8,6 +8,18 @@ import { isSpecialCell } from './plushdata.js';
 // steep face becomes a rockslide that keeps feeding itself while the slope is steeper than the pile
 // can hold. Energy fades as it spreads; compacted, buried plush resist.
 // ---------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------
+// THE RULES (so digging feels fair and avalanches are earned):
+//  1. Only the open surface slides. Plush with plush above them (tunnel walls, the sides of a hole) are held by the pile.
+//  2. A plush only topples toward a gap that is deep enough. How deep depends on how much energy the event carries:
+//       calm digging / grabbing / walking low  -> a cliff of 4+ cells (2.4 m)
+//       a violent event (hard kick, high climb) -> 3 cells, a big one -> 2, a blast or cave-in -> any drop of 2+
+//     So you can dig a hole 2 m deep without it slumping, and a loose mini pile by a machine just sits there.
+//  3. Piles under 5 cells (3 m) tall never slide on their own. Floor piles and thrown stacks are safe.
+//  4. Props, frames, struts and jacks hold the plush near them (each point of support absorbs energy).
+//  5. Energy only ever fades as a slide spreads, and a spot that just toppled rests for a few seconds.
+// Energy sources (see game.js): digging 0.4, kicks by speed, climbing by height and load, blasts 2.2, cave-ins 1.6.
+// ---------------------------------------------------------------------------------------------
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const key = (i, j, k) => (j * NZ + k) * NX + i;
 
@@ -52,6 +64,7 @@ export class Slides {
     for (const c of batch) {
       if (c.e < 0.22) continue;
       const { i, j, k } = c;
+      if (w.topAt(i, k) <= 5 && c.e < 2) continue; // rule 3: short piles never slide
       const sp = w.get(i, j, k);
       if (!sp || isSpecialCell(sp) || j <= 0) continue;
       const rest = this.hot.get(key(i, j, k));
@@ -62,7 +75,8 @@ export class Slides {
       // roofed plush (walls of a tunnel, anything with plush above it) are held in place by the pile; only the open surface slides.
       // Tunnel roofs are the stability system's job, not the slide engine's.
       const covered = w.solid(i, j + 1, k);
-      const hold = over * 0.2 + (covered ? 1.6 : 0);
+      const sup = w.supportBonus ? w.supportBonus(cellX(i), cellY(j), cellZ(k)) : 0; // rule 4
+      const hold = over * 0.2 + (covered ? 1.6 : 0) + sup * 1.2;
       const e = c.e - hold;
       if (e < 0.2) continue;
       // find the way down: a free side whose floor is also missing
@@ -71,12 +85,14 @@ export class Slides {
         if (w.solid(i + a, j, k + b)) continue;
         if (w.solid(i + a, j - 1, k + b)) continue;
         let drop = 1;
-        if (!w.solid(i + a, j - 2, k + b)) drop = 2;
-        if (!w.solid(i + a, j - 2, k + b) && !w.solid(i + a, j - 3, k + b)) drop = 3;
+        while (drop < 4 && !w.solid(i + a, j - 1 - drop, k + b)) drop++;
         const sc = drop + Math.random() * 1.2;
         if (sc > bs) { bs = sc; best = { a, b, drop }; }
       }
       if (!best) continue;
+      // rule 2: how deep must the gap be for this much energy?
+      const need = e >= 2 ? 1 : e >= 1.4 ? 2 : e >= 0.9 ? 3 : 4;
+      if (best.drop < need) continue;
       // the pile under a cell that is fully braced from below by neighbours on the far side holds it a bit
       let brace = 0;
       for (const [a, b] of DIRS) if (w.solid(i - a, j, k - b)) brace++;
@@ -96,7 +112,7 @@ export class Slides {
     this.recent += 1;
     this.active = 2;
     g.S.stats.slides = (g.S.stats.slides || 0) + 1;
-    this.hot.set(key(i + a, j, k + b), g.time + 1.2);
+    this.hot.set(key(i + a, j, k + b), g.time + 3);
     const x = cellX(i), y = cellY(j), z = cellZ(k);
     const sp = 1.4 + 1.1 * e + 0.5 * drop;
     if (g.sim.n < 1700) { const bi = g.sim.spawn(it.sp, it.vr, x + a * 0.15, y, z + b * 0.15, a * sp + (Math.random() - 0.5) * 0.6, 0.4, b * sp + (Math.random() - 0.5) * 0.6, 2); if (bi >= 0) g.sim.en[bi] = e * 0.85; }
@@ -109,7 +125,8 @@ export class Slides {
     }
     if (Math.random() < 0.18) g.fx.dust(x, y, z, 2, 0.5, 0.6);
     // the gap it leaves: the plush above and beside it are now on a steeper face
-    const next = e * (0.7 + 0.04 * drop);
+    // a big slide keeps its energy longer (it drags the slope with it); a small one dies out fast
+    const next = e * (e >= 1.8 ? 0.86 : 0.7 + 0.04 * drop);
     this.trigger(i, j, k, next);
     this.add(i + a, j, k + b, e * 0.5);
     // feel it
