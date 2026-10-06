@@ -229,6 +229,7 @@ export class World {
       col.top[c] = t;
     }
     this.markDirty(i, j, k);
+    if (this.onSet && !this._remoteApply) this.onSet(i, j, k, sp, vr);
   }
 
   removeCell(i, j, k, queue = true) {

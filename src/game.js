@@ -15,6 +15,7 @@ import { Power } from './power.js';
 import { Contracts } from './contracts.js';
 import { Crew } from './crew.js';
 import { Radio } from './radio.js';
+import { Net, RemotePlayer } from './net.js';
 import { recipes, craft, craftGear, gearRecipes } from './crafting.js';
 import { ghostify } from './machines.js';
 import { Dust } from './dust.js';
@@ -129,6 +130,13 @@ export class Game {
     this.crew = new Crew(this);
     this.cart = new Cart(this);
     this.radio = new Radio(this);
+    this.net = new Net();
+    this.net.onOpen = () => this.netOpened();
+    this.net.onClose = () => this.netClosed();
+    this.net.onMessage = (m) => this.netMessage(m);
+    this.netOut = [];
+    this.remote = null;
+    this.netPending = [];
     this.rampMode = 0;
     this.T = this.tune();
     this.fx.setScale(window.innerHeight);
@@ -217,6 +225,8 @@ export class Game {
     $('rngSens').oninput = (e) => { this.sens = +e.target.value; this.S.settings.sens = this.sens; };
     $('crewAllHome').onclick = () => { this.crewHomeAll(); this.ui.renderCrew(); };
     $('crewAllFollow').onclick = () => { for (const b of this.S.crew || []) this.crew.follow(b); this.ui.renderCrew(); };
+    this.wireMulti();
+    { const c = document.getElementById('chatIn'); c.addEventListener('keydown', (e) => { if (e.code === 'Enter') { const t = c.value.trim(); if (t) { this.netSend({ t: 'say', text: t }); this.chatLine('You: ' + t); } c.classList.add('hidden'); c.blur(); } else if (e.code === 'Escape') { c.classList.add('hidden'); c.blur(); } e.stopPropagation(); }); }
     $('btnKeep').onclick = () => { this.ui.hideEnding(); this.mode = 'play'; this.requestLock(); };
     $('btnNew2').onclick = () => { this.ui.hideEnding(); start(true); };
 
@@ -260,14 +270,14 @@ export class Game {
     setTimeout(() => (this.suppressPause = false), 200);
   }
 
-  startPlay(isNew) {
+  startPlay(isNew, seedOverride, after) {
     $('title').classList.add('hidden');
     this.setLoading(isNew ? 'Stacking a fresh warehouse…' : 'Resuming your shift…');
     $('loading').classList.remove('hidden');
     setTimeout(() => {
       if (isNew) {
-        clearSave();
-        const S = newState((Math.random() * 4294967296) >>> 0);
+        if (seedOverride === undefined) clearSave();
+        const S = newState(seedOverride ?? ((Math.random() * 4294967296) >>> 0));
         S.settings = { ...this.S.settings };
         this.loadWorld(S, null);
       } else if (this.mode === 'title' && !this.S) {
@@ -285,13 +295,15 @@ export class Game {
       this.S.stats.noPropDeep = this.S.stats.noPropDeep || false;
       this.requestLock();
       this.sound.resume();
-      if (isNew) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>G</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
+      if (after) after();
+      if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('Look at a plush and tap <kbd>G</kbd> to grab it. Walk near the SORT bin and it sucks your plush in. <kbd>E</kbd> at the desk for upgrades, at the bench to craft.', 12), 800);
       else this.ui.hint('Welcome back to Warehouse 07.', 4);
-      if (isNew) setTimeout(() => this.ui.hint('You wear a hard hat with a lamp and a clock. At 19:00 the warehouse closes, a chime sounds, and the lights go out until 07:00.', 11), 14000);
+      if (isNew && seedOverride === undefined) setTimeout(() => this.ui.hint('You wear a hard hat with a lamp and a clock. At 19:00 the warehouse closes, a chime sounds, and the lights go out until 07:00.', 11), 14000);
     }, 60);
   }
 
   save() {
+    if (this.noSave) return true;
     if (this.mode !== 'play' && this.mode !== 'ended') return;
     const p = this.player;
     this.S.player = { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch };
@@ -305,6 +317,8 @@ export class Game {
 
   // ======================= input =======================
   onKey(e, down) {
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return; // typing in a box
+    if (down && e.code === 'Enter' && this.mode === 'play' && this.net.open && !this.ui.isModalOpen()) { const c = document.getElementById('chatIn'); c.classList.remove('hidden'); c.value = ''; c.focus(); e.preventDefault(); return; }
     if (e.repeat && down) { if (e.code === 'Tab') e.preventDefault(); return; }
     if (e.code === 'Tab') e.preventDefault();
     this.keys[e.code] = down;
@@ -518,11 +532,13 @@ export class Game {
     if (this.lampCone) { this.lampCone.visible = on > 0; this.lampCone.material.opacity = (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower; this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
     this.camLamp.distance = T.lampRange + 4;
     // placed lights
-    const ls = this.machines.lights(cam.position, 5);
-    U.uPtN.value = 1 + ls.length;
+    const ls = this.machines.lights(cam.position, 4);
+    const rp = this.remote && this.remote.lampOn && this.net.open ? this.remote : null;
+    U.uPtN.value = rp ? 6 : 1 + ls.length;
     for (let i = 0; i < 6; i++) {
       const L = U.uPt.value[i], Lc = U.uPtCol.value[i];
       if (i === 0) { L.set(this.hall.binPos.x, 1.1, this.hall.binPos.z, 7); Lc.setRGB(1.3, 0.55, 0.15); continue; }
+      if (i === 5) { if (rp) { L.set(rp.pos.x, rp.pos.y + 1.55, rp.pos.z, 11); Lc.setRGB(2.4, 2.2, 1.8); } else { L.set(0, -999, 0, 1); Lc.setRGB(0, 0, 0); } continue; }
       const e = ls[i - 1];
       if (e) { L.set(e.x, e.y, e.z, 9); Lc.setRGB(2.2, 1.7, 0.9); } else { L.set(0, -999, 0, 1); Lc.setRGB(0, 0, 0); }
     }
@@ -552,6 +568,7 @@ export class Game {
     this.crew.update(dt, this.time);
     this.cart.update(dt);
     this.radio.update(dt);
+    this.netUpdate(dt);
     this.updateClock(dt);
     this.updateGolden(dt);
     this.updateScavenge(dt);
@@ -1030,6 +1047,143 @@ export class Game {
     return true;
   }
 
+  // ======================= multiplayer =======================
+  myName() { return (document.getElementById('mpName').value || this.S.settings.name || 'Player').slice(0, 14); }
+  netSend(m) { if (this.net.open) this.net.send(m); }
+
+  wireMulti() {
+    const $$ = (id) => document.getElementById(id);
+    const status = (t) => { $$('mpStatus').textContent = t; };
+    $$('mpName').value = this.S.settings.name || '';
+    $$('btnMulti').onclick = () => { this.sound.init(); this.ui.open('multi'); };
+    $$('btnMulti2').onclick = () => this.ui.open('multi');
+    $$('mpHost').onclick = async () => {
+      if (this.mode !== 'play') { status('Start or continue your game first, then open Play Together from the pause menu.'); return; }
+      this.S.settings.name = this.myName();
+      $$('mpJoinBox').classList.add('hidden'); $$('mpHostBox').classList.remove('hidden');
+      status('Making a code…');
+      try { $$('mpOffer').value = await this.net.host(); status('Send the code to your friend, then paste their reply below.'); } catch (e) { status('Could not make a code: ' + e.message); }
+    };
+    $$('mpCopyOffer').onclick = () => { $$('mpOffer').select(); document.execCommand('copy'); status('Copied.'); };
+    $$('mpConnect').onclick = async () => { try { await this.net.finishHost($$('mpAnswerIn').value); status('Connecting…'); } catch (e) { status('That reply code did not work.'); } };
+    $$('mpJoin').onclick = () => { $$('mpHostBox').classList.add('hidden'); $$('mpJoinBox').classList.remove('hidden'); status(''); };
+    $$('mpMakeReply').onclick = async () => {
+      status('Making a reply…');
+      try { $$('mpReply').value = await this.net.join($$('mpOfferIn').value); status('Send the reply back. When your friend connects you will drop into their world.'); } catch (e) { status('That code did not work.'); }
+    };
+    $$('mpCopyReply').onclick = () => { $$('mpReply').select(); document.execCommand('copy'); status('Copied.'); };
+  }
+
+  netOpened() {
+    this.ui.closeModalsSilently();
+    this.netSend({ t: 'hi', name: this.myName() });
+    if (this.net.role === 'host') this.ui.toast({ icon: '🤝', title: 'Friend connected', text: 'They are joining your warehouse.', ms: 4000 });
+    this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
+  }
+
+  netClosed() {
+    if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
+    for (const [id, it] of [...this.machines.items]) if (it.ent.remote) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(id); }
+    if (this.world) this.world.onSet = null;
+    this.ui.toast({ icon: '👋', title: 'Friend left', text: 'The connection closed.', ms: 4000 });
+  }
+
+  netMessage(m) {
+    if (this.net.role === 'guest' && !this.guestReady && m.t !== 'hi' && m.t !== 'world') { this.netPending.push(m); return; }
+    switch (m.t) {
+      case 'hi':
+        this.remote = this.remote || new RemotePlayer(this.renderer.scene, m.name);
+        if (this.net.role === 'host') this.sendWorld();
+        break;
+      case 'world': {
+        // guest: fall into the host's warehouse with a fresh character
+        this.noSave = true;
+        this.guestReady = false;
+        this.ui.closeModalsSilently();
+        this.startPlay(true, m.seed, () => {
+          this.S.gameMin = m.gameMin || 0;
+          this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
+          this.guestReady = true;
+          const q = this.netPending.splice(0);
+          for (const x of q) this.netMessage(x);
+        });
+        break;
+      }
+      case 'diff': for (let n = 0; n < m.a.length; n += 3) { const id = m.a[n]; const i = id % NX, k = Math.floor(id / NX) % NZ, j = Math.floor(id / (NX * NZ)); this.world.restoreDiff(i, j, k, m.a[n + 1], m.a[n + 2]); } break;
+      case 'ents': for (const e of m.list) this.remoteEnt(e); break;
+      case 'ready': this.renderer.setWorld(this.world); break;
+      case 'cells': {
+        const w = this.world;
+        w._remoteApply = true;
+        for (let n = 0; n < m.a.length; n += 5) {
+          const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2], sp = m.a[n + 3], vr = m.a[n + 4];
+          w.setCell(i, j, k, sp, vr);
+          w.stabQueue.push({ i, j, k });
+          if (sp === 0 && Math.random() < 0.3) this.fx.dust(cellX(i), cellY(j), cellZ(k), 2, 0.4, 0.5);
+        }
+        w._remoteApply = false;
+        break;
+      }
+      case 'pos': if (this.remote) this.remote.set(m); break;
+      case 'ent+': this.remoteEnt(m.ent); break;
+      case 'ent-': {
+        const key = m.side === 'mine' ? 'r' + m.id : m.id;
+        const it = this.machines.items.get(key);
+        if (it) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(key); if (m.side !== 'mine') this.S.entities = this.S.entities.filter((x) => x.id !== m.id); this.world.supports = this.world.supports.filter((s2) => s2.id !== key); }
+        break;
+      }
+      case 'say': this.chatLine(`${(this.remote && this.remote.name) || 'Friend'}: ${m.text}`); break;
+      case 'time': this.S.gameMin = m.gameMin; break;
+      case 'win': if (!this.S.ending) { this.S.ending = m.ending; this.mode = 'ended'; this.sound.found(); this.ui.toast({ icon: '🏆', title: `${m.by || 'Your friend'} found the One!`, text: 'You did it together.', ms: 8000 }); this.endTimer = 2.5; } break;
+    }
+  }
+
+  remoteEnt(e) {
+    const ent = { ...e, remote: true, rid: e.id, id: 'r' + e.id };
+    if (this.machines.items.has(ent.id)) return;
+    this.machines.add(ent);
+  }
+
+  sendWorld() {
+    const w = this.world;
+    this.netSend({ t: 'world', seed: this.S.seed, gameMin: this.S.gameMin });
+    let buf = [];
+    w.forEachDiff((id, sp, vr) => { buf.push(id, sp, vr); if (buf.length >= 9000) { this.netSend({ t: 'diff', a: buf }); buf = []; } });
+    if (buf.length) this.netSend({ t: 'diff', a: buf });
+    const list = this.S.entities.filter((e) => ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon'].includes(e.type)).map((e) => ({ ...e }));
+    this.netSend({ t: 'ents', list });
+    this.netSend({ t: 'ready' });
+  }
+
+  // a locally built structure the friend should see too
+  netEnt(ent) { if (!ent.remote) this.netSend({ t: 'ent+', ent: { ...ent } }); }
+  netEntRemove(ent) { if (ent.remote) this.netSend({ t: 'ent-', id: ent.rid, side: 'yours' }); else this.netSend({ t: 'ent-', id: ent.id, side: 'mine' }); }
+
+  chatLine(text) {
+    let box = document.getElementById('chat');
+    if (!box) { box = document.createElement('div'); box.id = 'chat'; document.body.appendChild(box); }
+    const d = document.createElement('div'); d.textContent = text; box.appendChild(d);
+    while (box.children.length > 6) box.firstChild.remove();
+    setTimeout(() => d.remove(), 9000);
+  }
+
+  netUpdate(dt) {
+    if (!this.net.open) return;
+    this._nt = (this._nt || 0) - dt;
+    if (this.netOut.length && this._nt <= 0.0) {
+      this.netSend({ t: 'cells', a: this.netOut.splice(0, 4000) });
+    }
+    this._np = (this._np || 0) - dt;
+    if (this._np <= 0) {
+      this._np = 0.1;
+      const p = this.player;
+      this.netSend({ t: 'pos', x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(3), pitch: +p.pitch.toFixed(3), lamp: this.lampOn !== false });
+    }
+    if (this.net.role === 'host') { this._ntm = (this._ntm || 0) - dt; if (this._ntm <= 0) { this._ntm = 6; this.netSend({ t: 'time', gameMin: this.S.gameMin }); } }
+    if (this.remote) this.remote.update(dt);
+    if (!this._nflush) this._nflush = 0;
+  }
+
   // ======================= the working day =======================
   // 1 game minute = 2 real seconds. The hall is lit from 07:00 to 19:00. At closing there is a chime and then it is dark.
   dayMinute() { return ((7 * 60 + (this.S.gameMin || 0)) % 1440 + 1440) % 1440; }
@@ -1489,10 +1643,11 @@ export class Game {
     }
     if (!best) return;
     const e = best.ent;
-    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.type);
+    if (!e.remote) this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.type);
     if (e.type === 'beacon') this.world.reserved.delete((e.j * NZ + e.k) * NX + e.i);
     this.machines.disposeObj(best.obj);
     this.machines.items.delete(e.id);
+    if (['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon'].includes(e.type)) this.netEntRemove(e);
     this.S.entities = this.S.entities.filter((x) => x.id !== e.id);
     this.world.supports = this.world.supports.filter((s) => s.id !== e.id && s.id !== 'shield' + e.id);
     this.sound.thump(0.15, 120);
@@ -2112,6 +2267,7 @@ export class Game {
     if (S.ending) return; // once you take the exit, the One is gone for good: quit the job or win the long way
     S.found = true;
     S.ending = 'plush';
+    this.netSend({ t: 'win', ending: 'plush', by: this.myName() });
     this.mode = 'ended';
     this.sound.found();
     const cam = this.renderer.camera.position;

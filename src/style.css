@@ -200,3 +200,13 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 #brim::after { content: ''; position: absolute; left: 50%; top: 18px; width: 38px; height: 12px; margin-left: -19px; border-radius: 0 0 12px 12px; background: radial-gradient(ellipse at 50% 0%, #fff6d0, #c9a64a 60%, #5a4a1a); box-shadow: 0 0 22px 6px rgba(255,230,160,0.55); }
 #brim { z-index: 0 !important; height: 30px; }
 #hud > :not(#brim) { z-index: 1; }
+
+.mpbox { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.mpbox textarea { width: 100%; height: 76px; resize: none; font: 11px ui-monospace, Menlo, monospace; background: rgba(0,0,0,0.35); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; user-select: text; -webkit-user-select: text; }
+.mpbox button, #btnMulti2 { padding: 9px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.08); font-weight: 700; }
+#mpName { user-select: text; -webkit-user-select: text; }
+#chat { position: fixed; left: 24px; bottom: 120px; max-width: 360px; font-size: 13px; text-shadow: 0 1px 6px #000; pointer-events: none; z-index: 3; }
+#chat div { background: rgba(0,0,0,0.45); padding: 4px 10px; border-radius: 8px; margin-top: 4px; }
+
+#multi { z-index: 40; }
+#chatIn { position: fixed; left: 24px; bottom: 80px; width: 340px; z-index: 50; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(10,12,8,0.85); color: var(--ink); font: inherit; user-select: text; -webkit-user-select: text; }

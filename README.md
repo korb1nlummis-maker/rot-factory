@@ -16,6 +16,11 @@ node tools/pace-sim.mjs   # rough pacing model (exit ~250 h, the plush ~500 h fo
 - **B** set down the build item you hold (green outline shows where). Hold **B** to lay belts/bulkheads. **1-9**, **[ ]** or the wheel pick an item, **Q** stow, **R** flips ramps, **X** takes something down (you get the item back).
 - **Tab** upgrades, **V** crew, **N** plushdex, **L** journal, **J** goals, **T/Y** send crew digging / home, **Esc** pause, **F3** fps, hold **H** to recall.
 
+## Play with a friend
+Open **Play Together** (title screen or pause menu). One of you hosts and sends a code, the other pastes it and sends a reply code back. No server. You share one world: holes, frames and collapses show for both. Wealth, upgrades and crew stay separate, a guest starts a fresh character in the host's warehouse and does not overwrite their own save. Press **Enter** to chat. Works best in Chrome, and both of you need the same version of the file.
+
+To send the game itself: `npm run build` makes `dist/index.html`, a single file that opens by double-click.
+
 ## Systems
 - Lazy chunked 6 km hall (`world.js`), 576 species, old workings with remains and notes (`remains.js`).
 - Roof support/collapse rules, slope slides, aftershocks, dust and lungs (`dust.js`).

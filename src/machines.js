@@ -399,6 +399,7 @@ export class Machines {
     }
     this.root.add(it.obj);
     this.items.set(ent.id, it);
+    if (!ent.remote && ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon'].includes(ent.type)) game.netEnt(ent);
     return it;
   }
 
@@ -439,6 +440,7 @@ export class Machines {
         if (it) { this.disposeObj(it.obj); this.root.remove(it.obj); this.items.delete(e.id); }
         game.S.entities = game.S.entities.filter((x) => x.id !== e.id);
         if (e.type === 'charge') game.detonate(e);
+        else if (e.type === 'flare' && !e.remote) game.netEntRemove(e);
       }
     }
   }
