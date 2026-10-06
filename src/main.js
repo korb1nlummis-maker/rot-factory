@@ -16,5 +16,6 @@ if (import.meta.env && import.meta.env.DEV) {
       const failed = r.results.filter((x) => !x.ok);
       return { total: r.results.length, passed: r.results.length - failed.length, failed, frameErrors: r.errs };
     };
+    window.__stHelpers = async () => (await m.runSelfTest(game, '__none__')).helpers;
   });
 }

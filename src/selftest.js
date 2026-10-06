@@ -49,7 +49,7 @@ export async function runSelfTest(g, only = '') {
     g.hp = 100; g.hpMax = 100; g.dead = false; g.trapOn = false; g.airLeft = undefined; g.suffocating = false; g.blacking = false;
     p().embedded = false; p().buried = 0; p().vel.set(0, 0, 0);
     g.dust.cells.clear(); g.dust.lung = 0;
-    g.stowed = false; g.vacT = 0; g.holdBlock = false; g.keys = {};
+    g.stowed = true; g.vacT = 0; g.holdBlock = false; g.keys = {}; // bare hands unless a test takes a tool out
     g.T = g.tune(); w().stabBonus = g.T.stabBonus; sim().binCatch = g.T.binCatch;
     g.rebuildTools();
   };
@@ -435,6 +435,21 @@ export async function runSelfTest(g, only = '') {
   await T('tools.out-of-stock-slot-is-hands', async () => { fresh(mkUp()); const r0 = await placeAtFloor('strut', 2, 5); if (!r0.ok) return r0.why; const slot = S().hotbar.indexOf('strut'); g.stowed = false; g.selectTool(slot); return (S().items.strut === undefined && g.curTool().kind === 'hands') || 'spent stack still usable'; });
   await T('tools.medkit-on-hotbar-uses-with-b', async () => { fresh(mkUp({ firstaid: 1 })); craft('medkit'); const slot = S().hotbar.indexOf('medkit'); g.selectTool(slot); g.hp = 20; g.bPress(); return (g.hp > 60 && !S().items.medkit) || 'hp ' + g.hp; });
   await T('tools.cart-on-hotbar-rolls-out-with-b', async () => { fresh(mkUp({ cart: 1 })); craft('cart:1'); const slot = S().hotbar.indexOf('cart:1'); if (slot < 0) return 'cart not on hotbar'; g.selectTool(slot); g.bPress(); return (!!S().cart && S().cart.tier === 1) || 'no cart'; });
+  await T('tools.click-with-hammer-hits-one-piece-per-click', async () => {
+    fresh(mkUp({ struts: 1 })); const a = await placeAtFloor('strut', -4, 5), b = await placeAtFloor('strut', -2.4, 5); if (!a.ok || !b.ok) return 'setup';
+    selectTool('hammer'); g.stowed = false; aimPoint(-4, 0.3, 5, 1.6); adv(0.15); g.keys.KeyF = true; g.gPress(); g.keys.KeyF = false; const left1 = S().entities.filter((e) => e.type === 'strut').length;
+    // holding the key down must not keep hitting
+    g.keys.KeyG = true; adv(1.0); g.keys.KeyG = false; const left2 = S().entities.filter((e) => e.type === 'strut').length; return (left1 === 1 && left2 === 1) || `after click ${left1}, after holding ${left2}`;
+  });
+  await T('tools.equipped-tool-means-f-does-not-grab', async () => {
+    fresh(mkUp({ struts: 1, bag: 3 })); plushWall(30); craft('strut'); selectTool('strut'); g.stowed = false; standBeforeWall(); adv(0.1); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); const n0 = S().carry.length; g.gPress(); return S().carry.length === n0 || 'grabbed with a tool equipped';
+  });
+  await T('tools.empty-hotbar-slot-grabs-by-hand', async () => {
+    fresh(mkUp({ bag: 3 })); plushWall(30); g.selectTool(7); g.stowed = false; standBeforeWall(); adv(0.1); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); if (!g.curTargetRef) return 'no target'; const n0 = S().carry.length; g.gPress(); return S().carry.length === n0 + 1 || 'empty slot did not grab';
+  });
+  await T('tools.f-places-the-equipped-building-item', async () => {
+    fresh(mkUp()); craft('strut'); selectTool('strut'); g.stowed = false; aimPoint(0, 0, 5, 2.0); adv(0.1); const pl = await plan(); if (!pl.ok) return pl.why; const n0 = S().entities.length; g.gPress(); return S().entities.length === n0 + 1 || 'F did not place it';
+  });
   await T('tools.stowed-means-no-ghost-or-build-hint', async () => { fresh(mkUp()); craft('strut'); g.stowed = true; g.rebuildTools(); g.plan = null; lookEast(0, 3, -0.4); adv(0.3); return (!g.plan || g.plan === null) || 'plan computed while stowed'; });
   await T('tools.hammer-removes-built-things', async () => {
     fresh(mkUp({ belts: 1, power: 1, bulkhead: 1 }));

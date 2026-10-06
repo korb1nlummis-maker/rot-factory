@@ -3,7 +3,7 @@ import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
-  frame: 'A 4x4 square (2.4 m) section. Aim at the floor, press B: it carves out its section and anchors the roof around it. Aim next to a frame and it snaps on any side (in line, beside, above, below) to build tunnels, junctions and chambers. Hold B to lay a lining. X takes it back.',
+  frame: 'A 4x4 square (2.4 m) section. Aim at the floor, press B: it carves out its section and anchors the roof around it. Aim next to a frame and it snaps on any side (in line, beside, above, below) to build tunnels, junctions and chambers. The hammer takes it back.',
   marker: 'Aim at the floor and press B. It shows on your compass so you can find your way back.',
   glow: 'Aim and press B. A soft green light for 10 minutes, no power needed.',
   flare: 'Aim and press B. A bright light for 4 minutes, no power needed.',

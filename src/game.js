@@ -409,7 +409,7 @@ export class Game {
   // ---- inventory: everything you hold that can be used, and the hotbar slots you put it in
   inventoryList() {
     const S = this.S, out = [];
-    out.push({ id: 'hammer', kind: 'hammer', icon: '🔨', name: 'Hammer', count: null, desc: 'Removes what you built and gives it back.', use: 'Take it out, aim at a frame, prop, belt, machine or bulkhead and press B (hold B to keep going).', tool: true });
+    out.push({ id: 'hammer', kind: 'hammer', icon: '🔨', name: 'Hammer', count: null, desc: 'Removes what you built and gives it back.', use: 'Take it out (its number, or Q), aim at a frame, prop, belt, machine or bulkhead and click (F) or press B. One piece per hit.', tool: true });
     for (const r of recipes(this)) {
       if (r.kind === 'mat') { const n = (S.mats || {})[r.mk] || 0; if (n > 0) out.push({ id: r.id, kind: 'mat', icon: r.icon, name: r.name, count: n, desc: r.desc, use: r.use, tool: false }); continue; }
       const n = S.items[r.id] || 0;
@@ -825,7 +825,7 @@ export class Game {
     } else {
       // grabbing is instant (see gPress); hold the key to keep grabbing until your hands (or cart) are full
       this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
-      if (this.keys.KeyG && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
+      if (this.keys.KeyG && this.curTool().kind === 'hands' && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
         // holding: fill your hands (and then the cart) as fast as the gloves allow, even when the crosshair drifts off the plush
         const t2 = tg || this.nearestGrab(eye, dir);
         if (t2) {
@@ -1055,6 +1055,9 @@ export class Game {
   // F / left click. Empty hands: a tap grabs what you look at. Holding something: a single tap throws it.
   // Hold the button to keep grabbing until you are full (see interact).
   gPress() {
+    // a tool in your hand: F or click uses it (hammer hits, building items are set down). Empty slot = bare hands: grab and throw.
+    const held = this.curTool();
+    if (held.kind !== 'hands') { this.useTool(held); return; }
     const tg = this.curTargetRef;
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
     this.gDownAt = performance.now();
@@ -1076,8 +1079,12 @@ export class Game {
   }
 
   bPress() {
-    if (this.stowed) { this.stowed = false; this.rebuildTools(); this.ui.hint('Tool out. <kbd>B</kbd> uses it, <kbd>Q</kbd> puts it away.', 2); return; }
-    const t = this.curTool();
+    if (this.stowed) { this.stowed = false; this.rebuildTools(); this.ui.hint('Tool out. <kbd>B</kbd> or click uses it, <kbd>Q</kbd> puts it away.', 2); return; }
+    this.useTool(this.curTool());
+  }
+
+  useTool(t) {
+    if (t.kind === 'hands') { this.ui.hint('Empty hands: <kbd>F</kbd> or click grabs. Pick a tool with <kbd>1-9</kbd> (open the inventory with <kbd>I</kbd>).', 2.5); return; }
     if (t.kind === 'hammer') { this.hammerHit(); return; }
     if (t.kind === 'cart') { this.useCart(); return; }
     if (t.kind === 'supply') { if (t.id === 'medkit') this.useMedkit(); else this.ui.hint('Air Canisters work by themselves: one kicks in when you run out of air while trapped.', 3); return; }
@@ -2018,12 +2025,11 @@ export class Game {
       return;
     }
     if (tool.kind === 'hammer') {
-      // hammer: show what B would remove, hold B to keep knocking things down
+      // hammer: show what a click would knock down
       this.plan = null; this.machines.setGhost(null); this.machines.showPreview(null, null); this.renderer.setGhost(0);
       const ref = this.hammerTarget(); const name = this.describeRef(ref);
       this.ui.setCross(!!ref);
-      this.ui.hint(name ? `<kbd>B</kbd> hammer: remove <b>${name}</b> (you get it back) · hold <kbd>B</kbd> to keep going · <kbd>Q</kbd> put away` : 'Hammer: aim at something you built · <kbd>Q</kbd> put away', 0.4);
-      if (name && this.keys.KeyB) { this._hamT = (this._hamT || 0) + 0.016; if (performance.now() - (this._hamLast || 0) > 220) { this._hamLast = performance.now(); this.hammerHit(); } }
+      this.ui.hint(name ? `<kbd>F</kbd> / click: knock down <b>${name}</b> (you get it back) · <kbd>Q</kbd> put away` : 'Hammer: aim at something you built · <kbd>Q</kbd> put away', 0.4);
       return;
     }
     if (tool.kind === 'frame') { plan = this.machines.planFrame(eye, dir, yaw, tool.fk); cost = FRAME_TYPES[tool.fk].cost; }
@@ -2041,14 +2047,14 @@ export class Game {
     this.plan = plan; this.planCost = cost;
     if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
-    if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk' || (tool.kind === 'frame' && plan.ent.snap))) {
-      const key = tool.kind === 'frame' ? `${plan.ent.cx.toFixed(1)},${plan.ent.cz.toFixed(1)},${plan.ent.y0.toFixed(1)}` : `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
+    if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk')) {
+      const key = `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
       if (key !== this.lastPaint) { this.lastPaint = key; this.placeCurrent(tool); }
     }
     if (!this.keys.KeyB) this.lastPaint = '';
     if (plan) {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
-      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap} · hold B to lay a lining` : ` · 4x4 square: carves ${(plan.ent.clear || []).length} plush · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
+      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square: carves ${(plan.ent.clear || []).length} plush · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
   }
