@@ -126,6 +126,7 @@ export class Logistics {
     this.byId.set(ent.id, ent);
     this.game.world.reserved.add(key);
     if (ent.type !== 'belt') this.buildObj(ent);
+    if (ent.type === 'belt' && ent.detector) this.buildGate(ent);
     this.dirty = true;
     if (!ent.view) this.game.netEnt(ent);
   }
@@ -253,7 +254,6 @@ export class Logistics {
       return true;
     }
     if (n.type === 'gen') {
-      if (item.sp === NEEDLE) { this.game.registerDex(NEEDLE); this.game.foundNeedle('a Generator'); return true; }
       const r = species[item.sp] ? species[item.sp].rarity : 9;
       if (r > FUEL_MAX_RARITY || n.q.length >= (this.game.T.genBuffer)) return false;
       n.q.push({ sp: item.sp, vr: item.vr });
@@ -286,6 +286,13 @@ export class Logistics {
         if (!its.length) continue;
         const pw = t.pw ?? 0;
         if (pw > 0.02) moving++;
+        if (t.detector && !this.visualOnly) {
+          for (let n = its.length - 1; n >= 0; n--) {
+            const it = its[n];
+            if (!it.sc && it.t >= 0.5) { it.sc = true; if (this.scanItem(t, it)) its.splice(n, 1); }
+          }
+          if (!its.length) continue;
+        }
         for (let n = 0; n < its.length; n++) {
           const it = its[n];
           const limit = n === 0 ? 1 : its[n - 1].t - 0.34;
@@ -295,7 +302,7 @@ export class Logistics {
         if (f.t >= 1 && pw > 0.02 && !this.visualOnly) {
           const nx = this.nextOf(t);
           if (nx && this.accept(nx, f, t.dir)) its.shift();
-          else if (!nx && this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C)) { its.shift(); if (f.sp === NEEDLE) { this.game.registerDex(NEEDLE); this.game.foundNeedle('a belt'); } else this.game.sellAuto(f.sp, f.vr, 1); }
+          else if (!nx && this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C)) { its.shift(); this.game.sellAuto(f.sp, f.vr, 1); }
           else if (!nx && this.game.world.get(t.i + DX[t.dir], t.j, t.k + DZ[t.dir]) === 0 && this.dropEnd(t, f)) its.shift();
         }
       } else if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
@@ -305,6 +312,7 @@ export class Logistics {
       else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.glowR; }
     }
     this.hum = moving;
+    this.gateTick(dt);
   }
 
   // a belt that ends in the open spills its plush onto the floor
@@ -323,6 +331,64 @@ export class Logistics {
     if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18, t.j * C + 1.1, cellZ(t.k) - 0.15);
   }
 
+  // ---- detector gates ----
+  buildGate(ent) {
+    const g = new THREE.Group();
+    g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
+    g.rotation.y = YAW[ent.dir || 0];
+    const post = new THREE.BoxGeometry(0.06, 0.95, 0.12);
+    for (const s of [-1, 1]) { const p = new THREE.Mesh(post, M.steel); p.position.set(s * 0.32, 0.5, 0); g.add(p); }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.14, 0.16), M.yellow); beam.position.y = 1.0; g.add(beam);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), M.glowG); led.position.set(0, 1.09, 0.09); led.name = 'led'; g.add(led);
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.015, 6, 20, Math.PI), M.dark); coil.position.y = 0.7; coil.rotation.z = 0; g.add(coil);
+    this.root.add(g);
+    this.objs.set(ent.id, g);
+    ent.beepT = 0;
+    if (ent.alarm) this.setGate(ent, true);
+  }
+
+  setGate(ent, red) {
+    const o = this.objs.get(ent.id), led = o && o.getObjectByName('led');
+    if (led) led.material = red ? M.glowR : M.glowG;
+  }
+
+  // returns true when the item must be pulled off the belt (it is The One)
+  scanItem(t, it) {
+    const g = this.game;
+    const near = Math.hypot(cellX(t.i) - g.player.pos.x, cellZ(t.k) - g.player.pos.z) < 30;
+    if (it.sp === NEEDLE) {
+      t.held = { sp: it.sp, vr: it.vr };
+      t.alarm = true;
+      this.setGate(t, true);
+      g.needleAlarm(t);
+      return true;
+    }
+    this.setGate(t, false);
+    t.flash = 0.18;
+    if (near) g.sound.tone('sine', 1250, 1250, 0.05, 0.035);
+    return false;
+  }
+
+  gateTick(dt) {
+    for (const t of this.tiles.values()) {
+      if (t.type !== 'belt' || !t.detector) continue;
+      if (t.alarm) {
+        t.beepT = (t.beepT || 0) - dt;
+        if (t.beepT <= 0) { t.beepT = 0.55; this.setGate(t, (Math.floor(this.game.time * 3) % 2) === 0); const d = Math.hypot(cellX(t.i) - this.game.player.pos.x, cellZ(t.k) - this.game.player.pos.z); if (d < 60) { this.game.sound.tone('square', 880, 880, 0.18, 0.09 * (1 - d / 60)); this.game.sound.tone('square', 660, 660, 0.18, 0.09 * (1 - d / 60), 0.2); } }
+      } else if (t.flash > 0) { t.flash -= dt; if (t.flash <= 0) this.setGate(t, false); }
+    }
+  }
+
+  nearestGate(x, z, r) {
+    let best = null, bd = r;
+    for (const t of this.tiles.values()) {
+      if (t.type !== 'belt' || !t.detector) continue;
+      const d = Math.hypot(cellX(t.i) - x, cellZ(t.k) - z);
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
+  }
+
   updateSorter(t, dt) {
     const g = this.game, T = g.T;
     t.timer -= dt * (t.pw ?? 0);
@@ -335,7 +401,6 @@ export class Logistics {
     head.t += dt * T.beltSpeed * 1.4 * (t.pw ?? 0);
     if (head.t < 1) { this.setLamp(t, M.glowO); return; }
     const sp = species[head.sp];
-    if (head.sp === NEEDLE) { t.q.shift(); g.registerDex(NEEDLE); g.foundNeedle('a Sorting Box'); return; }
     if (sp.rarity < t.filter) {
       t.q.shift();
       g.sellAuto(head.sp, head.vr, 1.0);
@@ -406,7 +471,6 @@ export class Logistics {
       if (!it) m.timer = 0.5;
       if (it) {
         g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
-        if (it.sp === NEEDLE) return;
         m.buf.push({ sp: it.sp, vr: it.vr });
         m.arm = [cellX(best[0]), cellY(best[1]), cellZ(best[2])];
         m.timer = T.mechRate * compaction(cellX(m.i), cellZ(m.k));

@@ -27,3 +27,8 @@ To send the game itself: `npm run build` makes `dist/index.html`, a single file 
 - Crafting table, belts, sorters, vaults, mechs, generators/poles/fans (`crafting.js`, `logistics.js`, `power.js`), depots with clues.
 - Contracts, crew bots that grow (`crew.js`), grid surges, volatile Razzo plush.
 - Adaptive resolution keeps the frame rate near 60.
+
+## Notes
+- **Detector gates**: build one early and attach it to a belt. Everything passing through is scanned: green beep normally, red alarm and a held item when the rare plush is on board. Crew bots check in at the nearest gate before unloading.
+- **Physics**: loose plush use fixed-step contact physics with friction, spin and air drag, so piles hold shallow slopes and slide on steep ones.
+- **F** toggles your helmet flashlight.

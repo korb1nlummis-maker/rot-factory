@@ -241,11 +241,16 @@ export class Crew {
         const p = b.path[b.pi];
         if (!p) {
           if (b.state === 'goto') { b.state = 'farm'; b.timer = this.digTime(b, b.x, b.z); }
-          else b.state = 'unload';
+          else {
+            // robots check in at the nearest detector gate before they unload
+            const gate = !b.scanned ? g.logi.nearestGate(h.x, h.z, 45) : null;
+            if (gate) { b.scanned = true; b.gatePending = gate.id; b.path = [[cellX(gate.i), cellZ(gate.k)], [h.x, h.z]]; b.pi = 0; break; }
+            b.scanned = false; b.state = 'unload';
+          }
           break;
         }
         b.tx = p[0]; b.tz = p[1];
-        if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) b.pi++;
+        if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) { b.pi++; if (b.gatePending && b.pi === 1) this.scanBot(b); }
         b.battery -= dt * 0.004;
         break;
       }
@@ -290,6 +295,19 @@ export class Crew {
       if (Math.hypot(b.x - b.lastX, b.z - b.lastZ) > 0.5) { b.stuckT = 0; b.lastX = b.x; b.lastZ = b.z; }
       if (b.stuckT > 25) { this.beam(b); }
     } else { b.stuckT = 0; b.lastX = undefined; }
+  }
+
+  scanBot(b) {
+    const g = this.game, gate = g.logi.byId.get(b.gatePending);
+    b.gatePending = null;
+    if (!gate) return;
+    const n = b.carry.findIndex((x) => x.sp === NEEDLE);
+    if (n >= 0) {
+      const it = b.carry.splice(n, 1)[0];
+      gate.held = { sp: it.sp, vr: it.vr }; gate.alarm = true;
+      g.logi.setGate(gate, true);
+      g.needleAlarm(gate);
+    } else { g.logi.setGate(gate, false); gate.flash = 0.25; g.sound.tone('sine', 1250, 1250, 0.05, 0.03); }
   }
 
   charge(b, dt, h) {
@@ -340,7 +358,6 @@ export class Crew {
       b.arm = performance.now() / 1000;
       b.aim = [cellX(best[0]), cellY(best[1]), cellZ(best[2])];
       g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
-      if (it.sp === NEEDLE) return;
       if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.carry.length >= this.capacity(b)) { this.goHome(b); b.timer = this.digTime(b, b.x, b.z); return; } }
       this.gainXp(b, 1);
       if (Math.random() < 0.15) g.sound.chirp(0.9 + Math.random() * 0.5);

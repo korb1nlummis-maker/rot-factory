@@ -989,8 +989,13 @@ export class Game {
 
   useTile(t, guestData) {
     const T = this.T, S = this.S;
+    if (t.type === 'belt' && t.detector && !this.isGuest()) {
+      if (t.alarm && t.held) { const it = t.held; t.held = null; t.alarm = false; this.logi.setGate(t, false); this.alarmGate = null; this.pickedUp(it, new THREE.Vector3(cellX(t.i), t.j * C + 0.8, cellZ(t.k))); return true; }
+      this.ui.hint('Detector gate: all clear so far.', 2); return true;
+    }
     if (this.isGuest()) {
       if (t.type === 'pole' || t.type === 'fan') { this.ui.hint(`${t.type === 'pole' ? 'Pole' : 'Fan'}: ${(t.pw ?? 0) > 0.05 ? 'powered' : 'no power'} (${Math.round((t.pw ?? 0) * 100)}%)`, 2.5); return true; }
+      if (t.type === 'belt' && !t.detector) return false;
       const d = { id: t.id, room: T.carry - S.carry.length };
       if (t.type === 'gen') { d.items = []; for (let q = S.carry.length - 1; q >= 0; q--) if (species[S.carry[q].sp].rarity <= 2) d.items.push(S.carry.splice(q, 1)[0]); this.ui.setCarry(S.carry, T.carry); }
       this.cmd('tile', d);
@@ -1022,7 +1027,7 @@ export class Game {
     }
     if (t.type === 'vault') {
       let n = 0;
-      while (t.stored.length && S.carry.length < T.carry) { S.carry.push(t.stored.shift()); n++; }
+      while (t.stored.length && S.carry.length < T.carry) { const it = t.stored.shift(); if (it.sp === NEEDLE) { this.foundNeedle('the vault'); return true; } S.carry.push(it); n++; }
       this.ui.setCarry(S.carry, T.carry);
       this.ui.hint(n ? `Took ${n} plush from the vault. ${t.stored.length} left.` : t.stored.length ? 'Your hands are full.' : 'The vault is empty.', 2.5);
       return true;
@@ -1040,7 +1045,6 @@ export class Game {
     S.stats.plush++; S.stats.rar[species[it.sp].rarity]++; S.stats.cells++;
     if (it.vr & 128) S.stats.shiny++;
     this.registerDex(it.sp);
-    if (it.sp === NEEDLE) this.foundNeedle('a Mech Scooper');
     if (Math.random() < 0.5) this.fx.dust(x, y, z, 2, 0.5, 0.5);
   }
 
@@ -1196,12 +1200,13 @@ export class Game {
       case 'cmd': this.netCmd(m.c, m.d); break;
       case 'shared': this.applyShared(m); break;
       case 'dyn': this.applyDyn(m); break;
-      case 'give': for (const it of m.items) { if (this.S.carry.length < this.T.carry) this.S.carry.push(it); else this.sim.spawn(it.sp, it.vr, this.player.pos.x, this.player.pos.y + 1.2, this.player.pos.z, 0, 1, 0, 0); } this.ui.setCarry(this.S.carry, this.T.carry); break;
+      case 'give': for (const it of m.items) { if (it.sp === NEEDLE) { this.foundNeedle('the vault'); continue; } if (this.S.carry.length < this.T.carry) this.S.carry.push(it); else this.sim.spawn(it.sp, it.vr, this.player.pos.x, this.player.pos.y + 1.2, this.player.pos.z, 0, 1, 0, 0); } this.ui.setCarry(this.S.carry, this.T.carry); break;
       case 'toast': this.ui.toast({ icon: m.icon, title: m.title, text: m.text, ms: 5000 }); break;
       case 'note': this.ui.showNote(m.entry); this.openModal('note'); break;
       case 'spawn': { const a = m.a; this.sim.spawn(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 1); break; }
       case 'take': { const i = this.sim.indexOfId(m.id); if (i >= 0) this.sim.remove(i); break; }
-      case 'sale': if (m.sp === NEEDLE) { this.registerDex(NEEDLE); this.foundNeedle('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
+      case 'lost': this.S.needleLost = true; this.ui.toast({ icon: '🔥', title: 'THE ONE is gone', text: 'It was thrown away without passing a gate.', cls: 'ach', ms: 12000 }); break;
+      case 'sale': if (m.sp === NEEDLE) { this.needleLost('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
       case 'bodies': {
         const seen = new Set();
         const a = m.a;
@@ -1369,7 +1374,8 @@ export class Game {
     let grid = null;
     if (rp) { const net = this.power.nearest(rp.x, rp.y + 1, rp.z); if (net) grid = { supply: net.supply, demand: net.demand, sat: net.sat }; }
     const dust = rp ? this.dust.at(rp.x, rp.y + 1.2, rp.z) : 0;
-    this.netSend({ t: 'dyn', belts, tiles, movers, crew, cart, grid, dust });
+    const alarms = []; for (const t of L.tiles.values()) if (t.type === 'belt' && t.detector && t.alarm) alarms.push(t.id);
+    this.netSend({ t: 'dyn', belts, tiles, movers, crew, cart, grid, dust, alarms });
   }
 
   applyDyn(m) {
@@ -1417,6 +1423,7 @@ export class Game {
       sc.load = new Array(n);
       for (let q = 0; q < n; q++) { const s2 = (q >= n - sample.length / 2) ? (q - (n - sample.length / 2)) * 2 : -1; sc.load[q] = s2 >= 0 ? { sp: sample[s2], vr: sample[s2 + 1] } : { sp: 1, vr: 0 }; }
     }
+    for (const t of L.tiles.values()) if (t.type === 'belt' && t.detector) { const on = m.alarms.includes(t.id); if (on !== !!t.alarm) { t.alarm = on; L.setGate(t, on); } }
     this.guestGrid = m.grid;
     this.dust.hostLevel = m.dust;
   }
@@ -1689,7 +1696,7 @@ export class Game {
   onBin(i) {
     const s = this.sim;
     const sp = s.sp[i], vr = s.vr[i];
-    if (sp === NEEDLE && s.own[i] !== 1) { this.registerDex(sp); this.foundNeedle('the SORT bin'); return; }
+    if (sp === NEEDLE && s.own[i] !== 1) { this.needleLost('the SORT bin'); return; }
     const dist = s.flag[i] === 1 ? Math.hypot(s.ox[i] - this.hall.binPos.x, s.oz[i] - this.hall.binPos.z) : 0;
     if (s.own[i] === 1 && this.net.open) { this.netSend({ t: 'sale', sp, vr, dist }); return; }
     this.sell(sp, vr, { dist, streak: true, bonus: s.flag[i] === 1 });
@@ -1729,6 +1736,7 @@ export class Game {
 
   sellAuto(sp, vr, mult = 1) {
     const S = this.S;
+    if (sp === NEEDLE) { this.needleLost('a machine'); return; }
     const v = Math.max(1, Math.round(this.valueOf(sp, vr, 0) * mult * (this.golden > 0 ? 2 : 1)));
     S.money += v; S.totalEarned += v; S.stats.sold++;
     this.contracts.onSale(sp, vr);
@@ -1754,7 +1762,6 @@ export class Game {
     S.stats.plush++; S.stats.rar[species[taken.sp].rarity]++; S.stats.cells++;
     if (taken.vr & 128) S.stats.shiny++;
     this.registerDex(taken.sp);
-    if (taken.sp === NEEDLE) { this.foundNeedle('a Claw Rig'); return; }
     const bp = this.hall.binPos;
     this.sellAuto(taken.sp, taken.vr, 1);
     this.fliers.push({ sp: taken.sp, vr: taken.vr, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(bp.x, 1.0, bp.z), t: 0, dur: 0.9 + Math.hypot(x - bp.x, z - bp.z) * 0.03, arc: 3 + Math.hypot(x - bp.x, z - bp.z) * 0.12 });
@@ -1767,7 +1774,6 @@ export class Game {
     S.stats.plush++; S.stats.rar[species[taken.sp].rarity]++; S.stats.cells++;
     if (taken.vr & 128) S.stats.shiny++;
     this.registerDex(taken.sp);
-    if (taken.sp === NEEDLE) { this.foundNeedle('a Tunnel Borer'); return; }
     this.sellAuto(taken.sp, taken.vr, 1);
   }
 
@@ -1787,9 +1793,9 @@ export class Game {
       plan = this.machines.planBorer(eye, dir, yaw); cost = this.borerCost();
       if (plan.ok && this.machines.count('borer') >= T.borerMax) plan = { ok: false, why: `Borer limit reached (${T.borerMax})`, ent: plan.ent };
     }
-    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan'].includes(tool.kind)) { ({ plan, cost } = this.planLogi(tool, eye, dir, yaw)); }
+    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) { ({ plan, cost } = this.planLogi(tool, eye, dir, yaw)); }
     this.plan = plan; this.planCost = cost;
-    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan'].includes(tool.kind)) this.showCellGhost(tool, plan);
+    if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
     if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk')) {
       const key = `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
@@ -1824,6 +1830,12 @@ export class Game {
       const bad = this.logi.tiles.has(idx(last.i, last.j, last.k)) || near;
       return { plan: { ok: !bad, why: bad ? 'Too close' : null, ent: { type: 'bulk', ...last, dir: 0 } }, cost: 10 };
     }
+    if (kind === 'gate') {
+      const bt = this.logi.pick(eye, dir, 4.5);
+      if (bt && bt.type === 'belt' && !bt.detector) return { plan: { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } }, cost: 0 };
+      const pl = this.logi.plan('belt', eye, dir, yaw, 0);
+      return { plan: pl, cost: 0 };
+    }
     const plan = this.logi.plan(kind, eye, dir, yaw, rise);
     let cost = 0; const _unused = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
     if (plan.ok && kind === 'mech' && this.logi.count('mech') >= T.mechMax) { plan.ok = false; plan.why = `Mech limit reached (${T.mechMax})`; }
@@ -1837,7 +1849,7 @@ export class Game {
     if (this.machines.ghostKey !== key) {
       const g = new THREE.Group();
       const mat = new THREE.MeshBasicMaterial({ color: plan.ok ? 0x5dffa0 : 0xff5a4a, transparent: true, opacity: 0.4, depthWrite: false });
-      const flat = tool.kind === 'belt';
+      const flat = tool.kind === 'belt' || tool.kind === 'gate';
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.56, flat ? 0.08 : 0.55, 0.56), mat);
       box.position.y = flat ? 0.05 : 0.28;
       if (e.rise) { box.rotation.x = -e.rise * Math.PI / 4; box.position.y += 0.3; box.scale.z = 1.4; }
@@ -1872,8 +1884,18 @@ export class Game {
       this.rebuildTools();
       return;
     }
-    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan'].includes(tool.kind)) {
-      ent = { id, type: tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
+    if (tool.kind === 'gate' && e.type === 'gatebelt') {
+      const tile = this.logi.byId.get(e.id);
+      if (tile && !tile.detector) {
+        tile.detector = true; this.logi.buildGate(tile);
+        this.netSend({ t: 'ent-', id: tile.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(tile) });
+        this.sound.place(); this.S.stats.gates = (this.S.stats.gates || 0) + 1; this.rebuildTools();
+      }
+      return;
+    }
+    if (['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan', 'gate'].includes(tool.kind)) {
+      ent = { id, type: tool.kind === 'gate' ? 'belt' : tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
+      if (tool.kind === 'gate') { ent.detector = true; S.stats.gates = (S.stats.gates || 0) + 1; }
       S.entities.push(ent);
       this.addEntity(ent);
       this.sound.place();
@@ -2375,7 +2397,7 @@ export class Game {
   }
 
   needlePos() {
-    if (this.S.ending === 'exit') return null;
+    if (this.S.ending === 'exit' || this.S.needleLost) return null;
     const w = this.world, n = w.needle;
     if (w.get(n.i, n.j, n.k) === NEEDLE) return _v2.set(cellX(n.i), cellY(n.j), cellZ(n.k));
     const s = this.sim;
@@ -2435,6 +2457,7 @@ export class Game {
       const markers = [];
       const ex = EXIT_X - p.pos.x, ez = 0 - p.pos.z;
       { const ms = []; for (const it of this.machines.items.values()) if (it.ent.type === 'marker') { const d = Math.hypot(it.ent.x - p.pos.x, it.ent.z - p.pos.z); if (d < 700) ms.push([d, it.ent]); } ms.sort((a, b) => a[0] - b[0]); for (const [, e2] of ms.slice(0, 8)) markers.push({ b: deg(Math.atan2(e2.x - p.pos.x, -(e2.z - p.pos.z))), label: 'M', color: '#ff9bd0' }); }
+      for (const t2 of this.logi.tiles.values()) if (t2.type === 'belt' && t2.detector && t2.alarm) markers.push({ b: deg(Math.atan2(cellX(t2.i) - p.pos.x, -(cellZ(t2.k) - p.pos.z))), label: '!!', color: '#ff4d4d' });
       if (T.exitMarker) markers.push({ b: deg(Math.atan2(ex, -ez)), label: 'EXIT', color: '#7ef0c4' });
       const np2 = this.needlePos();
       if (T.scan >= 3 && np2 && Math.hypot(np2.x - p.pos.x, np2.z - p.pos.z) <= T.scanRange) markers.push({ b: deg(Math.atan2(np2.x - p.pos.x, -(np2.z - p.pos.z))), label: 'ONE', color: '#fff3a0' });
@@ -2590,9 +2613,27 @@ export class Game {
     }
   }
 
+  // The One reached a sink without passing a detector gate. It cannot be sold back.
+  needleLost(src) {
+    const S = this.S;
+    if (S.ending || S.needleLost) return;
+    S.needleLost = true;
+    this.registerDex(NEEDLE);
+    this.sound.rumble(1.2);
+    this.ui.toast({ icon: '🔥', title: 'You threw away THE ONE', text: `It went through ${src} and into the incinerator. Il Rotto Supremo is gone. The exit is still out there.`, cls: 'ach', ms: 14000 });
+    this.netSend({ t: 'lost', src });
+  }
+
+  needleAlarm(gate) {
+    this.registerDex(NEEDLE);
+    this.sound.found();
+    this.ui.toast({ icon: '🚨', title: 'DETECTOR ALARM', text: 'THE ONE is in the gate. Go to it and press E to take it.', cls: 'ach', ms: 12000 });
+    this.alarmGate = gate;
+  }
+
   foundNeedle(src) {
     const S = this.S;
-    if (S.ending) return; // once you take the exit, the One is gone for good: quit the job or win the long way
+    if (S.ending || S.needleLost) return; // once you take the exit, the One is gone for good: quit the job or win the long way
     S.found = true;
     S.ending = 'plush';
     this.netSend({ t: 'win', ending: 'plush', by: this.myName() });

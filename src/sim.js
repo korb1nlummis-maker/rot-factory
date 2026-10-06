@@ -3,6 +3,8 @@ import { h32, quatFromHash } from './util.js';
 import { NEEDLE } from './plushdata.js';
 
 const RB = 0.3; // loose plush radius
+const G = 15;    // gravity (a little heavier than 9.8 so plush feel like they have weight)
+const MU = 0.72; // friction between plush and the pile
 const CAP = 2600;
 const HSIZE = 16384;
 
@@ -67,6 +69,7 @@ export class Sim {
     this.flag = new Uint8Array(CAP); // 1 thrown, 2 from collapse
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
     this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
+    this.wx = new Float32Array(CAP); this.wy = new Float32Array(CAP); this.wz = new Float32Array(CAP); // spin
     this.bid = new Uint32Array(CAP); this.own = new Uint8Array(CAP); this.idc = 1; // stable ids for syncing, and who threw it (0 host, 1 guest)
     this.spawnHook = null;
     this.head = new Int32Array(HSIZE); this.next = new Int32Array(CAP);
@@ -92,6 +95,8 @@ export class Sim {
     this.sp[i] = sp; this.vr[i] = vr; this.rest[i] = 0; this.age[i] = 0; this.flag[i] = flag;
     this.ox[i] = x; this.oz[i] = z; this.sq[i] = 0;
     this.bid[i] = this.idc++; this.own[i] = own;
+    const spin = flag === 1 ? 5 : 2.2;
+    this.wx[i] = (Math.random() - 0.5) * spin; this.wy[i] = (Math.random() - 0.5) * spin; this.wz[i] = (Math.random() - 0.5) * spin;
     return i;
   }
 
@@ -101,7 +106,7 @@ export class Sim {
       this.x[i] = this.x[l]; this.y[i] = this.y[l]; this.z[i] = this.z[l];
       this.vx[i] = this.vx[l]; this.vy[i] = this.vy[l]; this.vz[i] = this.vz[l];
       for (let t = 0; t < 4; t++) this.q[i * 4 + t] = this.q[l * 4 + t];
-      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l];
+      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l];
     }
   }
 
@@ -127,9 +132,12 @@ export class Sim {
 
   step(dtFrame) {
     if (!this.n) return;
-    const sub = dtFrame > 1 / 50 ? 3 : 2;
-    const dt = Math.min(dtFrame, 1 / 20) / sub;
-    for (let s = 0; s < sub; s++) this.substep(dt);
+    // fixed 1/120 s steps: small steps keep fast plush from tunnelling and make stacking behave the same at any frame rate
+    this.acc = (this.acc || 0) + Math.min(dtFrame, 1 / 15);
+    const H = 1 / 120;
+    let steps = 0;
+    while (this.acc >= H && steps < 6) { this.substep(H); this.acc -= H; steps++; }
+    if (steps === 6) this.acc = 0;
   }
 
   substep(dt) {
@@ -140,30 +148,45 @@ export class Sim {
     // integrate + environment collisions
     for (let i = 0; i < n; i++) {
       let vx = this.vx[i], vy = this.vy[i], vz = this.vz[i];
-      vy -= 16 * dt;
-      const drag = 1 - 0.25 * dt;
+      vy -= G * dt;
+      const sp0 = Math.sqrt(vx * vx + vy * vy + vz * vz);
+      const drag = Math.max(0, 1 - (0.1 + 0.022 * sp0) * dt); // light plush: air resistance grows with speed
       vx *= drag; vy *= drag; vz *= drag;
+      let wx = this.wx[i], wy = this.wy[i], wz = this.wz[i];
       pos.x = this.x[i] + vx * dt; pos.y = this.y[i] + vy * dt; pos.z = this.z[i] + vz * dt;
       this.age[i] += dt;
       if (this.sq[i] > 0.002) this.sq[i] *= Math.exp(-11 * dt); else this.sq[i] = 0;
-      // lattice
-      for (let it = 0; it < 2; it++) {
-        if (resolveSphere(w, pos, RB, cont)) {
-          const vn = vx * cont.nx + vy * cont.ny + vz * cont.nz;
-          if (vn < 0) {
-            const e = Math.abs(vn) > 3 ? 0.18 : 0.02;
-            vx -= (1 + e) * vn * cont.nx; vy -= (1 + e) * vn * cont.ny; vz -= (1 + e) * vn * cont.nz;
-            const f = Math.max(0, 1 - 6 * dt);
-            // friction on tangential component
-            const tn = vx * cont.nx + vy * cont.ny + vz * cont.nz;
-            const tx = vx - tn * cont.nx, ty = vy - tn * cont.ny, tz = vz - tn * cont.nz;
-            vx = tn * cont.nx + tx * f; vy = tn * cont.ny + ty * f; vz = tn * cont.nz + tz * f;
-            if (vn < -1.5) this.sq[i] = Math.max(this.sq[i], Math.min(0.32, -vn * 0.045));
-            if (vn < -4 && this.hooks.onImpact) this.hooks.onImpact(pos.x, pos.y, pos.z, -vn);
-            if (vn < -3 && this.hooks.onKick) this.hooks.onKick(cont.ci, cont.cj, cont.ck, vx, vy, vz, -vn);
-          }
+      // lattice: impulse response with Coulomb friction, so plush rest on shallow slopes and slide down steep ones
+      let touched = false;
+      for (let it = 0; it < 3; it++) {
+        if (!resolveSphere(w, pos, RB, cont)) continue;
+        touched = true;
+        const nx = cont.nx, ny = cont.ny, nz = cont.nz;
+        const vn = vx * nx + vy * ny + vz * nz;
+        let jn = 0;
+        if (vn < 0) {
+          const e = vn < -3.5 ? 0.22 : vn < -1.5 ? 0.08 : 0;
+          jn = -(1 + e) * vn;
+          vx += nx * jn; vy += ny * jn; vz += nz * jn;
+          if (vn < -1.5) this.sq[i] = Math.max(this.sq[i], Math.min(0.32, -vn * 0.045));
+          if (vn < -4 && this.hooks.onImpact) this.hooks.onImpact(pos.x, pos.y, pos.z, -vn);
+          if (vn < -3 && this.hooks.onKick) this.hooks.onKick(cont.ci, cont.cj, cont.ck, vx, vy, vz, -vn);
         }
+        // tangential: friction limited by the normal load (impact impulse plus the weight resting on it)
+        const vd = vx * nx + vy * ny + vz * nz;
+        let tx = vx - vd * nx, ty = vy - vd * ny, tz = vz - vd * nz;
+        const ts = Math.hypot(tx, ty, tz);
+        if (ts > 1e-4) {
+          const load = jn + (ny > 0.05 ? G * ny * dt : 0);
+          const fr = Math.min(ts, MU * load);
+          vx -= tx / ts * fr; vy -= ty / ts * fr; vz -= tz / ts * fr;
+        }
+        // rolling: the surface drags the spin toward the rolling speed
+        const rx = ny * vz - nz * vy, ry = nz * vx - nx * vz, rz = nx * vy - ny * vx;
+        const k = Math.min(1, 14 * dt);
+        wx += (rx / RB - wx) * k; wy += (ry / RB - wy) * k; wz += (rz / RB - wz) * k;
       }
+      if (touched) { const rr = Math.max(0, 1 - 3.2 * dt); wx *= rr; wy *= rr; wz *= rr; } else { const ra = Math.max(0, 1 - 0.25 * dt); wx *= ra; wy *= ra; wz *= ra; }
       // floor / walls / ceiling
       if (pos.y < RB) { pos.y = RB; if (vy < 0) { if (vy < -4 && this.hooks.onImpact) this.hooks.onImpact(pos.x, pos.y, pos.z, -vy); vy *= -0.1; } const f = Math.max(0, 1 - 5 * dt); vx *= f; vz *= f; }
       if (pos.y > HALL_H - RB) { pos.y = HALL_H - RB; if (vy > 0) vy = 0; }
@@ -211,21 +234,20 @@ export class Sim {
       }
       this.x[i] = pos.x; this.y[i] = pos.y; this.z[i] = pos.z;
       this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
-      // roll
-      const sp2 = vx * vx + vz * vz;
-      if (sp2 > 0.04) {
-        const sp1 = Math.sqrt(sp2), ang = sp1 * dt / RB;
-        const ax = vz / sp1, az = -vx / sp1;
+      this.wx[i] = wx; this.wy[i] = wy; this.wz[i] = wz;
+      // orientation follows the spin
+      const wl = Math.hypot(wx, wy, wz);
+      if (wl > 0.02) {
+        const ang = wl * dt, ax = wx / wl, ay = wy / wl, az = wz / wl;
         const hs = Math.sin(ang / 2), cs = Math.cos(ang / 2);
         const o = i * 4, qx = this.q[o], qy = this.q[o + 1], qz = this.q[o + 2], qw = this.q[o + 3];
-        const rx = ax * hs, rz = az * hs;
-        // r * q
-        this.q[o] = cs * qx + rx * qw + 0 * qz - rz * qy;
-        this.q[o + 1] = cs * qy + 0 * qw + rz * qx - rx * qz;
-        this.q[o + 2] = cs * qz + rz * qw + rx * qy - 0 * qx;
-        this.q[o + 3] = cs * qw - rx * qx - rz * qz;
-        const l = Math.hypot(this.q[o], this.q[o + 1], this.q[o + 2], this.q[o + 3]) || 1;
-        this.q[o] /= l; this.q[o + 1] /= l; this.q[o + 2] /= l; this.q[o + 3] /= l;
+        const rx = ax * hs, ry = ay * hs, rz = az * hs;
+        const nxq = cs * qx + rx * qw + ry * qz - rz * qy;
+        const nyq = cs * qy - rx * qz + ry * qw + rz * qx;
+        const nzq = cs * qz + rx * qy - ry * qx + rz * qw;
+        const nwq = cs * qw - rx * qx - ry * qy - rz * qz;
+        const l = Math.hypot(nxq, nyq, nzq, nwq) || 1;
+        this.q[o] = nxq / l; this.q[o + 1] = nyq / l; this.q[o + 2] = nzq / l; this.q[o + 3] = nwq / l;
       }
     }
     // body-body
@@ -235,29 +257,42 @@ export class Sim {
       this.next[i] = this.head[h]; this.head[h] = i;
     }
     const D = 2 * RB, D2 = D * D;
-    for (let i = 0; i < n; i++) {
-      const ax = this.x[i], ay = this.y[i], az = this.z[i];
-      const ca = Math.floor(ax / 0.62), cb = Math.floor(ay / 0.62), cc = Math.floor(az / 0.62);
-      for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) for (let dc = -1; dc <= 1; dc++) {
-        const h = ((Math.imul(ca + da, 73856093) ^ Math.imul(cb + db, 19349663) ^ Math.imul(cc + dc, 83492791)) >>> 0) & (HSIZE - 1);
-        for (let j = this.head[h]; j !== -1; j = this.next[j]) {
-          if (j <= i) continue;
-          const dx = this.x[j] - ax, dy = this.y[j] - ay, dz = this.z[j] - az;
-          const d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 >= D2 || d2 < 1e-8) continue;
-          const d = Math.sqrt(d2), k = (D - d) / d * 0.5;
-          this.x[i] -= dx * k; this.y[i] -= dy * k; this.z[i] -= dz * k;
-          this.x[j] += dx * k; this.y[j] += dy * k; this.z[j] += dz * k;
-          const nx = dx / d, ny = dy / d, nz = dz / d;
-          const rv = (this.vx[j] - this.vx[i]) * nx + (this.vy[j] - this.vy[i]) * ny + (this.vz[j] - this.vz[i]) * nz;
-          if (rv < 0) {
-            const imp = -rv * 0.5 * 1.05;
-            this.vx[i] -= nx * imp; this.vy[i] -= ny * imp; this.vz[i] -= nz * imp;
-            this.vx[j] += nx * imp; this.vy[j] += ny * imp; this.vz[j] += nz * imp;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < n; i++) {
+        const ax = this.x[i], ay = this.y[i], az = this.z[i];
+        const ca = Math.floor(ax / 0.62), cb = Math.floor(ay / 0.62), cc = Math.floor(az / 0.62);
+        for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) for (let dc = -1; dc <= 1; dc++) {
+          const h = ((Math.imul(ca + da, 73856093) ^ Math.imul(cb + db, 19349663) ^ Math.imul(cc + dc, 83492791)) >>> 0) & (HSIZE - 1);
+          for (let j = this.head[h]; j !== -1; j = this.next[j]) {
+            if (j <= i) continue;
+            const dx = this.x[j] - this.x[i], dy = this.y[j] - this.y[i], dz = this.z[j] - this.z[i];
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 >= D2 || d2 < 1e-8) continue;
+            const d = Math.sqrt(d2), k = (D - d) / d * 0.5 * 0.9;
+            this.x[i] -= dx * k; this.y[i] -= dy * k; this.z[i] -= dz * k;
+            this.x[j] += dx * k; this.y[j] += dy * k; this.z[j] += dz * k;
+            if (pass) continue;
+            const nx = dx / d, ny = dy / d, nz = dz / d;
+            const rvx = this.vx[j] - this.vx[i], rvy = this.vy[j] - this.vy[i], rvz = this.vz[j] - this.vz[i];
+            const rv = rvx * nx + rvy * ny + rvz * nz;
+            let jn = 0;
+            if (rv < 0) {
+              jn = -rv * 0.5 * (rv < -2 ? 1.12 : 1.0);
+              this.vx[i] -= nx * jn; this.vy[i] -= ny * jn; this.vz[i] -= nz * jn;
+              this.vx[j] += nx * jn; this.vy[j] += ny * jn; this.vz[j] += nz * jn;
+              if (rv < -1.5) { this.sq[i] = Math.max(this.sq[i], Math.min(0.25, -rv * 0.04)); this.sq[j] = Math.max(this.sq[j], Math.min(0.25, -rv * 0.04)); }
+            }
+            // friction between the two surfaces, and they pass spin on to each other
+            const tvx = rvx - rv * nx, tvy = rvy - rv * ny, tvz = rvz - rv * nz;
+            const ts = Math.hypot(tvx, tvy, tvz);
+            if (ts > 1e-4) {
+              const fr = Math.min(ts * 0.5, MU * (jn + G * dt * 0.5));
+              this.vx[i] += tvx / ts * fr; this.vy[i] += tvy / ts * fr; this.vz[i] += tvz / ts * fr;
+              this.vx[j] -= tvx / ts * fr; this.vy[j] -= tvy / ts * fr; this.vz[j] -= tvz / ts * fr;
+              const sx = (ny * tvz - nz * tvy) / RB * 0.15, sy = (nz * tvx - nx * tvz) / RB * 0.15, sz = (nx * tvy - ny * tvx) / RB * 0.15;
+              this.wx[i] += sx; this.wy[i] += sy; this.wz[i] += sz; this.wx[j] += sx; this.wy[j] += sy; this.wz[j] += sz;
+            }
           }
-          // mutual friction keeps heaps from sliding forever
-          const f = Math.max(0, 1 - 2.5 * dt);
-          this.vx[i] *= f; this.vz[i] *= f; this.vx[j] *= f; this.vz[j] *= f;
         }
       }
     }
@@ -284,8 +319,8 @@ export class Sim {
     // consumed + settle
     for (let i = this.n - 1; i >= 0; i--) {
       if (this.flag[i] === 99) { this.remove(i); continue; }
-      const sp2 = this.vx[i] ** 2 + this.vy[i] ** 2 + this.vz[i] ** 2;
-      if (sp2 < 0.25) this.rest[i] += dt; else this.rest[i] = 0;
+      const sp2 = this.vx[i] ** 2 + this.vy[i] ** 2 + this.vz[i] ** 2 + 0.05 * (this.wx[i] ** 2 + this.wy[i] ** 2 + this.wz[i] ** 2);
+      if (sp2 < 0.2) this.rest[i] += dt; else this.rest[i] = 0;
       if (this.rest[i] > 0.7 || (this.age[i] > 6 && this.rest[i] > 0.2)) {
         if (this.tryFreeze(i)) this.remove(i);
         else if (this.rest[i] > 1.8) { this.vx[i] += (Math.random() - 0.5) * 2; this.vy[i] += 2.2; this.vz[i] += (Math.random() - 0.5) * 2; this.rest[i] = 0.3; }
