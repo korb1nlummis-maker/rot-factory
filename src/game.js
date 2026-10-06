@@ -2559,7 +2559,7 @@ export class Game {
     if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
     const w = this.world, S = this.S;
     const tier = ent.tier || 1;
-    const R = ent.dyn ? 2.2 : [0, 3, 4, 5][tier];
+    const R = ent.R ?? (ent.dyn ? 2.2 : [0, 3, 4, 5][tier]);
     const ci = toI(ent.x), cj = toJ(ent.y + 0.3), ck = toK(ent.z);
     let n = 0;
     const RI = Math.ceil(R);
@@ -2600,30 +2600,68 @@ export class Game {
   }
 
   // ======================= volatile plush =======================
+  // A Razzo is rare, and when its fuse runs out it brings the place down: a big blast, the roof around it released, supports in reach destroyed.
+  // The fuse keeps burning after you throw or drop it, and it goes off wherever it ended up.
   lightFuse(item) {
     this.fuses = this.fuses || [];
-    this.fuses.push({ item, t: 2.4 });
-    this.ui.toast({ icon: '🧨', title: 'Fuse lit!', text: 'A Razzo plush is ticking. Throw it (Z) or drop it (F) now.', ms: 2600 });
-    this.sound.tone('square', 900, 900, 0.05, 0.08);
+    this.fuses.push({ item, t: 3.2, bid: undefined, lost: 0 });
+    this.ui.toast({ icon: '🧨', title: 'RAZZO! Fuse lit', text: 'It will bring the roof down. Throw it as far away as you can (F or click), and run from your tunnel.', ms: 4200 });
+    this.sound.tone('square', 900, 900, 0.05, 0.08); this.shake = Math.max(this.shake, 0.25);
   }
 
   updateFuses(dt) {
     if (!this.fuses || !this.fuses.length) return;
-    const S = this.S;
+    const S = this.S, sim = this.sim;
     for (let n = this.fuses.length - 1; n >= 0; n--) {
       const f = this.fuses[n];
-      const idx2 = S.carry.indexOf(f.item);
-      if (idx2 < 0) { this.fuses.splice(n, 1); continue; }
-      f.t -= dt;
-      f.tick = (f.tick || 0) - dt;
-      if (f.tick <= 0) { f.tick = Math.max(0.08, f.t * 0.18); this.sound.tone('square', 1100, 1100, 0.025, 0.06); this.heldPop = 0.4; }
-      this.ui.setWarn(`FUSE ${Math.max(0, f.t).toFixed(1)}`);
+      let pos = null;
+      if (f.bid === undefined) {
+        if (S.carry.indexOf(f.item) >= 0) pos = this.player.pos;
+        else {
+          // it left your hands: find the body it became
+          let best = -1, bd = 1e9; for (let q = 0; q < sim.n; q++) { if (sim.sp[q] !== f.item.sp || sim.age[q] > 1.5) continue; const d = Math.hypot(sim.x[q] - this.player.pos.x, sim.z[q] - this.player.pos.z); if (d < bd) { bd = d; best = q; } }
+          if (best >= 0) f.bid = sim.bid[best]; else if ((f.lost += dt) > 0.5) { this.fuses.splice(n, 1); continue; } // sold into the bin or put away: the fuse goes out
+        }
+      }
+      let idx = -1;
+      if (f.bid !== undefined) { idx = sim.indexOfId(f.bid); if (idx < 0) { this.fuses.splice(n, 1); continue; } }
+      f.t -= dt; f.tick = (f.tick || 0) - dt;
+      const held = f.bid === undefined;
+      if (f.tick <= 0) { f.tick = Math.max(0.08, f.t * 0.18); this.sound.tone('square', 1100, 1100, 0.025, 0.06); if (held) this.heldPop = 0.4; }
+      if (idx >= 0 && Math.random() < dt * 14) this.fx.dust(sim.x[idx], sim.y[idx] + 0.2, sim.z[idx], 1, 0.15, 0.2);
+      if (held || Math.hypot(sim.x[idx] - this.player.pos.x, sim.z[idx] - this.player.pos.z) < 40) this.ui.setWarn(`FUSE ${Math.max(0, f.t).toFixed(1)}`);
       if (f.t <= 0) {
-        S.carry.splice(idx2, 1); this.fuses.splice(n, 1);
-        this.ui.setCarry(S.carry, this.T.carry);
-        this.explode(this.player.pos.x, this.player.pos.y + 1, this.player.pos.z);
+        this.fuses.splice(n, 1);
+        let x, y, z;
+        if (held) { const i2 = S.carry.indexOf(f.item); if (i2 >= 0) S.carry.splice(i2, 1); this.ui.setCarry(S.carry, this.T.carry); x = this.player.pos.x; y = this.player.pos.y + 1; z = this.player.pos.z; }
+        else { x = sim.x[idx]; y = sim.y[idx]; z = sim.z[idx]; sim.remove(idx); }
+        this.razzoBlast(x, y, z);
       }
     }
+  }
+
+  razzoBlast(x, y, z) {
+    const w = this.world, S = this.S, R = 7;
+    this.detonate({ x, y, z, tier: 3, R });
+    S.stats.razzos = (S.stats.razzos || 0) + 1;
+    // everything that was holding the roof up nearby is gone
+    for (const s of [...w.supports]) if (s.cap !== undefined && Math.hypot(s.x - x, s.y - y, s.z - z) < R * 0.6 + 4) this.failSupport(s, 9);
+    // and the roof around the blast is released, regardless of the tunnel rule: a tunnel or two comes down
+    const ci = toI(x), cj = toJ(y), ck = toK(z), RC = 22; let marked = 0;
+    for (let dk = -RC; dk <= RC; dk++) for (let di = -RC; di <= RC; di++) {
+      if (di * di + dk * dk > RC * RC) continue;
+      const i = ci + di, k = ck + dk, top = w.topAt(i, k);
+      for (let j = Math.max(1, cj - 3); j <= Math.min(top - 1, cj + 9); j++) {
+        if (!w.solid(i, j, k) || w.solid(i, j - 1, k)) continue;
+        const id = (j * NZ + k) * NX + i; if (w.creaking.has(id)) continue;
+        const d = Math.hypot(di, dk); w.creaking.set(id, { i, j, k, t: 0.4 + d * 0.09 + Math.random() * 0.8, force: true }); marked++;
+      }
+    }
+    const pd = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
+    if (pd < 14) { this.hurtPlayer(70 * (1 - pd / 14), 'a Razzo went off'); this.dust.lung = Math.min(1.1, this.dust.lung + 0.5); }
+    this.shake = Math.max(this.shake, 1.4);
+    if (pd < 60) this.ui.hint(marked > 20 ? '<b>The roof is coming down!</b> Get clear.' : '<b>BOOM.</b>', 4);
+    this.sound.rumble(2.2);
   }
 
   explode(x, y, z) {

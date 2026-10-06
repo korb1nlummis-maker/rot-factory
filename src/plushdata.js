@@ -43,6 +43,7 @@ export const RARITY = [
 const SPECIES_TOTAL = ARCH_COUNT * PAL_COUNT;
 export const species = []; // index = species id (1..SPECIES_TOTAL), 0 unused
 export const pools = RARITY.map(() => []);
+export const volatilePool = []; // Razzo plush: not part of the normal rarity pools, they turn up on their own roll (see pickSpecies)
 
 (function build() {
   // The original 576 species keep their ids, shapes, colors and rarities forever (saves and dex entries depend on them).
@@ -67,7 +68,7 @@ export const pools = RARITY.map(() => []);
     const r = rarityOf[s] ?? 0;
     const name = `${PREFIXES[pal]} ${ARCH_NAMES[arch]}`;
     species[s] = { id: s, arch, pal, rarity: r, name, volatile: arch === 31 };
-    pools[r].push(s);
+    if (species[s].volatile) volatilePool.push(s); else pools[r].push(s);
   }
   species[NEEDLE] = { id: NEEDLE, arch: ARCH_COUNT, pal: 99, rarity: 6, name: 'Il Rotto Supremo' };
   species[BULK] = { id: BULK, arch: ARCH_COUNT + 1, pal: 98, rarity: 0, name: 'Bulkhead Panel' };
@@ -83,6 +84,8 @@ const VEIN_W = [0.30, 0.45, 2.4, 4.2, 5.0, 5.0];
 const VEIN_SUM = VEIN_W.reduce((a, b, i) => a + b * RARITY[i].weight, 0);
 
 export function pickSpecies(h1, h2, vein = false) {
+  // one plush in about 15,000 is a Razzo: a lit fuse in your hands and a blast that can bring a tunnel down
+  if ((h2 & 0xff) === 0xa7 && ((h1 >>> 5) % 60) === 0) return volatilePool[(h1 >>> 11) % volatilePool.length];
   const roll = (h2 >>> 8) / 16777216;
   let acc = 0, r = 0;
   for (let i = 0; i < 6; i++) {

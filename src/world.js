@@ -478,7 +478,7 @@ export class World {
     this._relBudget = Math.min(30, (this._relBudget || 0) + dt * 24);
     for (const [id, c] of done) {
       this.creaking.delete(id);
-      const s = this.stress(c.i, c.j, c.k);
+      const s = c.force ? { margin: -1 } : this.stress(c.i, c.j, c.k);
       if (s && s.margin < 0) {
         if (this._relBudget >= 1 && hooks.release(c.i, c.j, c.k)) {
           this._relBudget -= 1;

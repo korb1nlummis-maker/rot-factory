@@ -334,7 +334,7 @@ export async function runSelfTest(g, only = '') {
   });
   await T('mining.charge-fuse-6s', async () => { fresh(mkUp({ charges: 1 })); craft('charge'); selectTool('charge'); aimPoint(0, 0, 6); const pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const e = S().entities.find((x) => x.type === 'charge'); return (e && e.fuse === 6) || 'fuse ' + (e && e.fuse); });
   await T('mining.tamp-adds-safe-length', async () => {
-    fresh({}); const { i, k } = spot(); dig(i, k, 24, 2, 3, false);
+    fresh({}); let sp1 = spot(); for (const lane of [20, 28, 6, -6, -14]) { if (w().topAt(sp1.i + 18, sp1.k) >= 6) break; try { sp1 = spot(lane); } catch (e) { /* lane without a slope mouth */ } } const { i, k } = sp1; dig(i, k, 24, 2, 3, false);
     const before = w().stabBonus; w().stabBonus = 0; const a = w().stress(i + 18, 3, k); w().stabBonus = tune({ tamp: 8 }).stabBonus; const b = w().stress(i + 18, 3, k); w().stabBonus = before;
     if (!a || !b) return 'no roof cell to measure'; return (g.T.stabBonus === 8 && b.B - a.B === 16) || `B ${a.B} -> ${b.B}, stabBonus ${g.T.stabBonus}`;
   });
