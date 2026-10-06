@@ -399,7 +399,7 @@ export class Machines {
     }
     this.root.add(it.obj);
     this.items.set(ent.id, it);
-    if (!ent.remote && ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon'].includes(ent.type)) game.netEnt(ent);
+    if (!ent.remote && ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon', 'charge'].includes(ent.type)) game.netEnt(ent);
     return it;
   }
 

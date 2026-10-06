@@ -67,6 +67,8 @@ export class Sim {
     this.flag = new Uint8Array(CAP); // 1 thrown, 2 from collapse
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
     this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
+    this.bid = new Uint32Array(CAP); this.own = new Uint8Array(CAP); this.idc = 1; // stable ids for syncing, and who threw it (0 host, 1 guest)
+    this.spawnHook = null;
     this.head = new Int32Array(HSIZE); this.next = new Int32Array(CAP);
     this.contact = { hits: 0, nx: 0, ny: 0, nz: 0, deep: 0 };
     this.colliders = []; // {x,z,r,h}
@@ -78,7 +80,8 @@ export class Sim {
 
   get count() { return this.n; }
 
-  spawn(sp, vr, x, y, z, vx = 0, vy = 0, vz = 0, flag = 0) {
+  spawn(sp, vr, x, y, z, vx = 0, vy = 0, vz = 0, flag = 0, own = 0) {
+    if (this.spawnHook) { const r = this.spawnHook(sp, vr, x, y, z, vx, vy, vz, flag); if (r !== undefined) return r; }
     this.lastIndex = -1;
     if (this.n >= CAP) return -1;
     const i = this.n++;
@@ -88,6 +91,7 @@ export class Sim {
     this.q[i * 4] = this.qt[0]; this.q[i * 4 + 1] = this.qt[1]; this.q[i * 4 + 2] = this.qt[2]; this.q[i * 4 + 3] = this.qt[3];
     this.sp[i] = sp; this.vr[i] = vr; this.rest[i] = 0; this.age[i] = 0; this.flag[i] = flag;
     this.ox[i] = x; this.oz[i] = z; this.sq[i] = 0;
+    this.bid[i] = this.idc++; this.own[i] = own;
     return i;
   }
 
@@ -97,9 +101,11 @@ export class Sim {
       this.x[i] = this.x[l]; this.y[i] = this.y[l]; this.z[i] = this.z[l];
       this.vx[i] = this.vx[l]; this.vy[i] = this.vy[l]; this.vz[i] = this.vz[l];
       for (let t = 0; t < 4; t++) this.q[i * 4 + t] = this.q[l * 4 + t];
-      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l];
+      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l];
     }
   }
+
+  indexOfId(id) { for (let i = 0; i < this.n; i++) if (this.bid[i] === id) return i; return -1; }
 
   // ray vs loose bodies; returns {i, t} or null
   raycast(ox, oy, oz, dx, dy, dz, maxT) {

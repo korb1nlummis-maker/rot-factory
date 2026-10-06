@@ -157,7 +157,9 @@ export class Game {
     this.player = new Player(this.world);
     if (saved && saved.loose) for (const b of saved.loose) this.sim.spawn(b[0], b[1], b[2], b[3], b[4], 0, 0, 0, 2);
     this.sim.binCatch = 0;
-    this.sim.player = { spheres: () => this.player.spheres(), vel: this.player.vel };
+    this.sim.player = { spheres: () => { const a = this.player.spheres(); if (this.remote && this.net.open) a.push(...this.remote.spheres()); return a; }, vel: this.player.vel };
+    this.sim.spawnHook = (sp, vr, x, y, z, vx, vy, vz, flag) => this.spawnHook(sp, vr, x, y, z, vx, vy, vz, flag);
+    this.netBodies = new Map();
     this.sim.hooks = {
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
@@ -549,12 +551,16 @@ export class Game {
 
     // --- sim
     this.kickBudget = 6;
-    this.sim.step(dt);
-    world.updateStability(dt, T.warn, {
-      onCreak: (x, y, z, n) => this.onCreak(x, y, z, n),
-      release: (i, j, k2) => this.releaseCell(i, j, k2),
-    });
-    this.updateAfters(dt);
+    if (!this.isGuest()) {
+      this.sim.step(dt);
+      world.updateStability(dt, T.warn, {
+        onCreak: (x, y, z, n) => this.onCreak(x, y, z, n),
+        release: (i, j, k2) => this.releaseCell(i, j, k2),
+      });
+      this.updateAfters(dt);
+    } else {
+      for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
+    }
     this.settleT = (this.settleT ?? 10) - dt;
     if (this.settleT <= 0) {
       this.settleT = 9 + Math.random() * 20;
@@ -644,6 +650,10 @@ export class Game {
   findTarget(o, d) {
     const T = this.T;
     const cell = this.pickCell(o, d, T.reach);
+    if (this.isGuest()) {
+      const nb = this.netRaycast(o, d, cell ? cell.t : T.reach);
+      if (nb) { const b = this.netBodies.get(nb.id); return { type: 'nbody', id: nb.id, t: nb.t, sp: b.sp, vr: b.vr }; }
+    }
     const body = this.sim.raycast(o.x, o.y, o.z, d.x, d.y, d.z, cell ? cell.t : T.reach);
     if (body) return { type: 'body', idx: body.i, t: body.t, sp: this.sim.sp[body.i], vr: this.sim.vr[body.i] };
     if (cell) {
@@ -686,6 +696,9 @@ export class Game {
         const pose = this._pose || (this._pose = new Float32Array(9));
         cellPose(tg.i, tg.j, tg.k, tg.vr, pose);
         this.renderer.setGhost(tg.sp, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6], pose[7], RARITY[sp.rarity].color);
+      } else if (tg.type === 'nbody') {
+        const b = this.netBodies.get(tg.id);
+        if (b) this.renderer.setGhost(tg.sp, b.x, b.y, b.z, b.q[0], b.q[1], b.q[2], b.q[3], 1, RARITY[sp.rarity].color);
       } else {
         const s = this.sim;
         this.renderer.setGhost(tg.sp, s.x[tg.idx], s.y[tg.idx], s.z[tg.idx], s.q[tg.idx * 4], s.q[tg.idx * 4 + 1], s.q[tg.idx * 4 + 2], s.q[tg.idx * 4 + 3], 1, RARITY[sp.rarity].color);
@@ -694,7 +707,7 @@ export class Game {
     } else { this.ui.setTarget(null); this.renderer.setGhost(0); this.ui.setCross(false); }
 
     // vacuum burst (tap G once the Plush Vacuum is owned); special targets always use the single grab
-    const special = tg && (tg.type === 'body' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
+    const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE);
     if (T.vac > 0 && !special) {
       if (this.keys.KeyG && !special) this.vacT = Math.max(this.vacT || 0, 0.3);
       if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
@@ -702,7 +715,7 @@ export class Game {
     } else {
       // single-plush grab
       const full = !this.storeRoom();
-      const key = tg ? (tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : `b${tg.idx}`) : '';
+      const key = tg ? (tg.type === 'cell' ? `c${tg.i},${tg.j},${tg.k}` : tg.type === 'nbody' ? `n${tg.id}` : `b${tg.idx}`) : '';
       if (this.grabWant && !tg) { this.grabWantT += dt; if (this.grabWantT > 0.5) { this.grabWant = false; } }
       else this.grabWantT = 0;
       if (this.holdGrab() && tg && !G.latch) {
@@ -759,6 +772,13 @@ export class Game {
       S.stats.cells++;
       this.loosen(tg.i, tg.j, tg.k, 0.8);
       this.trackDepth();
+    } else if (tg.type === 'nbody') {
+      const b = this.netBodies.get(tg.id);
+      if (!b) return false;
+      item = { sp: b.sp, vr: b.vr };
+      pos = new THREE.Vector3(b.x, b.y, b.z);
+      this.netBodies.delete(tg.id);
+      this.netSend({ t: 'take', id: tg.id });
     } else {
       const s = this.sim;
       item = { sp: s.sp[tg.idx], vr: s.vr[tg.idx] };
@@ -891,7 +911,7 @@ export class Game {
   // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
   gPress() {
     const t0 = this.curTargetRef;
-    const special = t0 && (t0.type === 'body' || t0.sp === BULK || t0.sp === REMAINS || t0.sp === CACHE);
+    const special = t0 && (t0.type === 'body' || t0.type === 'nbody' || t0.sp === BULK || t0.sp === REMAINS || t0.sp === CACHE);
     if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
     if (this.curTargetRef) { this.grabWant = true; this.grabWantT = 0; this.grab.latch = false; return; }
     if (this.S.carry.length) this.dropOne();
@@ -1050,6 +1070,26 @@ export class Game {
   // ======================= multiplayer =======================
   myName() { return (document.getElementById('mpName').value || this.S.settings.name || 'Player').slice(0, 14); }
   netSend(m) { if (this.net.open) this.net.send(m); }
+  isGuest() { return this.net.open && this.net.role === 'guest' && this.guestReady; }
+
+  // a guest cannot run the physics: it asks the host to spawn the plush and sees the result in the body stream
+  spawnHook(sp, vr, x, y, z, vx, vy, vz, flag) {
+    if (!this.isGuest()) return undefined;
+    this.netSend({ t: 'spawn', a: [sp, vr, +x.toFixed(2), +y.toFixed(2), +z.toFixed(2), +vx.toFixed(2), +vy.toFixed(2), +vz.toFixed(2), flag] });
+    return 0;
+  }
+
+  netRaycast(o, d, maxT) {
+    let best = null, bt = maxT;
+    for (const [id, b] of this.netBodies) {
+      const cx = b.x - o.x, cy = b.y - o.y, cz = b.z - o.z;
+      const t = cx * d.x + cy * d.y + cz * d.z;
+      if (t < 0 || t > bt) continue;
+      const px = cx - d.x * t, py = cy - d.y * t, pz = cz - d.z * t;
+      if (px * px + py * py + pz * pz < 0.1) { bt = t; best = id; }
+    }
+    return best === null ? null : { id: best, t: bt };
+  }
 
   wireMulti() {
     const $$ = (id) => document.getElementById(id);
@@ -1079,12 +1119,16 @@ export class Game {
     this.netSend({ t: 'hi', name: this.myName() });
     if (this.net.role === 'host') this.ui.toast({ icon: '🤝', title: 'Friend connected', text: 'They are joining your warehouse.', ms: 4000 });
     this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
+    this.creakOut = [];
+    if (this.net.role === 'host') this.world.onCreakCell = (i, j, k) => { if (this.creakOut.length < 200) this.creakOut.push(i, j, k); };
   }
 
   netClosed() {
+    if (this.netBodies) this.netBodies.clear();
+    this.guestReady = false;
     if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
     for (const [id, it] of [...this.machines.items]) if (it.ent.remote) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(id); }
-    if (this.world) this.world.onSet = null;
+    if (this.world) { this.world.onSet = null; this.world.onCreakCell = null; }
     this.ui.toast({ icon: '👋', title: 'Friend left', text: 'The connection closed.', ms: 4000 });
   }
 
@@ -1125,6 +1169,33 @@ export class Game {
         break;
       }
       case 'pos': if (this.remote) this.remote.set(m); break;
+      case 'spawn': { const a = m.a; this.sim.spawn(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 1); break; }
+      case 'take': { const i = this.sim.indexOfId(m.id); if (i >= 0) this.sim.remove(i); break; }
+      case 'sale': if (m.sp === NEEDLE) { this.registerDex(NEEDLE); this.foundNeedle('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
+      case 'bodies': {
+        const seen = new Set();
+        const a = m.a;
+        for (let n = 0; n < a.length; n += 11) {
+          const id = a[n]; seen.add(id);
+          let b = this.netBodies.get(id);
+          if (!b) { b = { id, x: a[n + 3], y: a[n + 4], z: a[n + 5], q: [a[n + 6], a[n + 7], a[n + 8], a[n + 9]] }; this.netBodies.set(id, b); }
+          b.sp = a[n + 1]; b.vr = a[n + 2]; b.tx = a[n + 3]; b.ty = a[n + 4]; b.tz = a[n + 5]; b.tq = [a[n + 6], a[n + 7], a[n + 8], a[n + 9]]; b.sq = a[n + 10];
+        }
+        for (const id of [...this.netBodies.keys()]) if (!seen.has(id)) this.netBodies.delete(id);
+        break;
+      }
+      case 'creak': {
+        for (let n = 0; n < m.a.length; n += 3) { const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2]; this.world.creaking.set((j * NZ + k) * NX + i, { i, j, k, t: 2.5 }); }
+        if (m.a.length) this.onCreak(cellX(m.a[0]), cellY(m.a[1]), cellZ(m.a[2]), m.a.length / 3);
+        break;
+      }
+      case 'boom': {
+        const d = Math.hypot(m.x - this.player.pos.x, m.y - this.player.pos.y, m.z - this.player.pos.z);
+        this.sound.rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
+        if (d < 18) this.shake = Math.max(this.shake, Math.min(1.2, 14 / (d + 6)));
+        this.fx.dust(m.x, m.y, m.z, 16, 1.4, 1.6);
+        break;
+      }
       case 'ent+': this.remoteEnt(m.ent); break;
       case 'ent-': {
         const key = m.side === 'mine' ? 'r' + m.id : m.id;
@@ -1150,7 +1221,7 @@ export class Game {
     let buf = [];
     w.forEachDiff((id, sp, vr) => { buf.push(id, sp, vr); if (buf.length >= 9000) { this.netSend({ t: 'diff', a: buf }); buf = []; } });
     if (buf.length) this.netSend({ t: 'diff', a: buf });
-    const list = this.S.entities.filter((e) => ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon'].includes(e.type)).map((e) => ({ ...e }));
+    const list = this.S.entities.filter((e) => ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon', 'charge'].includes(e.type)).map((e) => ({ ...e }));
     this.netSend({ t: 'ents', list });
     this.netSend({ t: 'ready' });
   }
@@ -1178,6 +1249,21 @@ export class Game {
       this._np = 0.1;
       const p = this.player;
       this.netSend({ t: 'pos', x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(3), pitch: +p.pitch.toFixed(3), lamp: this.lampOn !== false });
+    }
+    if (this.net.role === 'host') {
+      this._nb = (this._nb || 0) - dt;
+      if (this._nb <= 0) {
+        this._nb = 0.12;
+        const s = this.sim, p = this.player.pos, rp = this.remote ? this.remote.pos : null, a = [];
+        for (let i = 0; i < s.n && a.length < 3300; i++) {
+          const nearMe = (s.x[i] - p.x) ** 2 + (s.z[i] - p.z) ** 2 < 6400;
+          const nearHim = rp && (s.x[i] - rp.x) ** 2 + (s.z[i] - rp.z) ** 2 < 6400;
+          if (!nearMe && !nearHim) continue;
+          a.push(s.bid[i], s.sp[i], s.vr[i], +s.x[i].toFixed(2), +s.y[i].toFixed(2), +s.z[i].toFixed(2), +s.q[i * 4].toFixed(3), +s.q[i * 4 + 1].toFixed(3), +s.q[i * 4 + 2].toFixed(3), +s.q[i * 4 + 3].toFixed(3), +s.sq[i].toFixed(2));
+        }
+        this.netSend({ t: 'bodies', a });
+      }
+      if (this.creakOut && this.creakOut.length) this.netSend({ t: 'creak', a: this.creakOut.splice(0, 90) });
     }
     if (this.net.role === 'host') { this._ntm = (this._ntm || 0) - dt; if (this._ntm <= 0) { this._ntm = 6; this.netSend({ t: 'time', gameMin: this.S.gameMin }); } }
     if (this.remote) this.remote.update(dt);
@@ -1403,8 +1489,9 @@ export class Game {
   onBin(i) {
     const s = this.sim;
     const sp = s.sp[i], vr = s.vr[i];
-    if (sp === NEEDLE) { this.registerDex(sp); this.foundNeedle('the SORT bin'); return; }
+    if (sp === NEEDLE && s.own[i] !== 1) { this.registerDex(sp); this.foundNeedle('the SORT bin'); return; }
     const dist = s.flag[i] === 1 ? Math.hypot(s.ox[i] - this.hall.binPos.x, s.oz[i] - this.hall.binPos.z) : 0;
+    if (s.own[i] === 1 && this.net.open) { this.netSend({ t: 'sale', sp, vr, dist }); return; }
     this.sell(sp, vr, { dist, streak: true, bonus: s.flag[i] === 1 });
   }
 
@@ -1647,7 +1734,7 @@ export class Game {
     if (e.type === 'beacon') this.world.reserved.delete((e.j * NZ + e.k) * NX + e.i);
     this.machines.disposeObj(best.obj);
     this.machines.items.delete(e.id);
-    if (['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon'].includes(e.type)) this.netEntRemove(e);
+    if (['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon', 'charge'].includes(e.type)) this.netEntRemove(e);
     this.S.entities = this.S.entities.filter((x) => x.id !== e.id);
     this.world.supports = this.world.supports.filter((s) => s.id !== e.id && s.id !== 'shield' + e.id);
     this.sound.thump(0.15, 120);
@@ -1762,6 +1849,7 @@ export class Game {
 
   // ======================= blasting =======================
   detonate(ent) {
+    if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
     const w = this.world, S = this.S;
     const tier = ent.tier || 1;
     const R = [0, 3, 4, 5][tier];
@@ -1983,6 +2071,7 @@ export class Game {
       this.afters.push({ i, j, k, t: 3 + Math.random() * 5, n: 3 + ((Math.random() * 4) | 0) });
       this.collapseT = 0;
       this.sound.rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
+      this.netSend({ t: 'boom', x: +x.toFixed(1), y: +y.toFixed(1), z: +z.toFixed(1) });
       if (d < 18) this.shake = Math.max(this.shake, Math.min(1.2, 14 / (d + 6)));
     }
     this.collapseT = Math.min(this.collapseT, 1.2);
@@ -2203,6 +2292,16 @@ export class Game {
     };
     for (let i = 0; i < s.n; i++) {
       r.addDynamic(s.sp[i], s.vr[i], s.x[i], s.y[i], s.z[i], s.q[i * 4], s.q[i * 4 + 1], s.q[i * 4 + 2], s.q[i * 4 + 3], 1, 0.95, skyAt(s.x[i], s.y[i], s.z[i]), s.sq[i]);
+    }
+    if (this.netBodies && this.netBodies.size) {
+      const k = Math.min(1, dt * 14);
+      for (const b of this.netBodies.values()) {
+        b.x += (b.tx - b.x) * k; b.y += (b.ty - b.y) * k; b.z += (b.tz - b.z) * k;
+        let l = 0;
+        for (let t = 0; t < 4; t++) { b.q[t] += (b.tq[t] - b.q[t]) * k; l += b.q[t] * b.q[t]; }
+        l = Math.sqrt(l) || 1;
+        r.addDynamic(b.sp, b.vr, b.x, b.y, b.z, b.q[0] / l, b.q[1] / l, b.q[2] / l, b.q[3] / l, 1, 0.95, skyAt(b.x, b.y, b.z), b.sq || 0);
+      }
     }
     // fliers
     const bp = this.hall.binPos;

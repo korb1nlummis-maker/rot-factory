@@ -373,7 +373,7 @@ export class World {
           const id = (j * NZ + k) * NX + i;
           if (this.creaking.has(id)) continue;
           const s = this.stress(i, j, k);
-          if (s && s.margin < 0) this.creaking.set(id, { i, j, k, t: warn * (0.35 + Math.random() * 0.9) });
+          if (s && s.margin < 0) { this.creaking.set(id, { i, j, k, t: warn * (0.35 + Math.random() * 0.9) }); if (this.onCreakCell) this.onCreakCell(i, j, k); }
         }
       }
     }

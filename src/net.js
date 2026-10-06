@@ -128,5 +128,7 @@ export class RemotePlayer {
     const lamp = this.group.getObjectByName('lamp'); if (lamp) lamp.visible = this.lampOn;
   }
 
+  spheres() { const p = this.pos; return [{ x: p.x, y: p.y + 0.3, z: p.z, r: 0.3 }, { x: p.x, y: p.y + 0.8, z: p.z, r: 0.3 }, { x: p.x, y: p.y + 1.3, z: p.z, r: 0.3 }]; }
+
   dispose(scene) { scene.remove(this.group); this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
 }
