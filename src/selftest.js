@@ -49,7 +49,7 @@ export async function runSelfTest(g, only = '') {
     S().contracts = []; S().ending = null; S().needleLost = false;
     g.grabCd = 0; g.hp = 100; g.hpMax = 100; g.dead = false; g.trapOn = false; g.airLeft = undefined; g.suffocating = false; g.blacking = false;
     p().embedded = false; p().buried = 0; p().vel.set(0, 0, 0);
-    g.dust.cells.clear(); g.dust.lung = 0;
+    g.dust.cells.clear(); g.dust.lung = 0; g.dust.recover = 0; g._lungPrev = undefined; g._lungRate = 0;
     g.stowed = true; g.vacT = 0; g.holdBlock = false; g.keys = {}; // bare hands unless a test takes a tool out
     g.T = g.tune(); w().stabBonus = g.T.stabBonus; sim().binCatch = g.T.binCatch;
     g.rebuildTools();

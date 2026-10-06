@@ -19,7 +19,7 @@ export default async function (ctx) {
   const withReq = (u, extra = {}) => { const up = { ...extra }; if (u.req) up[u.req.id] = Math.max(up[u.req.id] || 0, u.req.lvl); return up; };
 
   await T('upg.machine.catalog-costs-and-requirements-are-sane', async () => {
-    if (MU.length !== 27) return 'expected 27 machine upgrades, found ' + MU.length;
+    if (MU.length !== 28) return 'expected 28 machine upgrades, found ' + MU.length;
     for (const u of MU) {
       if (u.cost.length !== u.max) return `${u.id}: ${u.cost.length} costs for max ${u.max}`;
       for (let l = 0; l < u.max; l++) { if (!(u.cost[l] > 0) || !Number.isInteger(u.cost[l])) return `${u.id}: bad cost ${u.cost[l]} at ${l}`; if (l && u.cost[l] <= u.cost[l - 1]) return `${u.id}: cost not rising at level ${l + 1}`; }

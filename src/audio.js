@@ -104,7 +104,8 @@ export class Sound {
     bell(a, 0); bell(b, 0.65);
     this.noise(0.3, 1800, 800, 0.03, 'bandpass', 1.4, 3); // PA click
   }
-  cough() { if (!this.ctx) return; this.noise(0.12, 900, 300, 0.22, 'bandpass', 0, 1.2); this.noise(0.14, 800, 250, 0.2, 'bandpass', 0.16, 1.2); this.tone('sawtooth', 160, 110, 0.12, 0.07); }
+  wheeze(v = 1) { if (!this.ctx) return; this.noise(0.55, 500, 1500, 0.1 * v, 'bandpass', 0, 3); this.noise(0.5, 1400, 600, 0.08 * v, 'bandpass', 0.6, 3); }
+    cough() { if (!this.ctx) return; this.noise(0.12, 900, 300, 0.22, 'bandpass', 0, 1.2); this.noise(0.14, 800, 250, 0.2, 'bandpass', 0.16, 1.2); this.tone('sawtooth', 160, 110, 0.12, 0.07); }
   squeak(pitch = 1, vol = 0.18) {
     if (!this.ctx) return;
     const f = (700 + Math.random() * 500) * pitch;

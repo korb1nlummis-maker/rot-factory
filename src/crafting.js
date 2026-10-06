@@ -4,6 +4,7 @@ import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
   frame: 'A 4x4 square (2.4 m) section. Aim at the floor, press B: it carves out its section and anchors the roof around it. Aim next to a frame and it snaps on any side (in line, beside, above, below) to build tunnels, junctions and chambers. The hammer takes it back.',
+  mfan: 'Take it out and aim at any frame (even one you turned): it clamps under the top beam and blows the way you are facing. One per frame. It needs power, like a Vent Fan: a pole or a generator in reach.',
   marker: 'Aim at the floor and press B. It shows on your compass so you can find your way back.',
   glow: 'Aim and press B. A soft green light for 10 minutes, no power needed.',
   flare: 'Aim and press B. A bright light for 4 minutes, no power needed.',
@@ -85,6 +86,7 @@ export function recipes(g) {
   if (T.machines.includes('gen')) list.push({ id: 'gen', kind: 'gen', icon: '🔥', name: 'Generator', short: 'Generator', desc: 'Burns Common to Rare plush for power.', price: g.genCost(), batch: [1, 2, 5] });
   if (T.machines.includes('pole')) list.push({ id: 'pole', kind: 'pole', icon: '⚡', name: 'Power Pole', short: 'Pole', desc: 'Links generators and feeds machines nearby.', price: 20, batch: [1, 5, 10] });
   if (T.machines.includes('fan')) list.push({ id: 'fan', kind: 'fan', icon: '🌬️', name: 'Vent Fan', short: 'Fan', desc: 'Clears dust within 14 m when powered.', price: 240, batch: [1, 2, 5] });
+  if (T.machines.includes('mfan')) list.push({ id: 'mfan', kind: 'mfan', icon: '🌀', name: 'Support Fan', short: 'S.Fan', desc: 'Clamps under a frame and blows fresh air the way you face, clearing dust 20 m down the tunnel. Needs power.', price: 150, batch: [1, 2, 5] });
   if (T.machines.includes('sorter')) list.push({ id: 'sorter', kind: 'sorter', icon: '🗃️', name: 'Sorting Box', short: 'Sorter', desc: 'Sells or passes plush by rarity. Sucks in what you carry.', price: g.sorterCost(), batch: [1, 2, 5] });
   if (T.machines.includes('vault')) list.push({ id: 'vault', kind: 'vault', icon: '🧰', name: 'Vault Crate', short: 'Vault', desc: 'Stores plush at the end of a line.', price: 140, batch: [1, 2, 5] });
   if (T.machines.includes('mech')) list.push({ id: 'mech', kind: 'mech', icon: '🤖', name: 'Mech Scooper', short: 'Mech', desc: 'Digs the face ahead and loads the belt behind it.', price: g.mechCost(), batch: [1, 2, 3] });

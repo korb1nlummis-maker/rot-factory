@@ -12,7 +12,7 @@ export default async function (ctx) {
   const GATE = (id) => {
     if (id.startsWith('frame:') || id.startsWith('mat:')) return [id.split(':')[1]];
     if (id.startsWith('cart:')) return ['cart'];
-    return ({ marker: ['markers'], glow: ['markers'], flare: ['markers'], jack: ['jacks'], strut: ['struts'], medkit: ['firstaid'], canister: ['firstaid'], dynamite: ['dynamite'], charge: ['charges'], lantern: ['lantern'], bulk: ['bulkhead'], belt: ['belts'], ramp: ['belts'], splitter: ['splitter'], gate: ['detector'], gen: ['power'], pole: ['power'], fan: ['fans'], sorter: ['sorter'], vault: ['vault'], mech: ['mech'], beacon: ['depots'], claw: ['claw'], borer: ['borer'] })[id];
+    return ({ mfan: ['mfan'], marker: ['markers'], glow: ['markers'], flare: ['markers'], jack: ['jacks'], strut: ['struts'], medkit: ['firstaid'], canister: ['firstaid'], dynamite: ['dynamite'], charge: ['charges'], lantern: ['lantern'], bulk: ['bulkhead'], belt: ['belts'], ramp: ['belts'], splitter: ['splitter'], gate: ['detector'], gen: ['power'], pole: ['power'], fan: ['fans'], sorter: ['sorter'], vault: ['vault'], mech: ['mech'], beacon: ['depots'], claw: ['claw'], borer: ['borer'] })[id];
   };
 
   // ---------------------------------------------------------------- recipes: price on the card is what is charged, output lands in the right place

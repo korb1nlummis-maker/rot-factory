@@ -2067,6 +2067,7 @@ export class Game {
       plan = this.machines.planFrame(eye, dir, yaw, tool.fk, this.frameYaw ?? null); cost = FRAME_TYPES[tool.fk].cost;
       if (plan.ent && plan.ent.yaw !== undefined) this._lastFrameYaw = plan.ent.yaw;
     }
+    else if (tool.kind === 'mfan') { plan = this.machines.planMountFan(eye, dir, yaw); cost = 0; }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
     else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
@@ -2291,6 +2292,12 @@ export class Game {
       for (const [ci, cj, ck] of e.clear || []) { const rm = this.world.removeCell(ci, cj, ck, true); if (rm) { carved++; S.stats.cells++; this.sellAuto(rm.sp, rm.vr, 0.6); } }
       if (carved) { this.fx.dust(e.cx, e.y0 + 1.2, e.cz, 8, 1, 1); this.ui.hint(`Frame built: carved a 4x4 section, salvaged ${carved} plush.`, 3); }
     }
+    else if (tool.kind === 'mfan') {
+      ent = { id, type: 'fan', mounted: true, frameId: e.frameId, px: e.px, py: e.py, pz: e.pz, fx: e.fx, fz: e.fz, fyaw: e.fyaw, dir: 0, i: e.i, j: e.j, k: e.k };
+      S.entities.push(ent); this.addEntity(ent); this.power.markDirty(); this.sound.place(); this.rebuildTools(); S.stats.built = (S.stats.built || 0) + 1;
+      this.ui.hint('Support fan hung. It blows the way you were facing and needs power: link it with a pole or generator.', 5);
+      return;
+    }
     else if (tool.kind === 'lantern') { ent = { id, type: 'lantern', x: e.x, y: e.y, z: e.z }; S.stats.lanterns++; }
     else if (tool.kind === 'marker') { ent = { id, type: 'marker', x: e.x, y: e.y, z: e.z }; }
     else if (tool.kind === 'glow') { ent = { id, type: 'flare', glow: true, x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
@@ -2355,7 +2362,7 @@ export class Game {
       this.netSend({ t: 'ent-', id: tile.id });
       const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
       for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
-      this.giveItem(tile.type === 'belt' ? (tile.detector ? 'gate' : tile.splitter ? 'splitter' : tile.rise ? 'ramp' : 'belt') : tile.type);
+      this.giveItem(tile.type === 'belt' ? (tile.detector ? 'gate' : tile.splitter ? 'splitter' : tile.rise ? 'ramp' : 'belt') : tile.mounted ? 'mfan' : tile.type);
       this.ui.setCarry(this.S.carry, this.T.carry);
       this.sound.thump(0.15, 140);
       if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
@@ -2373,6 +2380,7 @@ export class Game {
     this.netSend({ t: 'ent-', id: e.id });
     this.S.entities = this.S.entities.filter((x) => x.id !== e.id);
     this.world.supports = this.world.supports.filter((s) => s.id !== e.id && s.id !== 'shield' + e.id);
+    if (e.type === 'frame') this.dropMountedFans(e.id, true);
     this.sound.thump(0.15, 120);
     if (e.type === 'claw' || e.type === 'borer') this.rebuildTools();
     // taking a support away puts the roof it was holding back under the tunnel rule
@@ -2409,6 +2417,13 @@ export class Game {
     this.ui.hint(`<b>The ${st.name} cracks and gives way.</b> It would have carried ${st.pct}% of what it can bear, at ${Math.round(st.d)} m deep. It is gone. ${st.next ? 'You need ' + (FRAME_TYPES[st.next] ? FRAME_TYPES[st.next].name : st.next) + ' or better down here, or more supports to share the weight.' : ''}`, 6);
   }
 
+  // a fan hangs from its frame: when the frame goes, the fan goes with it (you get it back when you took the frame down yourself)
+  dropMountedFans(frameId, give) {
+    for (const t of [...this.logi.tiles.values()]) if (t.type === 'fan' && t.mounted && t.frameId === frameId) {
+      this.logi.remove(t); this.S.entities = this.S.entities.filter((x) => x.id !== t.id); this.netSend({ t: 'ent-', id: t.id }); if (give) this.giveItem('mfan'); this.power.markDirty();
+    }
+  }
+
   // ---- live load tracing: every support keeps track of what the roof under its reach weighs and buckles when it is too much ----
   queueLoad(x, y, z) {
     const q = this.loadQ || (this.loadQ = new Set());
@@ -2432,6 +2447,7 @@ export class Game {
     const w = this.world, S = this.S;
     const ent = S.entities.find((e) => e.id === s.id); const it = this.machines.items.get(s.id);
     w.supports = w.supports.filter((q) => q.id !== s.id);
+    this.dropMountedFans(s.id, false);
     if (it) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(s.id); }
     S.entities = S.entities.filter((e) => e.id !== s.id); this.netSend({ t: 'ent-', id: s.id });
     S.stats.brokenSupports = (S.stats.brokenSupports || 0) + 1;
@@ -2743,7 +2759,26 @@ export class Game {
         if (!this._coughHint) { this._coughHint = true; this.ui.hint('Dust is getting in your lungs. Get to clean air, run a <b>Vent Fan</b>, or buy a <b>Respirator</b>.', 8); }
       }
     }
+    this.lungWarning(dt, lung);
     if (lung >= 1 && this.mode === 'play' && !this.blacking) this.blackout();
+  }
+
+  // you always get told before you pass out: a dusty edge to the screen, the cough, a wheeze and a countdown
+  lungWarning(dt, lung) {
+    const d = this.dust; const prev = this._lungPrev ?? lung; this._lungPrev = lung;
+    this._lungRate = (this._lungRate || 0) * 0.92 + ((lung - prev) / Math.max(dt, 1e-3)) * 0.08;
+    const stage = lung > 0.82 ? 3 : lung > 0.55 ? 2 : lung > 0.15 ? 1 : 0;
+    const eta = this._lungRate > 0.004 ? Math.max(1, Math.round((1 - lung) / this._lungRate)) : 0;
+    const label = ['', 'Dust in the air: cough', 'Wheezing: get to clean air', 'You are about to pass out'][stage];
+    const pulse = lung > 0.6 ? 0.5 + 0.5 * Math.sin((this._lungT = (this._lungT || 0) + dt * (3 + lung * 5))) : 0;
+    const vig = Math.min(0.97, Math.pow(Math.max(0, (lung - 0.12) / 0.88), 1.2) * 0.95 + pulse * 0.12 * Math.min(1, (lung - 0.6) / 0.4));
+    this.ui.setLungWarn(stage, label, stage >= 2 && eta ? `passing out in about ${eta} s` : stage >= 2 ? 'move away from the dust' : '', vig, lung > 0.82);
+    if (lung > 0.55) {
+      this._wheezeT = (this._wheezeT || 0) - dt;
+      if (this._wheezeT <= 0) { this._wheezeT = 2.4 - 1.4 * Math.min(1, (lung - 0.55) / 0.45); this.sound.wheeze(Math.min(1, lung)); if (lung > 0.82) this.sound.thump(0.2, 60); }
+    }
+    if (stage === 0 && this._lungWarned) this._lungWarned = false;
+    if (stage >= 2 && !this._lungWarned) { this._lungWarned = true; this.ui.hint('<b>Your lungs are full of dust.</b> Walk out of the dust, hang a <kbd>Support Fan</kbd> on a frame, run a Vent Fan, or buy a Respirator.', 7); }
   }
 
   updateTrapped(dt) {
@@ -2781,8 +2816,10 @@ export class Game {
       const S = this.S;
       for (const it of S.carry.splice(0, S.carry.length)) this.sim.spawn(it.sp, it.vr, this.player.pos.x + (Math.random() - 0.5), this.player.pos.y + 1, this.player.pos.z + (Math.random() - 0.5), 0, 2, 0, 0);
       this.ui.setCarry(S.carry, this.T.carry);
-      this.dust.lung = 0.35;
+      this.dust.lung = 0.06; this.dust.recover = 75;
       this.recall();
+      { const p0 = this.player.pos; for (const k of [...this.dust.cells.keys()]) { const [ix, iy, iz] = this.dust.decode(k); if (Math.hypot((ix + 0.5) * 3 - p0.x, (iz + 0.5) * 3 - p0.z) < 16) this.dust.cells.delete(k); } }
+      this._poCount = (this._poCount || 0) + 1; if (this.time - (this._poLast ?? -1e9) < 240) this.ui.hint('<b>You keep passing out in the same place.</b> Ventilate it: Support Fans on your frames, a Vent Fan, or a Respirator. Or tunnel somewhere else.', 9); this._poLast = this.time;
       this.ui.toast({ icon: '😵', title: 'You passed out', text: why === 'air' ? 'You ran out of air. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.' : 'Dust. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.', ms: 7000 });
       this.S.stats.passedOut = (this.S.stats.passedOut || 0) + 1;
       setTimeout(() => { this.ui.blackout(false); this.blacking = false; }, 700);

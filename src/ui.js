@@ -241,6 +241,11 @@ export class UI {
     a.classList.toggle('dying', !!dying || air < 0.25);
     $('lungBar').style.width = Math.min(100, lung * 100).toFixed(0) + '%';
   }
+  // dust warning: stage 0 none, 1 dusty, 2 wheezing, 3 about to pass out
+  setLungWarn(stage, label, eta, vig, red) {
+    const w = $('lungWarn'), v = $('lungVig'); w.classList.toggle('hidden', stage === 0); w.classList.remove('s1', 's2', 's3'); if (stage) w.classList.add('s' + stage);
+    $('lungStage').textContent = label; $('lungEta').textContent = eta; v.style.opacity = vig.toFixed(3); v.classList.toggle('red', !!red);
+  }
   setBuried(on) { $('buried').classList.toggle('hidden', !on); }
   setCompass(on, heading, markers, readout) {
     const c = $('compass');

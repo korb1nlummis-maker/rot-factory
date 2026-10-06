@@ -4,6 +4,7 @@ import { FRAME_TYPES, supportDepth } from './upgrades.js';
 import { capacityOf, loadOn } from './loadtrace.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
+import { buildMountFan, MOUNT_FAN } from './mountfan.js';
 
 const woodTex = (() => {
   const c = document.createElement('canvas'); c.width = 128; c.height = 128;
@@ -228,6 +229,25 @@ export class Machines {
     return { ok: true, ent: e };
   }
 
+  // ---- support fan: clamps under the top beam of the frame you aim at and blows the way you are facing
+  planMountFan(eye, dir, yaw) {
+    const g = this.game; let best = null, bd = 1.6;
+    for (const it of this.items.values()) {
+      const f = it.ent; if (f.type !== 'frame') continue;
+      const px = f.cx, py = f.y0 + f.h - MOUNT_FAN.drop, pz = f.cz;
+      const vx = px - eye.x, vy = py - eye.y, vz = pz - eye.z, t = vx * dir.x + vy * dir.y + vz * dir.z; if (t < 0.2 || t > 6.5) continue;
+      const d = Math.hypot(vx - dir.x * t, vy - dir.y * t, vz - dir.z * t); if (d < bd) { bd = d; best = f; }
+    }
+    if (!best) return { ok: false, why: 'Aim at a frame: the fan clamps under its top beam' };
+    for (const t of g.logi.tiles.values()) if (t.type === 'fan' && t.mounted && t.frameId === best.id) return { ok: false, why: 'This frame already has a fan' };
+    const fy = best.yaw !== undefined ? best.yaw : best.axis === 'x' ? Math.PI / 2 : 0, ax = Math.sin(fy), az = Math.cos(fy);
+    const sgn = (Math.sin(yaw) * ax + Math.cos(yaw) * az) >= 0 ? 1 : -1, fx = ax * sgn, fz = az * sgn;
+    const e = { type: 'fan', mounted: true, frameId: best.id, px: best.cx, py: best.y0 + best.h - MOUNT_FAN.drop, pz: best.cz, fx, fz, fyaw: Math.atan2(fx, fz), dir: 0 };
+    e.i = toI(e.px); e.j = toJ(e.py); e.k = toK(e.pz);
+    if (g.logi.tiles.has(((e.j * NZ) + e.k) * NX + e.i)) return { ok: false, why: 'Something is already in that spot' };
+    return { ok: true, ent: e };
+  }
+
   // measure the tunnel cross-section at floor cell (i,j,k) and describe a frame that fits it
   frameFromCell(i, j, k, axis, kind) {
     const w = this.game.world;
@@ -357,6 +377,7 @@ export class Machines {
     if (plan.ent) {
       const e = plan.ent;
       if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h, 0), plan.ok); }
+      else if (tool.kind === 'mfan') { key = `mf${plan.ok}`; make = () => ghostify(buildMountFan(), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
       else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
@@ -366,6 +387,7 @@ export class Machines {
     if (key !== this.ghostKey) { this.setGhost(make(), key); this.addReach(tool, plan); }
     const e = plan.ent;
     if (tool.kind === 'frame') { this.ghost.position.set(e.cx, e.y0, e.cz); this.ghost.rotation.y = e.yaw !== undefined ? e.yaw : e.axis === 'x' ? Math.PI / 2 : 0; }
+    else if (tool.kind === 'mfan') { this.ghost.position.set(e.px, e.py, e.pz); this.ghost.rotation.y = e.fyaw; }
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }

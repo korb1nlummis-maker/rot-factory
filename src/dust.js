@@ -45,7 +45,8 @@ export class Dust {
     this.t = step;
     const g = this.game, w = g.world;
     const fans = [];
-    for (const t of g.logi.tiles.values()) if (t.type === 'fan' && t.pw > 0.15) fans.push([cellX(t.i), t.j * 0.6 + 0.8, cellZ(t.k), t.pw]);
+    const mfans = [];
+    for (const t of g.logi.tiles.values()) if (t.type === 'fan' && t.pw > 0.15) { if (t.mounted) mfans.push([t.px, t.py, t.pz, t.pw, t.fx, t.fz]); else fans.push([cellX(t.i), t.j * 0.6 + 0.8, cellZ(t.k), t.pw]); }
     const next = new Map();
     const bump = (k, a) => { next.set(k, (next.get(k) || 0) + a); };
     for (const [k, v] of this.cells) {
@@ -57,6 +58,13 @@ export class Dust {
       for (const f of fans) {
         const d = Math.hypot(f[0] - cx, f[1] - cy, f[2] - cz);
         if (d < 14) decay += 0.45 * f[3] * (1 - d / 14);
+      }
+      // a support fan drives fresh air down the tunnel the way it faces: strong in the cone in front of it, a little behind
+      for (const f of mfans) {
+        const rx = cx - f[0], ry = cy - f[1], rz = cz - f[2], d = Math.hypot(rx, ry, rz); if (d > 22) continue;
+        const along = (rx * f[4] + rz * f[5]) / (d || 1);
+        if (along > 0.3 && d < 20) decay += 1.2 * f[3] * (1 - d / 20) * Math.min(1, (along - 0.3) / 0.4);
+        else if (d < 6) decay += 0.3 * f[3] * (1 - d / 6);
       }
       let nv = v * Math.exp(-decay * step);
       // leak toward empty neighbours
@@ -82,7 +90,8 @@ export class Dust {
     const d = Math.max(this.at(head.x, head.y, head.z), this.hostLevel || 0);
     this.level += (d - this.level) * Math.min(1, dt * 3);
     const resist = 1 - 0.2 * T.resp;
-    if (this.level > 0.3) this.lung = Math.min(1.05, this.lung + (this.level - 0.25) * 0.045 * resist * dt * 6);
+    const rec = this.recover > 0 ? 0.25 : 1; if (this.recover > 0) this.recover -= dt; // just woken up: your lungs forgive a lot for a minute
+    if (this.level > 0.3) this.lung = Math.min(1.05, this.lung + (this.level - 0.25) * 0.045 * resist * dt * 6 * rec);
     else if (this.level < 0.12) this.lung = Math.max(0, this.lung - 0.04 * dt * (1 + T.resp * 0.3));
     return this.lung;
   }

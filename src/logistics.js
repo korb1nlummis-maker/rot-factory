@@ -3,6 +3,7 @@ import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config
 import { species, RARITY, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { FUEL_MAX_RARITY } from './power.js';
+import { buildMountFan } from './mountfan.js';
 
 export const DX = [1, 0, -1, 0];
 export const DZ = [0, 1, 0, -1];
@@ -146,6 +147,7 @@ export class Logistics {
   buildObj(ent) {
     const g = new THREE.Group();
     g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
+    if (ent.type === 'fan' && ent.mounted) { const m = buildMountFan(); g.add(m); g.position.set(ent.px, ent.py, ent.pz); g.rotation.y = ent.fyaw; this.root.add(g); this.objs.set(ent.id, g); return; }
     if (ent.type === 'sorter') {
       const body = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.5, 0.56), M.steel); body.position.y = 0.25;
       const top = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.06, 0.4), M.glowG); top.position.y = 0.53; top.name = 'top';
