@@ -363,6 +363,7 @@ export class Game {
     else if (e.code === 'KeyJ') this.openModal('ach');
     else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < 9) this.selectTool(n, true); }
     else if (e.code === 'KeyB') this.bPress();
+    else if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'ArrowDown') && this.frameEquipped()) { e.preventDefault(); if (e.code === 'ArrowDown') { this.frameYaw = null; this.ui.hint('Frames snap to the grid and to each other again.', 2); } }
     else if (e.code === 'BracketRight' || e.code === 'ArrowRight') this.cycleTool(1);
     else if (e.code === 'BracketLeft' || e.code === 'ArrowLeft') this.cycleTool(-1);
     else if (e.code === 'KeyI') this.openModal('inv');
@@ -2036,6 +2037,8 @@ export class Game {
   }
 
   // ======================= building =======================
+  frameEquipped() { const t = this.curTool && this.curTool(); return !!(t && t.kind === 'frame' && !this.stowed); }
+
   updateBuild(tool, eye, dir) {
     const T = this.T, S = this.S;
     let plan = null, cost = 0;
@@ -2053,7 +2056,17 @@ export class Game {
       this.ui.hint(name ? `<kbd>F</kbd> / click: knock down <b>${name}</b> (you get it back) · <kbd>Q</kbd> put away` : 'Hammer: aim at something you built · <kbd>Q</kbd> put away', 0.4);
       return;
     }
-    if (tool.kind === 'frame') { plan = this.machines.planFrame(eye, dir, yaw, tool.fk); cost = FRAME_TYPES[tool.fk].cost; }
+    if (tool.kind === 'frame') {
+      // Left / Right turn the frame smoothly and free it from the grid: it stands where you aim, at any angle, so tunnels can curve
+      const now = performance.now(), fdt = Math.min(0.1, (now - (this._fyT || now)) / 1000); this._fyT = now;
+      const turn = (this.keys.ArrowRight ? 1 : 0) - (this.keys.ArrowLeft ? 1 : 0);
+      if (turn) {
+        if (this.frameYaw == null) this.frameYaw = this._lastFrameYaw ?? (Math.abs(Math.sin(yaw)) > 0.7071 ? Math.PI / 2 : 0);
+        this.frameYaw += turn * (this.keys.ShiftLeft || this.keys.ShiftRight ? 0.5 : 1.4) * fdt;
+      }
+      plan = this.machines.planFrame(eye, dir, yaw, tool.fk, this.frameYaw ?? null); cost = FRAME_TYPES[tool.fk].cost;
+      if (plan.ent && plan.ent.yaw !== undefined) this._lastFrameYaw = plan.ent.yaw;
+    }
     else if (tool.kind === 'lantern') { plan = this.machines.planLantern(eye, dir); cost = 6; }
     else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { plan = this.machines.planSimple(tool.kind, eye, dir); }
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
@@ -2077,7 +2090,7 @@ export class Game {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
       else if (this.strainOf(tool, plan).state === 'break') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>Too much weight for ${st.name}: ${st.pct}% load.</b> It will break the moment you set it (${Math.round(st.d)} m deep, rated ${isFinite(st.max) ? st.max + ' m' : 'any depth'}). ${st.next && FRAME_TYPES[st.next] ? 'Use ' + FRAME_TYPES[st.next].name + ' or better, or hold the roof up with more supports.' : 'Add more supports to share the load.'}`, 0.4); }
       else if (this.strainOf(tool, plan).state === 'creak') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>${st.name} would carry ${st.pct}% load.</b> It holds, but it is creaking under the mountain. More supports nearby share the weight. <kbd>B</kbd> set down`, 0.4); }
-      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square, dig the section out first · place the next one on any side to snap`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
+      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.turned ? ` · ${plan.ent.snap} · <kbd>◄</kbd> <kbd>►</kbd> turn (hold Shift for fine) · <kbd>▼</kbd> back to the grid` : plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square, dig the section out first · place the next one on any side to snap · <kbd>◄</kbd> <kbd>►</kbd> turn it free of the grid (curves)`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
   }
@@ -2272,7 +2285,7 @@ export class Game {
       return;
     }
     if (tool.kind === 'frame') {
-      ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, gm: e.gm, glo: e.glo, gj: e.gj }; S.stats.props++;
+      ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, gm: e.gm, glo: e.glo, gj: e.gj, yaw: e.yaw }; if (e.turned) ent.turned = true; S.stats.props++;
       // building a frame carves out its 4x4 section; the crew salvages the plush
       let carved = 0;
       for (const [ci, cj, ck] of e.clear || []) { const rm = this.world.removeCell(ci, cj, ck, true); if (rm) { carved++; S.stats.cells++; this.sellAuto(rm.sp, rm.vr, 0.6); } }

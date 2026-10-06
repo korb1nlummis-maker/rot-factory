@@ -84,8 +84,8 @@ const VEIN_W = [0.30, 0.45, 2.4, 4.2, 5.0, 5.0];
 const VEIN_SUM = VEIN_W.reduce((a, b, i) => a + b * RARITY[i].weight, 0);
 
 export function pickSpecies(h1, h2, vein = false) {
-  // one plush in about 15,000 is a Razzo: a lit fuse in your hands and a blast that can bring a tunnel down
-  if ((h2 & 0xff) === 0xa7 && ((h1 >>> 5) % 60) === 0) return volatilePool[(h1 >>> 11) % volatilePool.length];
+  // one plush in about 60,000 is a Razzo: a lit fuse in your hands and a blast that can bring a tunnel down
+  if ((h2 & 0xff) === 0xa7 && ((h1 >>> 5) % 240) === 0) return volatilePool[(h1 >>> 11) % volatilePool.length];
   const roll = (h2 >>> 8) / 16777216;
   let acc = 0, r = 0;
   for (let i = 0; i < 6; i++) {

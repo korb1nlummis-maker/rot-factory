@@ -3,9 +3,9 @@ export default async function (ctx) {
   const { T, g, S, w, p, sim, fresh, stepSim, adv, spot, dig, toI, toK, cellX, cellZ, newWorld } = ctx;
   await T('razzo.very-rare-and-not-in-the-normal-pools', async () => {
     if (volatilePool.length < 10) return 'no razzo species: ' + volatilePool.length;
-    let h = 0x9e3779b9, hits = 0; const N = 600000;
+    let h = 0x9e3779b9, hits = 0; const N = 2000000;
     for (let n = 0; n < N; n++) { h = Math.imul(h ^ (h >>> 15), 0x85ebca6b) >>> 0; const h2 = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0; const sp = pickSpecies(h, h2 ^ (n * 2654435761), false); if (species[sp].volatile) hits++; }
-    const per = N / Math.max(1, hits); return (hits > 0 && per > 8000 && per < 30000) || `one razzo per ${per.toFixed(0)} plush (want 8,000 to 30,000)`;
+    const per = N / Math.max(1, hits); return (hits > 0 && per > 30000 && per < 120000) || `one razzo per ${per.toFixed(0)} plush (want 30,000 to 120,000)`;
   });
   await T('razzo.pickup-lights-a-3-second-fuse', async () => {
     fresh({}); S().carry = []; g.fuses = []; const sp = volatilePool[0]; g.pickedUp({ sp, vr: 0 }, p().pos.clone()); const f = g.fuses[0];

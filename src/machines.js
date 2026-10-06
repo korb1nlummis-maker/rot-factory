@@ -31,7 +31,7 @@ const MATS = {
   glowG: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 3, 1.2) }),
 };
 
-export function buildFrameMesh(kind, axis, w, h) {
+export function buildFrameMesh(kind, axis, w, h, yaw) {
   const g = new THREE.Group();
   const m = MATS[kind];
   const heavy = kind === 'concrete' || kind === 'rebar' || kind === 'carbon' || kind === 'plasma' || kind === 'voidl' || kind === 'neutron' || kind === 'horizon';
@@ -52,7 +52,7 @@ export function buildFrameMesh(kind, axis, w, h) {
     const plate = new THREE.BoxGeometry(t * 1.6, t * 1.6, 0.03);
     for (const sx of [-1, 1]) { const pl = new THREE.Mesh(plate, MATS.yellow); pl.position.set(sx * (w / 2 - t / 2), h - t / 2, d / 2 + 0.016); g.add(pl); }
   }
-  if (axis === 'x') g.rotation.y = Math.PI / 2; // the box's open faces point along the tunnel
+  g.rotation.y = yaw !== undefined ? yaw : axis === 'x' ? Math.PI / 2 : 0; // the box's open faces point along the tunnel
   return g;
 }
 
@@ -120,7 +120,7 @@ export class Machines {
   }
   frameEnt(axis, kind, m, lo, j0) {
     const cx = axis === 'x' ? cellX(m) : cellX(lo) + 1.5 * C, cz = axis === 'x' ? cellZ(lo) + 1.5 * C : cellZ(m);
-    const e = { axis, kind, cx, cz, y0: j0 * C, w: 4 * C - 0.04, h: 4 * C - 0.02, gm: m, glo: lo, gj: j0 };
+    const e = { axis, kind, cx, cz, y0: j0 * C, w: 4 * C - 0.04, h: 4 * C - 0.02, gm: m, glo: lo, gj: j0, yaw: axis === 'x' ? Math.PI / 2 : 0 };
     // cells this section occupies (the 4x4 square at index m)
     e.clear = [];
     const w = this.game.world;
@@ -130,7 +130,8 @@ export class Machines {
     }
     return e;
   }
-  planFrame(eye, dir, yaw, kind) {
+  planFrame(eye, dir, yaw, kind, freeYaw = null) {
+    if (freeYaw !== null) return this.planFreeFrame(eye, dir, kind, freeYaw);
     const w = this.game.world;
     const r = this.rayEmpty(eye, dir, 5);
     if (!r) return { ok: false, why: 'Aim at the tunnel floor or at a frame' };
@@ -140,7 +141,7 @@ export class Machines {
     let m, lo, j0;
     // aiming into a frame that is already built: nothing to place
     if (!r.hitSolid) for (const it of this.items.values()) {
-      const f = it.ent; if (f.type !== 'frame') continue;
+      const f = it.ent; if (f.type !== 'frame' || f.turned) continue;
       const b = this.frameBlock(f);
       const am = b.axis === 'x' ? i : k, al = b.axis === 'x' ? k : i;
       if (am === b.m && al >= b.lo && al <= b.lo + 3 && j >= b.j0 && j <= b.j0 + 3) return { ok: false, why: 'Frame already here. Aim at its side, top or bottom to add another.' };
@@ -152,7 +153,7 @@ export class Machines {
     let best = null, bd = C * 7, inside = false;
     for (const it of this.items.values()) {
       const f = it.ent;
-      if (f.type !== 'frame') continue;
+      if (f.type !== 'frame' || f.turned) continue;
       const b = this.frameBlock(f);
       const cand = [[1, 0, 0], [-1, 0, 0], [0, 4, 0], [0, -4, 0], [0, 0, 4], [0, 0, -4]];
       for (const [dm, dl, dj] of cand) {
@@ -185,13 +186,45 @@ export class Machines {
     if (j0 < 0) return { ok: false, why: 'Below the floor' };
     const e = this.frameEnt(axis, kind, m, lo, j0);
     for (const it of this.items.values()) {
-      const f = it.ent; if (f.type !== 'frame') continue;
+      const f = it.ent; if (f.type !== 'frame' || f.turned) continue;
       const b = this.frameBlock(f);
       if (b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0) return { ok: false, why: 'Frame already here' };
     }
     // a frame holds up a section that is already dug: it never digs for you
     if (e.clear.length) return { ok: false, why: `This tunnel is too tight for a 4x4 frame: dig out ${e.clear.length} more plush (a frame needs 4 wide and 4 high)`, ent: e };
     if (best) e.snap = best.side;
+    return { ok: true, ent: e };
+  }
+
+  // ---- free standing frames: any angle, centred where you aim, never snapped to another frame. Place them one after another, turning a
+  // little each time (Left / Right), and the tunnel bends. The section they stand in must already be dug out, like any other frame.
+  orientedClear(cx, cz, yaw, y0, w, d, h) {
+    const wd = this.game.world, out = [], cs = Math.cos(yaw), sn = Math.sin(yaw), R = Math.ceil(Math.hypot(w, d) / 2 / C) + 1;
+    const ci = toI(cx), ck = toK(cz), j0 = Math.round(y0 / C), j1 = Math.ceil((y0 + h) / C - 1e-6);
+    for (let dk = -R; dk <= R; dk++) for (let di = -R; di <= R; di++) {
+      const i = ci + di, k = ck + dk, dx = cellX(i) - cx, dz = cellZ(k) - cz;
+      const u = dx * cs - dz * sn, v = dx * sn + dz * cs;           // along the frame's width, and across its depth
+      const ext = (C / 2) * (Math.abs(cs) + Math.abs(sn));        // how far the plush's square reaches along the frame's axes
+      if (Math.abs(u) >= w / 2 + ext - 0.2 || Math.abs(v) >= d / 2 + ext - 0.06) continue;
+      for (let j = Math.max(0, j0); j < j1; j++) if (wd.get(i, j, k)) out.push([i, j, k]);
+    }
+    return out;
+  }
+  planFreeFrame(eye, dir, kind, fy) {
+    const w = this.game.world;
+    const r = this.rayEmpty(eye, dir, 5);
+    if (!r) return { ok: false, why: 'Aim at the tunnel floor' };
+    let { i, j, k } = r.last; let guard = 0;
+    while (j > 0 && !w.solid(i, j - 1, k) && guard++ < 8) j--;
+    if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'No floor here: aim at the floor' };
+    const y0 = j * C; let cx = cellX(i), cz = cellZ(k);
+    if (dir.y < -0.02) { const t = (y0 + 0.02 - eye.y) / dir.y; if (t > 0 && t < 6) { cx = eye.x + dir.x * t; cz = eye.z + dir.z * t; } }
+    const wd = 4 * C - 0.04, h = 4 * C - 0.02, d = C - 0.06;
+    const e = { axis: Math.abs(Math.sin(fy)) > 0.7071 ? 'x' : 'z', yaw: fy, turned: true, kind, cx, cz, y0, w: wd, h };
+    e.clear = this.orientedClear(cx, cz, fy, y0, wd, d, h);
+    for (const it of this.items.values()) { const f = it.ent; if (f.type === 'frame' && Math.hypot(f.cx - cx, f.cz - cz) < 0.45 && Math.abs(f.y0 - y0) < 0.3) return { ok: false, why: 'A frame is already here', ent: e }; }
+    if (e.clear.length) return { ok: false, why: `The tunnel is too tight for a frame at this angle: dig out ${e.clear.length} more plush, or turn it with Left / Right`, ent: e };
+    e.snap = 'free, turned ' + Math.round(((fy % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * 180 / Math.PI) + '°';
     return { ok: true, ent: e };
   }
 
@@ -216,7 +249,7 @@ export class Machines {
     let near = null, nd = 1e9;
     for (const it of this.items.values()) {
       const f = it.ent;
-      if (f.type !== 'frame' || f.axis !== axis || Math.abs(f.y0 - e.y0) > 0.3) continue;
+      if (f.type !== 'frame' || f.turned || f.axis !== axis || Math.abs(f.y0 - e.y0) > 0.3) continue;
       const along = axis === 'x' ? Math.abs(f.cx - cx) : Math.abs(f.cz - cz);
       const lat = axis === 'x' ? Math.abs(f.cz - cz) : Math.abs(f.cx - cx);
       if (along < 0.3 && lat < 0.35) return { ok: false, why: 'Frame already here' };
@@ -323,7 +356,7 @@ export class Machines {
     let make = null;
     if (plan.ent) {
       const e = plan.ent;
-      if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h), plan.ok); }
+      if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h, 0), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
       else if (['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) { key = `${tool.kind}${plan.ok}`; make = () => ghostify(this.makeSimple(tool.kind, null), plan.ok); }
@@ -332,7 +365,7 @@ export class Machines {
     } else { if (this.ghost) this.setGhost(null); return; }
     if (key !== this.ghostKey) { this.setGhost(make(), key); this.addReach(tool, plan); }
     const e = plan.ent;
-    if (tool.kind === 'frame') this.ghost.position.set(e.cx, e.y0, e.cz);
+    if (tool.kind === 'frame') { this.ghost.position.set(e.cx, e.y0, e.cz); this.ghost.rotation.y = e.yaw !== undefined ? e.yaw : e.axis === 'x' ? Math.PI / 2 : 0; }
     else if (tool.kind === 'lantern') this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'claw' || tool.kind === 'beacon' || ['marker', 'flare', 'glow', 'charge', 'dynamite', 'strut', 'jack'].includes(tool.kind)) this.ghost.position.set(e.x, e.y, e.z);
     else if (tool.kind === 'borer') { this.ghost.position.set(e.x, e.y, e.z); this.ghost.rotation.y = Math.atan2(e.dx, e.dz); }
@@ -349,7 +382,7 @@ export class Machines {
     const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.04, r, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03 - (tool.kind === 'frame' ? 0 : 0);
     // the ghost group is rotated for x-axis frames; keep the reach un-rotated by counter-rotating
-    const grp = new THREE.Group(); grp.add(sph, ring); grp.name = 'reach'; if (tool.kind === 'frame' && e.axis === 'x') grp.rotation.y = -Math.PI / 2;
+    const grp = new THREE.Group(); grp.add(sph, ring); grp.name = 'reach';
     this.ghost.add(grp);
   }
 
@@ -494,7 +527,7 @@ export class Machines {
     const w = game.world;
     const it = { ent, obj: null, t: 0 };
     if (ent.type === 'frame') {
-      it.obj = buildFrameMesh(ent.kind, ent.axis, ent.w, ent.h);
+      it.obj = buildFrameMesh(ent.kind, ent.axis, ent.w, ent.h, ent.yaw);
       it.obj.position.set(ent.cx, ent.y0, ent.cz);
       const ft = FRAME_TYPES[ent.kind];
       ent.supportId = ent.supportId || ent.id;
