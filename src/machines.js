@@ -399,7 +399,7 @@ export class Machines {
     }
     this.root.add(it.obj);
     this.items.set(ent.id, it);
-    if (!ent.remote && ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon', 'charge'].includes(ent.type)) game.netEnt(ent);
+    if (!ent.view) game.netEnt(ent);
     return it;
   }
 
@@ -418,6 +418,18 @@ export class Machines {
   count(type) { let n = 0; for (const it of this.items.values()) if (it.ent.type === type && !it.ent.done) n++; return n; }
 
   // ---------- runtime ----------
+  // guest: only keep moving things where the host says they are
+  guestUpdate(dt, time) {
+    for (const it of this.items.values()) {
+      const e = it.ent;
+      if (e.type === 'borer') { const k = Math.min(1, dt * 6); const tx = cellX(e.i) + (e.dz !== 0 && e.w % 2 === 0 ? C / 2 : 0), tz = cellZ(e.k) + (e.dx !== 0 && e.w % 2 === 0 ? C / 2 : 0); it.obj.position.x += (tx - it.obj.position.x) * k; it.obj.position.z += (tz - it.obj.position.z) * k; if (it.borer) it.borer.teeth.rotation.z += dt * 7; }
+      else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
+      else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
+      else if (e.type === 'flare') { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); }
+      else if (e.type === 'charge') { const led = it.obj.getObjectByName('led'); if (led) led.visible = Math.sin(time * 14) > 0; }
+    }
+  }
+
   update(dt, time) {
     const game = this.game, w = game.world, T = game.T;
     for (const it of this.items.values()) {
@@ -439,8 +451,8 @@ export class Machines {
         const it = this.items.get(e.id);
         if (it) { this.disposeObj(it.obj); this.root.remove(it.obj); this.items.delete(e.id); }
         game.S.entities = game.S.entities.filter((x) => x.id !== e.id);
+        game.netEntRemove(e);
         if (e.type === 'charge') game.detonate(e);
-        else if (e.type === 'flare' && !e.remote) game.netEntRemove(e);
       }
     }
   }

@@ -79,7 +79,7 @@ export class Dust {
 
   // called every frame with the player's head position. Returns lung-related effects.
   breathe(dt, head, T) {
-    const d = this.at(head.x, head.y, head.z);
+    const d = Math.max(this.at(head.x, head.y, head.z), this.hostLevel || 0);
     this.level += (d - this.level) * Math.min(1, dt * 3);
     const resist = 1 - 0.2 * T.resp;
     if (this.level > 0.3) this.lung = Math.min(1.05, this.lung + (this.level - 0.25) * 0.045 * resist * dt * 6);

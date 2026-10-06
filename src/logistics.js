@@ -49,12 +49,15 @@ export class Logistics {
     this.railMesh = new THREE.InstancedMesh(railG, M.rail, MAXBELT * 2);
     for (const m of [this.bedMesh, this.railMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
     this.dirty = true;
+    this.visualOnly = false; // a guest only draws what the host simulates
+    this.byId = new Map();
     this.hum = 0;
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.e = new THREE.Euler(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3(1, 1, 1);
   }
 
   clear() {
     this.tiles.clear();
+    this.byId.clear();
     for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); }
     this.objs.clear();
     this.dirty = true;
@@ -120,14 +123,17 @@ export class Logistics {
     if (ent.type === 'mech') { ent.buf = ent.buf || []; ent.timer = 1.0; ent.out = 0; ent.state = 'dig'; ent.adv = ent.adv || 0; ent.arm = null; }
     const key = idx(ent.i, ent.j, ent.k);
     this.tiles.set(key, ent);
+    this.byId.set(ent.id, ent);
     this.game.world.reserved.add(key);
     if (ent.type !== 'belt') this.buildObj(ent);
     this.dirty = true;
+    if (!ent.view) this.game.netEnt(ent);
   }
 
   remove(ent) {
     const key = idx(ent.i, ent.j, ent.k);
     this.tiles.delete(key);
+    this.byId.delete(ent.id);
     this.game.world.reserved.delete(key);
     const o = this.objs.get(ent.id);
     if (o) { this.game.machines.disposeObj(o); this.root.remove(o); this.objs.delete(ent.id); }
@@ -188,6 +194,15 @@ export class Logistics {
     g.rotation.y = YAW[ent.dir || 0];
     this.root.add(g);
     this.objs.set(ent.id, g);
+  }
+
+  setSorterLook(t) {
+    const o = this.objs.get(t.id), top = o && o.getObjectByName('top');
+    if (!top) return;
+    const modes = 99;
+    const col = t.filter === 0 ? new THREE.Color(1.5, 1.5, 1.5) : t.mode === 0 ? new THREE.Color(0.4, 3, 1) : new THREE.Color(RARITY[Math.min(5, t.mode)].color).multiplyScalar(3);
+    void modes;
+    top.material = new THREE.MeshBasicMaterial({ color: col });
   }
 
   setLamp(ent, mat) {
@@ -277,14 +292,14 @@ export class Logistics {
           it.t = Math.min(it.t + spd * pw * dt, Math.max(it.t, limit));
         }
         const f = its[0];
-        if (f.t >= 1 && pw > 0.02) {
+        if (f.t >= 1 && pw > 0.02 && !this.visualOnly) {
           const nx = this.nextOf(t);
           if (nx && this.accept(nx, f, t.dir)) its.shift();
           else if (!nx && this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C)) { its.shift(); if (f.sp === NEEDLE) { this.game.registerDex(NEEDLE); this.game.foundNeedle('a belt'); } else this.game.sellAuto(f.sp, f.vr, 1); }
           else if (!nx && this.game.world.get(t.i + DX[t.dir], t.j, t.k + DZ[t.dir]) === 0 && this.dropEnd(t, f)) its.shift();
         }
-      } else if (t.type === 'sorter') this.updateSorter(t, dt);
-      else if (t.type === 'mech') this.updateMech(t, dt);
+      } else if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
+      else if (t.type === 'mech') { if (!this.visualOnly) this.updateMech(t, dt); }
       else if (t.type === 'gen') this.updateGen(t, dt, tick);
       else if (t.type === 'fan') { const o = this.objs.get(t.id); const b = o && o.getObjectByName('blades'); if (b) b.rotation.z += dt * 14 * (t.pw ?? 0); }
       else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.glowR; }

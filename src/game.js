@@ -388,11 +388,12 @@ export class Game {
   tune() { const T = computeTuning(effLevels(this.S), this.S.boosts); if (this.world) this.world.slipMul = 1 - 0.25 * T.climb; return T; }
   recipeList() { return recipes(this); }
   gearList() { return gearRecipes(this); }
-  craftGearItem(id) { return craftGear(this, id); }
-  craftItem(id, n) { return craft(this, id, n); }
+  craftGearItem(id) { if (this.isGuest()) { this.cmd('craftGear', { id }); return true; } return craftGear(this, id); }
+  craftItem(id, n) { if (this.isGuest()) { this.cmd('craft', { id, n }); return true; } return craft(this, id, n); }
 
   // ======================= buying =======================
   buy(id) {
+    if (this.isGuest()) { this.cmd('buy', { id }); return true; }
     const u = upgradeById(id);
     const lvl = this.S.up[id] || 0;
     if (!u || lvl >= u.max || !isUnlocked(u, this.S.up, this.S)) return false;
@@ -566,19 +567,28 @@ export class Game {
       this.settleT = 9 + Math.random() * 20;
       if (this.camSky < 0.25) { this.sound.creak(0.05 + Math.random() * 0.05); if (Math.random() < 0.5) this.fx.dust(cam.position.x + (Math.random() - 0.5) * 2, cam.position.y + 1.2, cam.position.z + (Math.random() - 0.5) * 2, 3, 0.3, 0.3); }
     }
-    this.machines.update(dt, this.time);
-    this.updateFuses(dt);
-    this.updateSurge(dt);
-    this.power.update(dt);
-    this.logi.update(dt);
-    this.crew.update(dt, this.time);
-    this.cart.update(dt);
+    const guest = this.isGuest();
+    this.logi.visualOnly = guest;
+    if (guest) {
+      this.machines.guestUpdate(dt, this.time);
+      this.logi.update(dt);
+      this.crew.guestUpdate(dt, this.time);
+      this.cart.guestUpdate(dt);
+      if (this.golden > 0) this.golden = Math.max(0, this.golden - dt);
+      if (this.outage > 0) this.outage = Math.max(0, this.outage - dt);
+    } else {
+      this.machines.update(dt, this.time);
+      this.updateFuses(dt);
+      this.updateSurge(dt);
+      this.power.update(dt);
+      this.logi.update(dt);
+      this.crew.update(dt, this.time);
+      this.cart.update(dt);
+    }
     this.radio.update(dt);
     this.netUpdate(dt);
     this.updateClock(dt);
-    this.updateGolden(dt);
-    this.updateScavenge(dt);
-    this.dust.update(dt);
+    if (!guest) { this.updateGolden(dt); this.updateScavenge(dt); this.dust.update(dt); }
     this.updateAir(dt, cam.position);
     this.sound.setMachines(Math.min(1, this.logi.hum / 12) * (this.camSky * 0.4 + 0.6));
     this.updateFliers(dt);
@@ -757,6 +767,7 @@ export class Game {
     if (tg.type === 'cell' && tg.sp === REMAINS) return this.openRemains(tg.i, tg.j, tg.k);
     if (tg.type === 'cell' && tg.sp === CACHE) return this.openCache(tg.i, tg.j, tg.k);
     if (tg.type === 'cell' && tg.sp === BULK) {
+      if (this.isGuest()) { this.cmd('bulk', { i: tg.i, j: tg.j, k: tg.k }); this.sound.thump(0.15, 150); return true; }
       w.setCell(tg.i, tg.j, tg.k, 0, 0);
       w.stabQueue.push({ i: tg.i, j: tg.j, k: tg.k });
       this.giveItem('bulk');
@@ -930,7 +941,7 @@ export class Game {
     this.ui.setCarry(this.S.carry, this.T.carry);
     this.sim.binCatch = this.T.binCatch;
     this.crew.sync();
-    if (this.T.contractSlots) this.contracts.fill();
+    if (this.T.contractSlots && !this.isGuest()) this.contracts.fill();
   }
 
   layBelt(i, j, k, dir) {
@@ -943,6 +954,7 @@ export class Game {
 
   // ---------------- crew commands ----------------
   crewFarmAhead() {
+    if (this.isGuest()) { const p = this.player, f = p.forward(_fwd); const dir = Math.abs(f.x) > Math.abs(f.z) ? (f.x > 0 ? 0 : 2) : (f.z > 0 ? 1 : 3); this.cmd('crew', { act: 'farmAhead', dir, x: p.pos.x, y: p.pos.y, z: p.pos.z }); return; }
     if (!this.S.crew || !this.S.crew.length) { this.ui.hint('No crew yet. Buy a Scrapper Bot in the terminal.', 3); return; }
     const p = this.player, f = p.forward(_fwd);
     const dir = Math.abs(f.x) > Math.abs(f.z) ? (f.x > 0 ? 0 : 2) : (f.z > 0 ? 1 : 3);
@@ -951,12 +963,14 @@ export class Game {
   }
 
   crewHomeAll() {
+    if (this.isGuest()) { this.cmd('crew', { act: 'homeAll' }); return; }
     if (!this.S.crew || !this.S.crew.length) return;
     for (const b of this.S.crew) this.crew.goHome(b);
     this.ui.hint('Crew: heading home.', 2);
   }
 
   crewCommand(b, d) {
+    if (this.isGuest()) { this.cmd('crew', { act: 'one', id: b.id, d: { d: d.d, a: d.a } }); return; }
     if (d.d !== undefined) this.crew.order(b, +d.d, b.x, b.y, b.z);
     else if (d.a === 'follow') this.crew.follow(b);
     else if (d.a === 'home') this.crew.goHome(b);
@@ -973,8 +987,15 @@ export class Game {
 
   hasGen() { for (const t of this.logi.tiles.values()) if (t.type === 'gen') return true; return false; }
 
-  useTile(t) {
+  useTile(t, guestData) {
     const T = this.T, S = this.S;
+    if (this.isGuest()) {
+      if (t.type === 'pole' || t.type === 'fan') { this.ui.hint(`${t.type === 'pole' ? 'Pole' : 'Fan'}: ${(t.pw ?? 0) > 0.05 ? 'powered' : 'no power'} (${Math.round((t.pw ?? 0) * 100)}%)`, 2.5); return true; }
+      const d = { id: t.id, room: T.carry - S.carry.length };
+      if (t.type === 'gen') { d.items = []; for (let q = S.carry.length - 1; q >= 0; q--) if (species[S.carry[q].sp].rarity <= 2) d.items.push(S.carry.splice(q, 1)[0]); this.ui.setCarry(S.carry, T.carry); }
+      this.cmd('tile', d);
+      return true;
+    }
     if (t.type === 'gen') {
       let n = 0;
       for (let q = S.carry.length - 1; q >= 0; q--) {
@@ -1032,14 +1053,17 @@ export class Game {
     const c = this.S.cart;
     if (!c || this.cartDist() > 9 || c.load.length >= CART_CAP[c.tier]) return false;
     c.load.push(item);
+    if (this.isGuest()) this.cmd('cartload', { sp: item.sp, vr: item.vr });
     this.fliers.push({ sp: item.sp, vr: item.vr, from: pos.clone(), to: new THREE.Vector3(c.x, c.y + 0.7, c.z), t: 0, dur: 0.3, arc: 0.7 });
     return true;
   }
 
-  useCart() {
+  useCart(from) {
+    if (this.isGuest()) { const p = this.player; this.cmd('cart', { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw }); return; }
     const S = this.S, c = S.cart;
+    const fp = from || { x: this.player.pos.x, y: this.player.pos.y, z: this.player.pos.z, yaw: this.player.yaw };
     if (c) {
-      const d = this.cartDist();
+      const d = Math.hypot(c.x - fp.x, c.z - fp.z);
       if (d > 5) { c.mode = 'follow'; this.ui.hint('Your cart is on its way.', 2); return; }
       c.mode = c.mode === 'follow' ? 'stay' : 'follow';
       this.ui.hint(c.mode === 'follow' ? 'Cart follows you. <kbd>U</kbd> parks it, <kbd>X</kbd> stows it when empty.' : 'Cart parked. <kbd>U</kbd> makes it follow again.', 3);
@@ -1051,7 +1075,7 @@ export class Game {
     if (!tier) { this.ui.hint('No cart. Unlock Carts in the terminal, then craft one at the bench (<kbd>E</kbd>).', 4); return; }
     S.items['cart:' + tier]--;
     if (S.items['cart:' + tier] <= 0) delete S.items['cart:' + tier];
-    this.cart.deploy(tier);
+    this.cart.deploy(tier, { pos: fp, yaw: fp.yaw });
     this.sound.place();
     this.ui.hint('Cart out. It follows you and grabbed plush ride on it. Park it near the bin to unload.', 5);
     this.rebuildTools();
@@ -1125,9 +1149,9 @@ export class Game {
 
   netClosed() {
     if (this.netBodies) this.netBodies.clear();
+    if (this.net.role === 'guest') { this.S.crew = []; this.crew.clear(); this.crewViews = new Map(); this.S.cart = null; this.cart.clear(); }
     this.guestReady = false;
     if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
-    for (const [id, it] of [...this.machines.items]) if (it.ent.remote) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(id); }
     if (this.world) { this.world.onSet = null; this.world.onCreakCell = null; }
     this.ui.toast({ icon: '👋', title: 'Friend left', text: 'The connection closed.', ms: 4000 });
   }
@@ -1169,6 +1193,12 @@ export class Game {
         break;
       }
       case 'pos': if (this.remote) this.remote.set(m); break;
+      case 'cmd': this.netCmd(m.c, m.d); break;
+      case 'shared': this.applyShared(m); break;
+      case 'dyn': this.applyDyn(m); break;
+      case 'give': for (const it of m.items) { if (this.S.carry.length < this.T.carry) this.S.carry.push(it); else this.sim.spawn(it.sp, it.vr, this.player.pos.x, this.player.pos.y + 1.2, this.player.pos.z, 0, 1, 0, 0); } this.ui.setCarry(this.S.carry, this.T.carry); break;
+      case 'toast': this.ui.toast({ icon: m.icon, title: m.title, text: m.text, ms: 5000 }); break;
+      case 'note': this.ui.showNote(m.entry); this.openModal('note'); break;
       case 'spawn': { const a = m.a; this.sim.spawn(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 1); break; }
       case 'take': { const i = this.sim.indexOfId(m.id); if (i >= 0) this.sim.remove(i); break; }
       case 'sale': if (m.sp === NEEDLE) { this.registerDex(NEEDLE); this.foundNeedle('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
@@ -1197,23 +1227,34 @@ export class Game {
         break;
       }
       case 'ent+': this.remoteEnt(m.ent); break;
-      case 'ent-': {
-        const key = m.side === 'mine' ? 'r' + m.id : m.id;
-        const it = this.machines.items.get(key);
-        if (it) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(key); if (m.side !== 'mine') this.S.entities = this.S.entities.filter((x) => x.id !== m.id); this.world.supports = this.world.supports.filter((s2) => s2.id !== key); }
-        break;
-      }
+      case 'ent-': this.removeViewEnt(m.id); break;
       case 'say': this.chatLine(`${(this.remote && this.remote.name) || 'Friend'}: ${m.text}`); break;
       case 'time': this.S.gameMin = m.gameMin; break;
       case 'win': if (!this.S.ending) { this.S.ending = m.ending; this.mode = 'ended'; this.sound.found(); this.ui.toast({ icon: '🏆', title: `${m.by || 'Your friend'} found the One!`, text: 'You did it together.', ms: 8000 }); this.endTimer = 2.5; } break;
     }
   }
 
+  // the host owns every structure; the guest keeps drawn copies that the host updates
   remoteEnt(e) {
-    const ent = { ...e, remote: true, rid: e.id, id: 'r' + e.id };
-    if (this.machines.items.has(ent.id)) return;
-    this.machines.add(ent);
+    if (this.machines.items.has(e.id) || this.logi.byId.has(e.id)) return;
+    const ent = { ...e, view: true };
+    this.S.entities.push(ent);
+    this.addEntity(ent);
   }
+
+  removeViewEnt(id) {
+    const tile = this.logi.byId.get(id);
+    if (tile) { this.logi.remove(tile); }
+    const it = this.machines.items.get(id);
+    if (it) {
+      if (it.ent.type === 'beacon') this.world.reserved.delete((it.ent.j * NZ + it.ent.k) * NX + it.ent.i);
+      this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(id);
+    }
+    this.world.supports = this.world.supports.filter((s2) => s2.id !== id && s2.id !== 'shield' + id);
+    this.S.entities = this.S.entities.filter((x) => x.id !== id);
+  }
+
+  stripEnt(e) { return JSON.parse(JSON.stringify(e, (k, v) => (['items', 'q', 'kept', 'stored', 'buf', 'path', 'trail', 'carry'].includes(k) ? undefined : v))); }
 
   sendWorld() {
     const w = this.world;
@@ -1221,14 +1262,164 @@ export class Game {
     let buf = [];
     w.forEachDiff((id, sp, vr) => { buf.push(id, sp, vr); if (buf.length >= 9000) { this.netSend({ t: 'diff', a: buf }); buf = []; } });
     if (buf.length) this.netSend({ t: 'diff', a: buf });
-    const list = this.S.entities.filter((e) => ['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon', 'charge'].includes(e.type)).map((e) => ({ ...e }));
-    this.netSend({ t: 'ents', list });
+    const list = this.S.entities.map((e) => this.stripEnt(e));
+    for (let n = 0; n < list.length; n += 400) this.netSend({ t: 'ents', list: list.slice(n, n + 400) });
+    this.sendShared();
     this.netSend({ t: 'ready' });
   }
 
   // a locally built structure the friend should see too
-  netEnt(ent) { if (!ent.remote) this.netSend({ t: 'ent+', ent: { ...ent } }); }
-  netEntRemove(ent) { if (ent.remote) this.netSend({ t: 'ent-', id: ent.rid, side: 'yours' }); else this.netSend({ t: 'ent-', id: ent.id, side: 'mine' }); }
+  netEnt(ent) { if (this.net.open && this.net.role === 'host') this.netSend({ t: 'ent+', ent: this.stripEnt(ent) }); }
+  netEntRemove(ent) { this.netSend({ t: 'ent-', id: ent.id }); }
+
+  // ---------- commands from the guest, run by the host ----------
+  cmd(c, d) { this.netSend({ t: 'cmd', c, d }); }
+
+  netCmd(c, d) {
+    const S = this.S;
+    switch (c) {
+      case 'buy': this.buy(d.id); break;
+      case 'craft': craft(this, d.id, d.n); break;
+      case 'craftGear': craftGear(this, d.id); break;
+      case 'place': { const tool = d.tool; this.plan = { ok: true, ent: d.ent }; this.placeCurrent(tool); this.plan = null; break; }
+      case 'decon': this.doDecon(d); break;
+      case 'tile': {
+        const t = this.logi.byId.get(d.id);
+        if (!t) break;
+        if (t.type === 'vault') {
+          const take = t.stored.splice(0, Math.max(0, d.room || 0));
+          if (take.length) this.netSend({ t: 'give', items: take });
+        } else if (t.type === 'gen') {
+          const back = [];
+          for (const it of d.items || []) if (!this.logi.accept(t, it, null)) back.push(it);
+          if (back.length) this.netSend({ t: 'give', items: back });
+          this.power.markDirty();
+        } else this.useTile(t);
+        break;
+      }
+      case 'feed': { const t = this.logi.byId.get(d.id); if (t) this.logi.accept(t, { sp: d.sp, vr: d.vr }, null); break; }
+      case 'sell': this.sell(d.sp, d.vr, { dist: d.dist, streak: d.streak }); break;
+      case 'reroll': this.contracts.reroll(d.i); break;
+      case 'cart': this.useCart(d); break;
+      case 'cartload': if (S.cart && S.cart.load.length < CART_CAP[S.cart.tier]) S.cart.load.push({ sp: d.sp, vr: d.vr }); break;
+      case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); } break; }
+      case 'open': {
+        const r = d.k === 'remains' ? this.openRemains(d.i, d.j, d.kk, true) : this.openCache(d.i, d.j, d.kk, true);
+        if (r && r.text !== undefined) this.netSend({ t: 'toast', icon: '📦', title: 'Supply cache', text: r.text });
+        else if (r && r.name) this.netSend({ t: 'note', entry: r });
+        break;
+      }
+      case 'crew': {
+        if (d.act === 'farmAhead') this.crew.orderAll(d.dir, d.x, d.y, d.z);
+        else if (d.act === 'homeAll') this.crewHomeAll();
+        else if (d.act === 'one') { const b = this.S.crew.find((x) => x.id === d.id); if (b) this.crewCommand(b, d.d); }
+        break;
+      }
+    }
+    this.sendShared();
+  }
+
+  sendShared() {
+    const S = this.S;
+    this.netSend({
+      t: 'shared', money: S.money, te: S.totalEarned, up: S.up, gear: S.gear, items: S.items, boosts: S.boosts, contracts: S.contracts,
+      gameMin: S.gameMin, golden: this.golden || 0, outage: this.outage || 0, ending: S.ending || null,
+    });
+  }
+
+  applyShared(m) {
+    const S = this.S;
+    const key = JSON.stringify([m.up, m.gear, m.items, m.boosts]);
+    if (m.money > S.money + 0.5 && S.money > 0) this.ui.gain(m.money - S.money);
+    S.money = m.money; S.totalEarned = m.te; S.contracts = m.contracts || [];
+    this.golden = m.golden; this.outage = m.outage;
+    this.power.outage = m.outage > 0;
+    if (Math.abs((S.gameMin || 0) - m.gameMin) > 3) S.gameMin = m.gameMin;
+    if (key !== this._sharedKey) {
+      this._sharedKey = key;
+      S.up = m.up; S.gear = m.gear; S.items = m.items; S.boosts = m.boosts;
+      this.T = this.tune();
+      this.world.stabBonus = this.T.stabBonus;
+      this.rebuildTools();
+      this.ui.setCarry(S.carry, this.T.carry);
+    }
+    this.ui.setMoney(S.money);
+    if (this.ui.openModal === 'shop') this.ui.renderShop();
+    if (this.ui.openModal === 'craft') this.ui.renderCraft();
+    if (this.ui.openModal === 'crew') this.ui.renderCrew();
+  }
+
+  sendDyn() {
+    const L = this.logi, p = this.player.pos, rp = this.remote ? this.remote.pos : null;
+    const near = (x, z) => ((x - p.x) ** 2 + (z - p.z) ** 2 < 5600) || (rp && (x - rp.x) ** 2 + (z - rp.z) ** 2 < 5600);
+    const belts = [], tiles = [];
+    for (const t of L.tiles.values()) {
+      if (t.type === 'belt') {
+        if (t.items.length && near(cellX(t.i), cellZ(t.k))) { const a = [t.id]; for (const it of t.items) a.push(it.sp, it.vr, Math.round(it.t * 100)); belts.push(a); }
+      } else tiles.push([t.id, Math.round((t.pw ?? 0) * 100), Math.round(t.burn || 0), t.mode || 0, t.off ? 1 : 0, t.i, t.k, t.q ? t.q.length : 0, t.filter ?? 7]);
+    }
+    const movers = [];
+    for (const it of this.machines.items.values()) if (it.ent.type === 'borer') movers.push([it.ent.id, it.ent.i, it.ent.k, Math.round((it.ent.pw ?? 0) * 100)]); else if (it.ent.type === 'claw') movers.push([it.ent.id, 0, 0, Math.round((it.ent.pw ?? 0) * 100)]);
+    const crew = this.S.crew.map((b) => {
+      const sample = b.carry.slice(-4).flatMap((x) => [x.sp, x.vr]);
+      return [b.id, b.name, b.color, b.level, Math.round(b.xp), b.state, b.carry.length, +b.battery.toFixed(2), +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +(b.yaw % 6.2832).toFixed(2), sample, b.arm ? 1 : 0, b.aim || null, b.dir || 0];
+    });
+    const c = this.S.cart;
+    const cart = c ? { tier: c.tier, mode: c.mode, x: +c.x.toFixed(2), y: +c.y.toFixed(2), z: +c.z.toFixed(2), yaw: +c.yaw.toFixed(2), n: c.load.length, load: c.load.slice(-60).flatMap((x) => [x.sp, x.vr]) } : null;
+    let grid = null;
+    if (rp) { const net = this.power.nearest(rp.x, rp.y + 1, rp.z); if (net) grid = { supply: net.supply, demand: net.demand, sat: net.sat }; }
+    const dust = rp ? this.dust.at(rp.x, rp.y + 1.2, rp.z) : 0;
+    this.netSend({ t: 'dyn', belts, tiles, movers, crew, cart, grid, dust });
+  }
+
+  applyDyn(m) {
+    const L = this.logi;
+    for (const a of m.belts) {
+      const t = L.byId.get(a[0]); if (!t) continue;
+      const its = [];
+      for (let n = 1; n < a.length; n += 3) its.push({ sp: a[n], vr: a[n + 1], t: a[n + 2] / 100 });
+      t.items = its;
+    }
+    for (const a of m.tiles) {
+      const t = L.byId.get(a[0]); if (!t) continue;
+      t.pw = a[1] / 100; t.burn = a[2];
+      if (t.type === 'sorter' && (t.mode !== a[3] || t.filter !== a[8])) { t.mode = a[3]; t.filter = a[8]; L.setSorterLook(t); }
+      t.off = !!a[4];
+      if (t.type === 'sorter' && t.q) { while (t.q.length < a[7]) t.q.push({ sp: 1, vr: 0, t: 0.5 }); t.q.length = a[7]; }
+    }
+    for (const a of m.movers) { const it = this.machines.items.get(a[0]); if (!it) continue; if (a[1]) { it.ent.i = a[1]; it.ent.k = a[2]; } it.ent.pw = a[3] / 100; }
+    // crew
+    const S = this.S;
+    this.crewViews = this.crewViews || new Map();
+    const list = [];
+    for (const a of m.crew) {
+      let b = this.crewViews.get(a[0]);
+      if (!b) { b = { id: a[0], x: a[8], y: a[9], z: a[10], yaw: a[11], carry: [], trail: [], path: [] }; this.crewViews.set(a[0], b); }
+      b.name = a[1]; b.color = a[2]; b.level = a[3]; b.xp = a[4]; b.state = a[5]; b.battery = a[7];
+      b.gx = a[8]; b.gy = a[9]; b.gz = a[10]; b.gyaw = a[11]; b.dir = a[15];
+      const sample = a[12], n = a[6];
+      b.carry = new Array(n);
+      for (let q = 0; q < n; q++) { const s2 = (q >= n - sample.length / 2) ? (q - (n - sample.length / 2)) * 2 : -1; b.carry[q] = s2 >= 0 ? { sp: sample[s2], vr: sample[s2 + 1] } : { sp: 1, vr: 0 }; }
+      if (a[13]) { b.arm = performance.now() / 1000; b.aim = a[14]; }
+      list.push(b);
+    }
+    for (const id of [...this.crewViews.keys()]) if (!list.some((b) => b.id === id)) this.crewViews.delete(id);
+    S.crew = list;
+    this.crew.sync();
+    // cart
+    const c = m.cart;
+    if (!c) S.cart = null;
+    else {
+      if (!S.cart) S.cart = { tier: c.tier, x: c.x, y: c.y, z: c.z, yaw: c.yaw, mode: c.mode, load: [] };
+      const sc = S.cart;
+      sc.tier = c.tier; sc.mode = c.mode; sc.gx = c.x; sc.gy = c.y; sc.gz = c.z; sc.gyaw = c.yaw;
+      const sample = c.load, n = c.n;
+      sc.load = new Array(n);
+      for (let q = 0; q < n; q++) { const s2 = (q >= n - sample.length / 2) ? (q - (n - sample.length / 2)) * 2 : -1; sc.load[q] = s2 >= 0 ? { sp: sample[s2], vr: sample[s2 + 1] } : { sp: 1, vr: 0 }; }
+    }
+    this.guestGrid = m.grid;
+    this.dust.hostLevel = m.dust;
+  }
 
   chatLine(text) {
     let box = document.getElementById('chat');
@@ -1264,6 +1455,10 @@ export class Game {
         this.netSend({ t: 'bodies', a });
       }
       if (this.creakOut && this.creakOut.length) this.netSend({ t: 'creak', a: this.creakOut.splice(0, 90) });
+      this._nd = (this._nd || 0) - dt;
+      if (this._nd <= 0 && this.remote) { this._nd = 0.17; this.sendDyn(); }
+      this._ns = (this._ns || 0) - dt;
+      if (this._ns <= 0) { this._ns = 0.6; this.sendShared(); }
     }
     if (this.net.role === 'host') { this._ntm = (this._ntm || 0) - dt; if (this._ntm <= 0) { this._ntm = 6; this.netSend({ t: 'time', gameMin: this.S.gameMin }); } }
     if (this.remote) this.remote.update(dt);
@@ -1338,7 +1533,8 @@ export class Game {
   }
 
   // ======================= supply caches =======================
-  openCache(i, j, k) {
+  openCache(i, j, k, forGuest) {
+    if (this.isGuest()) { this.cmd('open', { k: 'cache', i, j, kk: k }); return true; }
     const w = this.world, S = this.S;
     w.setCell(i, j, k, 0, 0);
     w.stabQueue.push({ i, j, k });
@@ -1377,6 +1573,7 @@ export class Game {
     S.stats.caches = (S.stats.caches || 0) + 1;
     this.fx.sparkle(cellX(i), cellY(j), cellZ(k), 18, 1, 0.9, 0.5);
     this.sound.ach();
+    if (forGuest) return { text };
     this.ui.toast({ icon: '📦', title: 'Supply cache', text, ms: 5000 });
     return true;
   }
@@ -1387,8 +1584,10 @@ export class Game {
     const cam = this.renderer.camera, p = this.player;
     p.forward(_fwd);
     const belt = this.logi.pick(cam.position, _fwd, 2.8);
-    if (belt && (belt.type === 'belt' || belt.type === 'sorter') && this.logi.accept(belt, it, null)) {
-      S.carry.pop(); this.ui.setCarry(S.carry, this.T.carry); this.sound.soft(0.08); this.registerDex(it.sp); return;
+    if (belt && (belt.type === 'belt' || belt.type === 'sorter') && (this.isGuest() || this.logi.accept(belt, it, null))) {
+      S.carry.pop(); this.ui.setCarry(S.carry, this.T.carry); this.sound.soft(0.08); this.registerDex(it.sp);
+      if (this.isGuest()) this.cmd('feed', { id: belt.id, sp: it.sp, vr: it.vr });
+      return;
     }
     const made = this.sim.spawn(it.sp, it.vr, cam.position.x + _fwd.x * 0.7, cam.position.y - 0.45, cam.position.z + _fwd.z * 0.7, _fwd.x * 1.4 + p.vel.x * 0.5, -0.5, _fwd.z * 1.4 + p.vel.z * 0.5, 0);
     if (made < 0) return;
@@ -1460,9 +1659,10 @@ export class Game {
       const sink = this.nearestSink(pp.x, pp.y + 1, pp.z, T.autoDump);
       if (sink) {
         const it = S.carry[S.carry.length - 1];
-        if (sink.kind === 'sell' || this.logi.accept(sink.ent, it, null)) {
+        if (sink.kind === 'sell' || this.isGuest() || this.logi.accept(sink.ent, it, null)) {
           S.carry.pop(); this.ui.setCarry(S.carry, T.carry);
           if (sink.kind === 'sell') this.sell(it.sp, it.vr, { dist: 0, streak: true });
+          else if (this.isGuest()) this.cmd('feed', { id: sink.ent.id, sp: it.sp, vr: it.vr });
           const cam = this.renderer.camera.position;
           this.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(cam.x, cam.y - 0.5, cam.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: 0, dur: 0.36, arc: 0.7 });
           this.heldPop = -0.5;
@@ -1471,7 +1671,7 @@ export class Game {
       }
     }
     const c = S.cart;
-    if (c && c.load.length && this._adC <= 0) {
+    if (c && c.load.length && this._adC <= 0 && !this.isGuest()) {
       const sink = this.nearestSink(c.x, c.y + 0.5, c.z, Math.max(3.2, T.autoDump * 0.8));
       if (sink) {
         const it = c.load[c.load.length - 1];
@@ -1497,6 +1697,13 @@ export class Game {
 
   sell(sp, vr, opt = {}) {
     const S = this.S;
+    if (this.isGuest()) {
+      // the host keeps the shared wallet; we only play the feedback
+      if (opt.streak) { if (this.streak.t > 0) this.streak.n++; else this.streak.n = 1; this.streak.t = 4.5; }
+      if (this.coinCd <= 0) { this.coinCd = 0.04; this.sound.coin(this.streak.n); }
+      this.cmd('sell', { sp, vr, dist: opt.dist || 0, streak: !!opt.streak });
+      return;
+    }
     if (opt.streak) {
       if (this.streak.t > 0) this.streak.n++; else this.streak.n = 1;
       this.streak.t = 4.5;
@@ -1651,6 +1858,7 @@ export class Game {
     const cost = 0;
     if (!plan || !plan.ok) { this.sound.error(); if (plan && plan.why) this.ui.hint(plan.why, 2); return; }
     if (!(S.items[tool.id] > 0)) { this.sound.error(); return; }
+    if (this.isGuest()) { this.cmd('place', { tool: { id: tool.id, kind: tool.kind, fk: tool.fk, ramp: tool.ramp }, ent: plan.ent }); this.sound.place(); return; }
     S.items[tool.id]--;
     if (S.items[tool.id] <= 0) delete S.items[tool.id];
     const left = S.items[tool.id] || 0;
@@ -1700,23 +1908,12 @@ export class Game {
     this.trackDepth();
   }
 
-  deconstruct() {
-    // remove the nearest frame/lantern/rig the player is looking toward (refund half)
+  // what are we looking at that can be taken down?
+  findDeconRef() {
     const eye = this.renderer.camera.position, dir = this.player.forward(_fwd);
-    if (this.S.cart && this.cartDist() < 3.2) { _v2.set(this.S.cart.x - eye.x, this.S.cart.y + 0.5 - eye.y, this.S.cart.z - eye.z); if (_v2.length() < 3.2 && _v2.normalize().dot(dir) > 0.7) { this.stowCart(); return; } }
+    if (this.S.cart && this.cartDist() < 3.2) { _v2.set(this.S.cart.x - eye.x, this.S.cart.y + 0.5 - eye.y, this.S.cart.z - eye.z); if (_v2.length() < 3.2 && _v2.normalize().dot(dir) > 0.7) return { kind: 'cart' }; }
     const tile = this.logi.pick(eye, dir, 3.6);
-    if (tile) {
-      this.logi.remove(tile);
-      this.S.entities = this.S.entities.filter((x) => x.id !== tile.id);
-      const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
-      for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
-      this.giveItem(tile.type === 'belt' ? (tile.rise ? 'ramp' : 'belt') : tile.type);
-      this.ui.setCarry(this.S.carry, this.T.carry);
-      this.sound.thump(0.15, 140);
-      if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
-      this.power.markDirty();
-      return;
-    }
+    if (tile) return { kind: 'tile', id: tile.id };
     let best = null, bd = 3.2;
     for (const it of this.machines.items.values()) {
       const e = it.ent;
@@ -1728,13 +1925,42 @@ export class Game {
       if (v.normalize().dot(dir) < 0.9) continue;
       bd = d; best = it;
     }
+    return best ? { kind: 'mach', id: best.ent.id } : null;
+  }
+
+  deconstruct() {
+    const ref = this.findDeconRef();
+    if (!ref) return;
+    if (this.isGuest()) { this.cmd('decon', ref); this.sound.thump(0.12, 140); return; }
+    this.doDecon(ref);
+  }
+
+  doDecon(ref) {
+    if (ref.kind === 'cart') { this.stowCart(); return; }
+    if (ref.kind === 'tile') {
+      const tile = this.logi.byId.get(ref.id);
+      if (!tile) return;
+      this.logi.remove(tile);
+      this.S.entities = this.S.entities.filter((x) => x.id !== tile.id);
+      this.netSend({ t: 'ent-', id: tile.id });
+      const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
+      for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
+      this.giveItem(tile.type === 'belt' ? (tile.rise ? 'ramp' : 'belt') : tile.type);
+      this.ui.setCarry(this.S.carry, this.T.carry);
+      this.sound.thump(0.15, 140);
+      if (['sorter', 'mech', 'gen', 'fan'].includes(tile.type)) this.rebuildTools();
+      this.power.markDirty();
+      return;
+    }
+    const best = this.machines.items.get(ref.id);
     if (!best) return;
     const e = best.ent;
-    if (!e.remote) this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.type);
+    this.giveItem(e.type === 'frame' ? 'frame:' + e.kind : e.type === 'lantern' ? 'lantern' : e.type);
     if (e.type === 'beacon') this.world.reserved.delete((e.j * NZ + e.k) * NX + e.i);
     this.machines.disposeObj(best.obj);
+    this.machines.root.remove(best.obj);
     this.machines.items.delete(e.id);
-    if (['frame', 'lantern', 'flare', 'marker', 'strut', 'beacon', 'charge'].includes(e.type)) this.netEntRemove(e);
+    this.netSend({ t: 'ent-', id: e.id });
     this.S.entities = this.S.entities.filter((x) => x.id !== e.id);
     this.world.supports = this.world.supports.filter((s) => s.id !== e.id && s.id !== 'shield' + e.id);
     this.sound.thump(0.15, 120);
@@ -1742,7 +1968,8 @@ export class Game {
   }
 
   // ======================= abandoned gear =======================
-  openRemains(i, j, k) {
+  openRemains(i, j, k, forGuest) {
+    if (this.isGuest()) { this.cmd('open', { k: 'remains', i, j, kk: k }); return true; }
     const w = this.world, S = this.S;
     w.setCell(i, j, k, 0, 0);
     w.stabQueue.push({ i, j, k });
@@ -1768,6 +1995,7 @@ export class Game {
     S.stats.remains = (S.stats.remains || 0) + 1;
     this.sound.ach();
     this.fx.sparkle(cellX(i), cellY(j), cellZ(k), 16, 0.7, 0.8, 1);
+    if (forGuest) return entry;
     this.ui.showNote(entry);
     this.openModal('note');
     return true;
@@ -1849,6 +2077,7 @@ export class Game {
 
   // ======================= blasting =======================
   detonate(ent) {
+    this.netSend({ t: 'boom', x: ent.x, y: ent.y, z: ent.z });
     if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
     const w = this.world, S = this.S;
     const tier = ent.tier || 1;
@@ -2192,7 +2421,7 @@ export class Game {
     const depth = this.trackDepth();
     this.ui.setDepth(depth > 0.3 ? `DEPTH ${depth.toFixed(1)} m` : p.pos.y > 6 ? `ALTITUDE ${p.pos.y.toFixed(0)} m` : '');
     {
-      const net = this.hasGen() ? this.power.nearest(p.pos.x, p.pos.y + 1, p.pos.z) : null;
+      const net = this.isGuest() ? this.guestGrid : (this.hasGen() ? this.power.nearest(p.pos.x, p.pos.y + 1, p.pos.z) : null);
       if (net) { const used = Math.min(net.demand, net.supply); this.ui.setPower(true, net.supply > 0 ? Math.min(1, net.demand / Math.max(0.01, net.supply)) : 1, net.supply <= 0 ? 'NO FUEL' : `${net.demand.toFixed(1)} / ${net.supply.toFixed(1)} kW${net.sat < 0.99 ? ' BROWNOUT' : ''}`); void used; }
       else this.ui.setPower(false);
       const dd = this.dust;

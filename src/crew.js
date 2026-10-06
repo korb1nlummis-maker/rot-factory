@@ -75,9 +75,11 @@ export class Crew {
 
   // make sure the crew matches the number of slots the player owns
   sync() {
-    const S = this.game.S, T = this.game.T;
+    const g = this.game;
+    const S = g.S, T = g.T;
     S.crew = S.crew || [];
-    while (S.crew.length < T.crewMax) this.spawn();
+    if (!g.isGuest()) while (S.crew.length < T.crewMax) this.spawn();
+    for (const [id, o] of [...this.objs]) if (!S.crew.some((b) => b.id === id)) { g.machines.disposeObj(o); this.root.remove(o); this.objs.delete(id); }
     for (const b of S.crew) { delete b.arm; delete b.aim; delete b.advTo; if (b.state === 'advance') b.state = 'farm'; if (!this.objs.has(b.id)) this.build(b); }
   }
 
@@ -199,6 +201,16 @@ export class Crew {
   }
 
   // ------------------------------------------------------------------ simulation
+  // guest: the host drives the bots, we just glide them to where the host says they are
+  guestUpdate(dt, time) {
+    const k = Math.min(1, dt * 10);
+    for (const b of this.bots) {
+      const o = this.objs.get(b.id) || (this.build(b), this.objs.get(b.id));
+      if (b.gx !== undefined) { b.x += (b.gx - b.x) * k; b.y += (b.gy - b.y) * k; b.z += (b.gz - b.z) * k; b.yaw = b.gyaw ?? b.yaw; }
+      this.animate(b, o, dt, time);
+    }
+  }
+
   update(dt, time) {
     const g = this.game, T = g.T;
     for (const b of this.bots) {

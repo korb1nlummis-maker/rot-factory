@@ -54,6 +54,7 @@ export class Contracts {
   }
 
   fill() {
+    if (this.game.isGuest()) return;
     const S = this.game.S;
     S.contracts = S.contracts || [];
     for (let n = 0; n < S.contracts.length; n++) if (S.contracts[n].have >= S.contracts[n].need && !this._pending) S.contracts[n] = this.make();
@@ -99,6 +100,7 @@ export class Contracts {
   }
 
   reroll(i) {
+    if (this.game.isGuest()) { this.game.cmd('reroll', { i }); return true; }
     const S = this.game.S;
     const c = S.contracts[i];
     if (!c) return false;

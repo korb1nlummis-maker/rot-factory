@@ -17,7 +17,7 @@ node tools/pace-sim.mjs   # rough pacing model (exit ~250 h, the plush ~500 h fo
 - **Tab** upgrades, **V** crew, **N** plushdex, **L** journal, **J** goals, **T/Y** send crew digging / home, **Esc** pause, **F3** fps, hold **H** to recall.
 
 ## Play with a friend
-Open **Play Together** (title screen or pause menu). One of you hosts and sends a code, the other pastes it and sends a reply code back. No server. You share one world: holes, frames and collapses show for both. Wealth, upgrades and crew stay separate, a guest starts a fresh character in the host's warehouse and does not overwrite their own save. Press **Enter** to chat. Works best in Chrome, and both of you need the same version of the file.
+Open **Play Together** (title screen or pause menu). One of you hosts and sends a code, the other pastes it and sends a reply code back. No server. The host's game runs everything; the guest sees and controls the same warehouse. Shared: the world, collapses and falling plush, money, upgrades, gear, crafted items, belts, sorters, mechs, generators, crew bots, the cart, contracts, time of day. Personal: your hands, stats and achievements. A guest does not overwrite their own save. Press **Enter** to chat. Works best in Chrome, and both of you need the same version of the file.
 
 To send the game itself: `npm run build` makes `dist/index.html`, a single file that opens by double-click.
 

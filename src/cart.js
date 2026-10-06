@@ -80,16 +80,24 @@ export class Cart {
 
   clear() { if (this.obj) { this.obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); this.root.remove(this.obj); this.obj = null; } }
 
-  deploy(tier) {
-    const g = this.game, p = g.player;
-    const f = p.forward(new THREE.Vector3());
+  deploy(tier, at) {
+    const g = this.game, p = at || { pos: g.player.pos, yaw: g.player.yaw };
     g.S.cart = { tier, x: p.pos.x + Math.sin(p.yaw) * 1.4, y: Math.max(0, p.pos.y), z: p.pos.z + Math.cos(p.yaw) * 1.4, yaw: p.yaw, mode: 'follow', load: [] };
-    void f;
     this.sync();
     g.fx.dust(g.S.cart.x, g.S.cart.y + 0.1, g.S.cart.z, 6, 0.6, 0.6);
   }
 
   stow() { this.game.S.cart = null; this.clear(); }
+
+  guestUpdate(dt) {
+    const c = this.c;
+    if (!c) { this.clear(); return; }
+    if (!this.obj || this.builtTier !== c.tier) this.sync();
+    const k = Math.min(1, dt * 10);
+    if (c.gx !== undefined) { c.x += (c.gx - c.x) * k; c.y += (c.gy - c.y) * k; c.z += (c.gz - c.z) * k; c.yaw = c.gyaw; }
+    this.wheelSpin += Math.hypot(c.gx - c.x, c.gz - c.z) * 4;
+    if (this.obj) { this.obj.position.set(c.x, c.y, c.z); this.obj.rotation.y = c.yaw; this.obj.traverse((o) => { if (o.name === 'wheel') o.rotation.x = this.wheelSpin; }); }
+  }
 
   update(dt) {
     const c = this.c;
