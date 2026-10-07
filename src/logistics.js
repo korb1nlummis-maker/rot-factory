@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config.js';
-import { species, RARITY, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
+import { species, RARITY, NEEDLE, BULK, REMAINS, SPECIAL_MIN, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
+import * as BINS from './bins.js';   // which bin the end of a line sells into, and which line a mech may feed
 import { FUEL_MAX_RARITY } from './power.js';
 import { genHopper, genKindOf, decorateGen } from './powerparts.js';
 import { buildMountFan } from './mountfan.js';
@@ -61,6 +62,20 @@ export class Logistics {
     this.railMesh = new THREE.InstancedMesh(railG, M.rail, MAXBELT * 6);
     this.railMesh.setColorAt(0, new THREE.Color(1, 1, 1));               // allocates the per instance color
     for (const m of [this.bedMesh, this.railMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
+    // vacuum hoses are drawn as real hoses: a ribbed translucent tube with a flared mouth at the open end, not a belt bed
+    { const prof = []; const L = C, ribs = 6; for (let k = 0; k <= 48; k++) { const u = k / 48, rr = 0.17 + 0.03 * (0.5 + 0.5 * Math.cos(u * ribs * Math.PI * 2)); prof.push(new THREE.Vector2(rr, (u - 0.5) * L)); }
+      const tubeG = new THREE.LatheGeometry(prof, 14); tubeG.rotateX(Math.PI / 2);
+      const mouthG = new THREE.CylinderGeometry(0.2, 0.5, 0.4, 16, 1, true); mouthG.rotateX(Math.PI / 2);
+      const ringG = new THREE.TorusGeometry(0.5, 0.035, 8, 20);
+      this.hoseMat = new THREE.MeshStandardMaterial({ color: 0x7fb4c8, roughness: 0.35, metalness: 0.15, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+      this.mouthMat = new THREE.MeshStandardMaterial({ color: 0x4f7f93, roughness: 0.4, metalness: 0.25, side: THREE.DoubleSide });
+      this.hoseMesh = new THREE.InstancedMesh(tubeG, this.hoseMat, MAXBELT * 3); this.mouthMesh = new THREE.InstancedMesh(mouthG, this.mouthMat, 512); this.ringMesh = new THREE.InstancedMesh(ringG, this.mouthMat, 512);
+      for (const m of [this.hoseMesh, this.mouthMesh, this.ringMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
+      // the gold: the last piece of any belt or hose line that is within suck range of a bin glows gold, so you can tell it will pull from there
+      this.goldMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.8, 0.3), toneMapped: false, transparent: true, opacity: 0.92 });
+      this.goldPlate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.03, 0.58), this.goldMat, 256); this.goldRing = new THREE.InstancedMesh(new THREE.TorusGeometry(0.26, 0.03, 8, 20), this.goldMat, 256);
+      for (const m of [this.goldPlate, this.goldRing]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
+      this.sinkSet = new Set(); this._sinkT = 0; }
     this._liftCache = new WeakMap(); this.lifts = new Set(); this.beltOrder = [];
     this.cols = new Map();   // lift shaft cells (above the base tile) -> the lift tile that owns them
     this.feedMap = new Map(); this.parts = new Set();   // belt tile id -> the belt tiles that hand over to it (rebuilt with the meshes); the mergers and ruled splitters (for their lamps)
@@ -105,7 +120,7 @@ export class Logistics {
     const w = this.game.world;
     if (!w.inside(i, j, k) || w.solid(i, j, k)) return 'Blocked';
     { const why = this.cellTaken(i, j, k); if (why) return why; }
-    if (j > 0 && !w.solid(i, j - 1, k)) return 'Needs a floor';
+    if (j > 0 && !w.solid(i, j - 1, k) && !(this.game.stackHolds && this.game.stackHolds(i, j, k))) return 'Needs a floor';   // (a belt inside a frame cube hangs from the cube: belt ramps climb a level in the opening of a landing, stack.js)
     // do not place inside the player
     const p = this.game.player.pos;
     if (Math.abs(cellX(i) - p.x) < 0.5 && Math.abs(cellZ(k) - p.z) < 0.5 && p.y < cellY(j) + 0.3 && p.y + 1.7 > cellY(j) - 0.3) return 'Too close';
@@ -300,12 +315,14 @@ export class Logistics {
       const nx = this.nextOf(t);
       if (nx && nx.type === 'belt' && ((nx.dir + 2) & 3) !== t.dir) { const l = feeders.get(nx.id) || []; l.push(t.dir); feeders.set(nx.id, l); const f = fm.get(nx.id); if (f) f.push(t); else fm.set(nx.id, [t]); }   // (a merger reads who feeds it from feedMap)
     }
+    const hoses = [];
     const putRail = (tc) => { m.toArray(rm, r * 16); rc[r * 3] = tc.r; rc[r * 3 + 1] = tc.g; rc[r * 3 + 2] = tc.b; r++; };
     for (const t of this.tiles.values()) {
       if (t.type !== 'belt') continue;
       const fl = feeders.get(t.id) || []; t.fed = fl.length > 0;
       const shaped = !!(t.lift || t.ug);   // lifts and underground ends are drawn as their own meshes
       t.cd = (!shaped && !t.rise && fl.length === 1 && fl[0] !== t.dir) ? fl[0] : null;
+      if (t.hose && !shaped) { hoses.push(t); continue; }   // drawn below as a hose
       if (shaped || n >= MAXBELT || nb + 3 > bedMax || r + 6 > railMax) continue;
       const tc = tierCols[tierOf(t)];
       const ang = YAW[t.dir];
@@ -338,6 +355,7 @@ export class Logistics {
       n++;
     }
     this.maxMul = maxMul; this.bedMesh.count = nb; this.railMesh.count = r;
+    this.drawHoses(hoses); this._goldDirty = true;
     // update order: the tiles nearest the end of their line first, so a plush handed forward finds the next tile already moved (positions are all of one instant)
     const rank = new Map(), belts = [];
     for (const t of this.tiles.values()) if (t.type === 'belt') belts.push(t);
@@ -352,6 +370,52 @@ export class Logistics {
     let corners = 0; for (const t of this.tiles.values()) if (t.type === 'belt' && t.cd != null) corners++;
     this.cornerN = corners;
     this.bedMesh.instanceMatrix.needsUpdate = true; this.railMesh.instanceMatrix.needsUpdate = true; this.railMesh.instanceColor.needsUpdate = true;
+  }
+
+  // is the tile (or a planned one) the last of its line and within suck range of a bin? (read only: nothing is sold or reassigned here)
+  sinkSpot(t) {
+    if (t.lift || t.ug || t.detector || t.splitter || t.merger || t.smart) return false;
+    if (this.nextOf(t)) return false;
+    const fx = cellX(t.i) + (t.dir === 0 ? C : t.dir === 2 ? -C : 0), fz = cellZ(t.k) + (t.dir === 1 ? C : t.dir === 3 ? -C : 0);
+    return BINS.binsAt(this.game, fx, fz).length > 0 || BINS.binsAt(this.game, cellX(t.i), cellZ(t.k)).length > 0;
+  }
+  wouldSink(ent) { return this.sinkSpot({ ...ent, type: 'belt', items: [] }); }
+  refreshSinks(dt) {
+    this._sinkT -= dt; if (this._sinkT > 0) return; this._sinkT = 0.8;
+    const now = new Set(); for (const t of this.tiles.values()) if (t.type === 'belt' && this.sinkSpot(t)) now.add(t.id);
+    let same = now.size === this.sinkSet.size; if (same) for (const id of now) if (!this.sinkSet.has(id)) { same = false; break; }
+    if (!same || this._goldDirty) { this.sinkSet = now; this._goldDirty = false; this.drawGold(); }
+  }
+  drawGold() {
+    const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc, pa = this.goldPlate.instanceMatrix.array, ra = this.goldRing.instanceMatrix.array; let np = 0, nr = 0;
+    for (const id of this.sinkSet) {
+      const t = this.byId.get(id); if (!t) continue; const yaw = Math.atan2(DX[t.dir], DZ[t.dir]); sc.set(1, 1, 1);
+      if (t.hose) { if (nr >= 256) continue; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(cellX(t.i), t.j * C + 0.2, cellZ(t.k)); m.compose(v, q, sc); m.toArray(ra, nr * 16); nr++; }
+      else { if (np >= 256) continue; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(cellX(t.i), t.j * C + 0.1 + (t.rise ? 0.3 : 0), cellZ(t.k)); m.compose(v, q, sc); m.toArray(pa, np * 16); np++; }
+    }
+    this.goldPlate.count = np; this.goldRing.count = nr; this.goldPlate.instanceMatrix.needsUpdate = true; this.goldRing.instanceMatrix.needsUpdate = true;
+  }
+
+  // the hose tiles: one ribbed tube segment per straight piece (three along the same curve the plush ride at a corner), a flared mouth and a ring where a line opens
+  drawHoses(list) {
+    const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc;
+    const hm = this.hoseMesh.instanceMatrix.array, mm = this.mouthMesh.instanceMatrix.array, rm = this.ringMesh.instanceMatrix.array;
+    let nh = 0, nm = 0;
+    const put = (x, y, z, yaw, len) => { if (nh >= MAXBELT * 3) return; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(x, y, z); sc.set(1, 1, len); m.compose(v, q, sc); m.toArray(hm, nh * 16); nh++; };
+    for (const t of list) {
+      const cx = cellX(t.i), cz = cellZ(t.k), y = t.j * C + 0.2;
+      if (t.cd != null) {
+        const ax = cx - DX[t.cd] * C * 0.5, az = cz - DZ[t.cd] * C * 0.5, bx = cx + DX[t.dir] * C * 0.5, bz = cz + DZ[t.dir] * C * 0.5;
+        for (const s of [1 / 6, 0.5, 5 / 6]) { const u = 1 - s; const px = u * u * ax + 2 * u * s * cx + s * s * bx, pz = u * u * az + 2 * u * s * cz + s * s * bz; const dx = 2 * u * (cx - ax) + 2 * s * (bx - cx), dz = 2 * u * (cz - az) + 2 * s * (bz - cz); put(px, y, pz, Math.atan2(dx, dz), 0.62); }
+      } else put(cx, y, cz, Math.atan2(DX[t.dir], DZ[t.dir]), 1.04);
+      if (!t.fed && nm < 512) {
+        const yaw = Math.atan2(DX[t.dir], DZ[t.dir]); e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); sc.set(1, 1, 1);
+        v.set(cx - DX[t.dir] * (C * 0.5 + 0.2), y, cz - DZ[t.dir] * (C * 0.5 + 0.2)); m.compose(v, q, sc); m.toArray(mm, nm * 16);
+        v.set(cx - DX[t.dir] * (C * 0.5 + 0.4), y, cz - DZ[t.dir] * (C * 0.5 + 0.4)); m.compose(v, q, sc); m.toArray(rm, nm * 16); nm++;
+      }
+    }
+    this.hoseMesh.count = nh; this.mouthMesh.count = nm; this.ringMesh.count = nm;
+    this.hoseMesh.instanceMatrix.needsUpdate = true; this.mouthMesh.instanceMatrix.needsUpdate = true; this.ringMesh.instanceMatrix.needsUpdate = true;
   }
 
   // ---------------------------------------------------------------- simulation
@@ -422,6 +486,8 @@ export class Logistics {
     const spd = T.beltSpeed;
     const tick = this.game.time;
     this._moving = 0;
+    if (!this.visualOnly) this.pickupLoose(dt);
+    this.refreshSinks(dt); { const pu = 0.5 + 0.5 * Math.sin(tick * 5); this.goldMat.color.setRGB(2.0 + 0.8 * pu, 1.5 + 0.6 * pu, 0.25 + 0.15 * pu); }
     arrowTex.offset.y = (arrowTex.offset.y - dt * spd * 0.5) % 1;
     for (const t of this.lifts) this.liftLook(t, tick);
     if (this.parts.size && !(this._partT > tick)) { this._partT = tick + 0.25; this.partLooks(); }
@@ -485,20 +551,37 @@ export class Logistics {
     const nx = this.nextOf(t);
     if (nx && this.accept(nx, f, t.dir, t0)) return true;
     if (t.lift || t.ug) return false;   // a lift or an underground end never spills: it waits for something to take the plush
-    if (!nx && (this.game.sinkNear(cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C) || this.game.sinkNear(cellX(t.i), cellZ(t.k)))) { this.game.sellAuto(f.sp, f.vr, 1); return true; }
+    if (!nx) { const bin = BINS.endSink(this.game, t, [[cellX(t.i) + DX[t.dir] * C, cellZ(t.k) + DZ[t.dir] * C], [cellX(t.i), cellZ(t.k)]]); if (bin) { this.game.sellAuto(f.sp, f.vr, 1, bin.id); return true; } }   // the end of a line sells into the bin it touches (or the one it is assigned, when that one is in reach)
     if (!nx && this.game.world.get(t.i + DX[t.dir], t.j, t.k + DZ[t.dir]) === 0 && this.dropEnd(t, f)) return true;
     return false;
   }
 
-  // the open mouth of a vacuum hose pulls loose plush (not The One, not specials) off the floor
+  // the open mouth of a vacuum hose pulls loose plush (any loose plush: spilled, thrown or fallen in an avalanche; never The One or the special cells) off
+  // the floor within 3.5 m, up to 4 a second
   hoseIntake(t, dt) {
     t.suck = (t.suck || 0) - dt; if (t.suck > 0 || t.items.length >= 3) return;
     const sim = this.game.sim, gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
+    let best = -1, bd = 1e9;
     for (let i = sim.n - 1; i >= 0; i--) {
-      if (sim.flag[i] !== 1) continue;
-      const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 9 || sim.y[i] > gy + 1.8) continue;
-      if (sim.sp[i] >= 4090) continue;
-      if (this.accept(t, { sp: sim.sp[i], vr: sim.vr[i] }, null)) { sim.remove(i); t.suck = 0.25; this.game.fx.sparkle(gx, gy + 0.4, gz, 2, 0.4, 0.9, 1); break; }
+      if (sim.flag[i] === 99 || sim.sp[i] >= SPECIAL_MIN || sim.sp[i] === NEEDLE) continue;
+      const dx = sim.x[i] - gx, dz = sim.z[i] - gz, d2 = dx * dx + dz * dz; if (d2 > 12.25 || sim.y[i] > gy + 2.6 || sim.y[i] < gy - 0.3) continue;
+      if (d2 < bd) { bd = d2; best = i; }
+    }
+    if (best >= 0 && this.accept(t, { sp: sim.sp[best], vr: sim.vr[best] }, null)) { sim.remove(best); t.suck = 0.25; this.game.fx.sparkle(gx, gy + 0.4, gz, 2, 0.4, 0.9, 1); }
+  }
+
+  // loose plush that land or lie on a belt tile ride it (an avalanche onto a conveyor, a spill, a throw): checked ten times a second, bodies only
+  pickupLoose(dt) {
+    this._pl = (this._pl || 0) - dt; if (this._pl > 0 || !this.tiles.size) return; this._pl = 0.1;
+    const sim = this.game.sim; if (!sim || !sim.n) return;
+    for (let i = sim.n - 1; i >= 0; i--) {
+      const y = sim.y[i]; if (y > 40) continue;
+      if (sim.flag[i] === 99 || sim.sp[i] >= SPECIAL_MIN || sim.sp[i] === NEEDLE) continue;
+      if (Math.abs(sim.vy[i]) > 3.2) continue;
+      const ti = toI(sim.x[i]), tk = toK(sim.z[i]);
+      let t = null; const j = toJ(y); for (const dj of [0, -1]) { const c = this.tiles.get(idx(ti, j + dj, tk)); if (c && c.type === 'belt' && !c.lift && y - (c.j * C) < 0.9 && y - (c.j * C) > -0.1) { t = c; break; } }
+      if (!t || t.items.length >= 3) continue;
+      if (this.accept(t, { sp: sim.sp[i], vr: sim.vr[i] }, null)) { sim.remove(i); }
     }
   }
 
@@ -840,7 +923,7 @@ export class Logistics {
         const [i, , k] = this.mechCell(m, f, l, 0);
         for (const dj of [0, -1, 1]) {
           const t = this.tiles.get(idx(i, m.j + dj, k));
-          if (t && t.type === 'belt' && t.dir !== m.dir && this.accept(t, m.buf[0], null)) { m.buf.shift(); f; l; break; }
+          if (t && t.type === 'belt' && t.dir !== m.dir && BINS.mechMay(g, m, t) && this.accept(t, m.buf[0], null)) { m.buf.shift(); f; l; break; }   // (a mech with a bin of its own only feeds a line that reaches it)
           if (t && (t.type === 'sorter' || t.type === 'vault') && this.accept(t, m.buf[0], null)) { m.buf.shift(); break; }
         }
       }

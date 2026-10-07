@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // transit.*: jump pads and cushion pads (wave 5, spec 4.6). The real Player steps through every flight, so "lands where previewed" is measured, not assumed.
 import { kit } from './transit_lib.js';
 import * as TR from '../transit.js';
@@ -80,7 +81,7 @@ export default async function (ctx) {
       X.clean(); if (bad.length > 6) break;
     }
     // a wall in the way ends the preview there, and the player really stops against it
-    const { J } = rig({ ang: 20, hd: 90 }); for (let j = 0; j < 6; j++) for (let dz = -3; dz <= 3; dz++) w().setCell(toI(J.x) + 5, j, toK(J.z) + dz, 4098, 0);
+    const { J } = rig({ ang: 20, hd: 90 }); for (let j = 0; j < 6; j++) for (let dz = -3; dz <= 3; dz++) w().setCell(toI(J.x) + 5, j, toK(J.z) + dz, PD.BULK, 0);
     const tr = TR.trajectory(g, J); if (tr.hit !== 'wall' || tr.land.x > J.x + 3.6) bad.push('a wall 3 m ahead: preview ' + tr.hit + ' at ' + (tr.land.x - J.x).toFixed(2));
     for (let j = 0; j < 6; j++) for (let dz = -3; dz <= 3; dz++) w().setCell(toI(J.x) + 5, j, toK(J.z) + dz, 0, 0);
     return bad.length === 0 || bad.join(' || ');

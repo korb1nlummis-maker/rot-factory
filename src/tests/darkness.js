@@ -27,4 +27,12 @@ export default async function (ctx) {
     g.hall.level = 1;
     return bad.length === 0 || bad.join('; ');
   });
+  await T('light.a-tunnel-stays-lit-for-its-first-7-m-then-fades-dark', async () => {
+    fresh({}); g.hall.level = 1; g._entr = null; settle(new THREE.Vector3(0, 1.6, -1.4)); const bad = [];
+    const r = {}; for (const m of [3, 6.5, 12, 25]) { g._entr = { x: 40 - m, z: 0 }; r[m] = settle(new THREE.Vector3(40, 0.9, 0)).floor; }
+    if (g.camSky > 0.5) return 'test spot not buried (camSky ' + g.camSky.toFixed(2) + ')';
+    if (!(r[3] > 0.95 && r[6.5] > 0.9)) bad.push(`dark inside 7 m: ${r[3].toFixed(2)} at 3 m, ${r[6.5].toFixed(2)} at 6.5 m`);
+    if (!(r[12] < r[6.5] && r[12] > r[25])) bad.push(`no fade between 7 and 17 m: ${r[12].toFixed(2)}`); if (!(r[25] < 0.12)) bad.push(`still lit at 25 m: ${r[25].toFixed(2)}`);
+    return bad.length === 0 || bad.join('; ');
+  });
 }

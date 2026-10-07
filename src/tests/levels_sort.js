@@ -1,6 +1,8 @@
 // Levels audit: Sorting. Auction House, Fever Pitch, Tractor Beam, Species Registry, Prismatic Loupe and Brokerage, level by level,
 // measured in sale prices, the sell streak, the real bin, the Plushdex bonus, shiny prices and the contract board.
 import { basics, numbers, reqUp } from './levels_common.js';
+import { DEX_UNIT } from '../plushdata.js';
+const DK = DEX_UNIT / 0.004;   // the per-species dex bonus was 0.4% with 1,628 species; it is scaled down so a full Plushdex pays what it did
 
 export default async function (ctx) {
   const { g, S, sim, T, fresh, near, UPGRADES, species } = ctx;
@@ -12,7 +14,7 @@ export default async function (ctx) {
   await numbers(ctx, 'sort', 'auction', (t) => t.sellMult, (l, b) => b * Math.pow(1.5, l));
   await numbers(ctx, 'sort', 'fever', (t) => t.streakCap, (l) => 46 + 16 * l);
   await numbers(ctx, 'sort', 'tractor', (t) => t.binCatch, (l, b) => b + 0.6 * l);
-  await numbers(ctx, 'sort', 'registry', (t) => t.dexBonus, (l) => 0.006 + 0.002 * l);
+  await numbers(ctx, 'sort', 'registry', (t) => t.dexBonus, (l) => (0.006 + 0.002 * l) * DK);
   await numbers(ctx, 'sort', 'prism', (t) => t.shinyMult, (l) => 8 + 4 * l);
   await numbers(ctx, 'sort', 'brokerage', (t) => t.contractSlots, (l) => 3 + l);
 
@@ -72,7 +74,7 @@ export default async function (ctx) {
     for (let l = 0; l <= 3; l++) {
       fresh({ ...reqUp(UPGRADES, U('registry')), haggle: 10, midas: 5, registry: l }); S().stats.maxDist = 0; S().dex = {}; for (let n = 1; n <= 400; n++) S().dex[n] = 1;
       const v = g.valueOf(sp, 0, 0); if (!(v > prev)) return `level ${l}: price ${v} not above ${prev}`; prev = v; if (l === 0) v0 = v;
-      const want = (1 + (0.006 + 0.002 * l) * 400) / (1 + 0.006 * 400); if (Math.abs(v / v0 - want) > 0.003 * want) return `level ${l}: x${(v / v0).toFixed(3)}, expected x${want.toFixed(3)}`;
+      const want = (1 + (0.006 + 0.002 * l) * DK * 400) / (1 + 0.006 * DK * 400); if (Math.abs(v / v0 - want) > 0.003 * want) return `level ${l}: x${(v / v0).toFixed(3)}, expected x${want.toFixed(3)}`;
     }
     // with an empty dex it pays nothing extra
     fresh({ ...reqUp(UPGRADES, U('registry')), registry: 3 }); S().stats.maxDist = 0; S().dex = {}; const a = g.valueOf(sp, 0, 0); fresh({}); S().stats.maxDist = 0; S().dex = {}; const b = g.valueOf(sp, 0, 0); return a === b || `no species found but ${a} vs ${b}`;

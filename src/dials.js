@@ -12,12 +12,16 @@ export const DIAL_DEFS = [
   { id: 'hp', side: 'L', label: 'HEALTH', c: '#6fe39a' },
   { id: 'carry', side: 'L', label: 'CARRY', c: '#d7f26a', segs: true },
   { id: 'cart', side: 'L', label: 'CART', c: '#ffcf8a' },
+  { id: 'scoop', side: 'L', label: 'SCOOP', c: '#ffb86b', steps: true },   // steps: a minus and a plus button under the ring (onStep(id, -1 or +1))
   { id: 'breath', side: 'L', label: 'AIR', c: '#7fd0ff' },
+  { id: 'oxy', side: 'L', label: 'OXYGEN', c: '#8fe3ff' },
+  { id: 'suffoc', side: 'L', label: 'SUFFOCATION', c: '#ff9a8a' },
   { id: 'dust', side: 'L', label: 'DUST', c: '#d8c58a', ring2: true },
   { id: 'grid', side: 'L', label: 'GRID', c: '#7ad7ff' },
   { id: 'signal', side: 'R', label: 'THE ONE', c: '#fff3a0', arrow: true },
   { id: 'vein', side: 'R', label: 'VEIN', c: '#c28bff', arrow: true },
   { id: 'depth', side: 'R', label: 'DEPTH', c: '#d6b896' },
+  { id: 'tunnel', side: 'R', label: 'TUNNEL DEPTH', c: '#e8b86a' },
   { id: 'range', side: 'R', label: 'FROM BAY', c: '#7ef0c4' },
   { id: 'frame', side: 'R', label: 'FRAME', c: '#e0c070' },
   { id: 'support', side: 'R', label: 'SUPPORT', c: '#d9c47a' },
@@ -49,6 +53,15 @@ function build(def) {
   const dl = document.createElement('span'); dl.className = 'dl'; dl.textContent = def.label;
   const dd = document.createElement('em'); dd.className = 'dd';
   el.append(ring, dl, dd);
+  if (def.steps) {   // two real buttons: a click or a tap works with the cursor free (and on a phone), where the keys cannot reach (a pad in hand has the - and = keys)
+    const row = document.createElement('div'); row.className = 'stp';
+    for (const [dir, ch, word] of [[-1, '\u2212', 'fewer'], [1, '+', 'more']]) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'sb ' + (dir < 0 ? 'dn' : 'up'); b.textContent = ch; b.tabIndex = -1; b.dataset.dir = String(dir);
+      b.setAttribute('aria-label', `${def.label.toLowerCase()} ${word}`); b.title = `${def.label}: 3 ${word}`;
+      row.appendChild(b);
+    }
+    el.insertBefore(row, dl);
+  }
   return el;
 }
 
@@ -58,12 +71,14 @@ const JUNK = /-?\b(?:NaN|Infinity|undefined|null)\b/g;
 const clean = (s) => (/NaN|Infinity|undefined|null/.test(s) ? s.replace(JUNK, '--') : s);
 
 export class Dials {
-  constructor(left, right) {
+  constructor(left, right, onStep) {
+    this.onStep = onStep || null;   // (id, dir) from a step button
     this.els = new Map(); this.st = new Map(); this.defs = new Map();
     for (const d of DIAL_DEFS) {
       const el = build(d); (d.side === 'L' ? left : right).appendChild(el);
       this.els.set(d.id, el); this.st.set(d.id, { on: false, label: d.label }); this.defs.set(d.id, d);
-      el._q = { arc: el.querySelector('.arc'), arc2: el.querySelector('.arc2'), v: el.querySelector('.v'), u: el.querySelector('.u'), dl: el.querySelector('.dl'), dd: el.querySelector('.dd'), ar: el.querySelector('.ar'), mk: el.querySelector('.mk'), segs: el.querySelector('.segs') };
+      for (const b of el.querySelectorAll('.stp .sb')) b.addEventListener('click', (e) => { if (!b.disabled && this.onStep) this.onStep(d.id, +b.dataset.dir); b.blur(); });   // blur: a Space or Enter in the game must never press a focused button
+      el._q = { arc: el.querySelector('.arc'), arc2: el.querySelector('.arc2'), v: el.querySelector('.v'), u: el.querySelector('.u'), dl: el.querySelector('.dl'), dd: el.querySelector('.dd'), ar: el.querySelector('.ar'), mk: el.querySelector('.mk'), segs: el.querySelector('.segs'), dn: el.querySelector('.sb.dn'), up: el.querySelector('.sb.up') };
     }
   }
   el(id) { return this.els.get(id); }
@@ -88,6 +103,7 @@ export class Dials {
     if (st.sub !== sub) { st.sub = sub; q.dd.textContent = sub; q.dd.classList.toggle('none', !sub); st.dirty = true; }
     const state = STATES.includes(o.state) ? o.state : 'ok';
     if (st.state !== state) { st.state = state; el.dataset.s = state; }
+    if (q.dn) { q.dn.disabled = o.canDn === false; q.up.disabled = o.canUp === false; }
     const dim = !!o.dim; if (st.dim !== dim) { st.dim = dim; el.classList.toggle('dim', dim); }
     if (q.ar) {
       const rot = o.rot === null || o.rot === undefined || !isFinite(o.rot) ? null : o.rot;

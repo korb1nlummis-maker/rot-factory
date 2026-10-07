@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 import { pools } from '../plushdata.js';
 import { infoFor } from '../info.js';
 export default async function (ctx) {
@@ -58,6 +59,34 @@ export default async function (ctx) {
   await T_('belts.line-ending-near-the-bin-is-sucked-in', async () => {
     fresh({ belts: 1 }); const b = bp(); build([[b.x - 2.2, b.z, 0]]); const t = tiles()[0]; t.items.push({ sp: pools[1][0], vr: 0, t: 0.9 }); const m0 = S().money; run(8);
     return (t.items.length === 0 && S().money > m0) || `items left ${t.items.length}, money ${m0} -> ${S().money}`;
+  });
+  await T_('belts.an-avalanche-onto-a-belt-rides-it-and-a-hose-mouth-sucks-what-fell-near-it', async () => {
+    fresh({ belts: 1, vac: 1 }); const b = bp(); const x0 = b.x - 3.6, z0 = b.z + 3; build([[x0, z0, 0], [x0 + 0.6, z0, 0], [x0 + 1.2, z0, 0], [x0 + 1.8, z0, 0]]);
+    const sim = g.sim, tl = tiles().filter((t) => t.type === 'belt'); const bad = [];
+    // plush dropped on the second tile (flag 0, like an avalanche) are picked up by the belt
+    const n0 = sim.n; for (let q = 0; q < 3; q++) sim.spawn(pools[0][0], 0, x0 + 0.6, 0.35 + q * 0.05, z0 + (q - 1) * 0.05, 0, 0, 0, 0);
+    run(0.5); const onBelts = tl.reduce((a, t) => a + t.items.length, 0); if (sim.n >= n0 + 3 || !onBelts) bad.push(`loose plush on a belt were not picked up (bodies ${sim.n - n0}, on belts ${onBelts})`);
+    // a hose mouth: loose plush 3 m away (flag 0, i.e. fallen) get sucked, but The One and the specials are left alone
+    for (const t of tl) t.hose = true; L().rebuildBelts(); const mouth = tl.find((t) => !t.fed); mouth.pw = 1; mouth.items.length = 0; for (const t of tl) t.items.length = 0;
+    const m0 = sim.n; const ids = []; ids.push(sim.spawn(pools[1][0], 0, x0 - 2.5, 0.4, z0, 0, 0, 0, 0)); const one = sim.spawn(PD.NEEDLE, 0, x0 - 1.0, 0.4, z0, 0, 0, 0, 0);
+    for (let n = 0; n < 8; n++) { mouth.pw = 1; L().update(0.1); }
+    const inLine = tl.reduce((a, t) => a + t.items.length, 0); if (!inLine && sim.n >= m0 + 2) bad.push('the hose did not suck a fallen plush 2.5 m from its mouth');
+    let oneStillThere = false; for (let q = 0; q < sim.n; q++) if (sim.sp[q] === PD.NEEDLE) oneStillThere = true; if (!oneStillThere) bad.push('the hose took The One');
+    return bad.length === 0 || bad.join('; ');
+  });
+  await T_('belts.the-last-piece-of-a-line-in-suck-range-of-a-bin-glows-gold', async () => {
+    fresh({ belts: 1 }); const b = bp(); const bad = [];
+    build([[b.x - 3.6, b.z + 3, 0], [b.x - 3.0, b.z + 3, 0]]); L().refreshSinks(5); if (L().sinkSet.size) bad.push('gold far from any bin');
+    build([[b.x - 3.0, b.z, 0], [b.x - 2.4, b.z, 0], [b.x - 1.8, b.z, 0]]); L().refreshSinks(5);
+    const last = tiles().find((t) => t.i === toI(b.x - 1.8) && t.k === toK(b.z)), first = tiles().find((t) => t.i === toI(b.x - 3.0) && t.k === toK(b.z));
+    if (!last || !L().sinkSet.has(last.id)) bad.push('the end piece next to the bin is not gold'); if (first && L().sinkSet.has(first.id)) bad.push('a piece in the middle of the line is gold');
+    if (L().goldPlate.count !== 1) bad.push('gold plates drawn ' + L().goldPlate.count);
+    // the same for a hose: a gold ring instead of a plate
+    for (const t of tiles()) t.hose = true; L().rebuildBelts(); L().refreshSinks(5); if (L().goldRing.count !== 1 || L().goldPlate.count !== 0) bad.push(`hose: rings ${L().goldRing.count} plates ${L().goldPlate.count}`);
+    // the placement ghost knows too
+    if (!L().wouldSink({ type: 'belt', i: toI(b.x - 1.8), j: 0, k: toK(b.z), dir: 0 })) { /* tile already there: nextOf is empty so it still counts */ }
+    if (L().wouldSink({ type: 'belt', i: toI(b.x - 8), j: 0, k: toK(b.z), dir: 0 })) bad.push('a far planned piece would glow gold');
+    return bad.length === 0 || bad.join('; ');
   });
   function T_(n, f) { return ctx.T(n, f); }
 }

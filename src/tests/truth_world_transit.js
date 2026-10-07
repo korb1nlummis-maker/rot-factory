@@ -23,7 +23,8 @@ export default async function (ctx) {
     X.setup(); const bad = []; const i0 = toI(-20), k0 = toK(4); const j = X.jump(i0, k0, { ang: 45, hd: 0 }); X.powerAt(-17, 2, 2); adv(0.5);
     look(cellX(i0 + 2), 0.2, cellZ(k0 + 2), 2.4); const a0 = j.ang, h0 = j.hd; io.tap('KeyE'); adv(0.1); if (j.ang !== a0 + 5) bad.push(`E: angle ${a0} -> ${j.ang}, not 5 steeper`);
     const h1 = j.hd; io.down('KeyC'); io.tap('KeyE'); io.up('KeyC'); adv(0.1); const turned = ((j.hd - h1) % 360 + 360) % 360; if (j.hd === h1) bad.push('crouch + E did not turn the heading'); else if (turned !== 15 && Math.abs(turned - 15) > 1e-6) { const step = typeof j.hd === 'number' ? turned : 'index'; bad.push('crouch + E turned it ' + step + ' not 15 degrees (' + h1 + ' -> ' + j.hd + ')'); }
-    for (const code of ['ControlLeft', 'ControlRight']) { const h = j.hd; io.down(code); io.tap('KeyE'); io.up(code); adv(0.1); if (j.hd === h) bad.push(code + ' + E (Ctrl works for crouch) did not turn it'); }
+    // Ctrl is no longer a crouch key (Ctrl+W closes the browser tab): it must not turn the pad
+    { const h = j.hd; io.down('ControlLeft'); io.tap('KeyE'); io.up('ControlLeft'); adv(0.1); if (j.hd !== h) bad.push('Ctrl + E turned the pad: Ctrl must not act as crouch'); }
     void h0;
     return bad.length === 0 || bad.join('; ');
   });

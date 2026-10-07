@@ -9,6 +9,7 @@ import { fanSpacing, staleAt, STALE_START, STALE_SPAN, STALE_OK, FAN_R, VENT_R }
 import { ARCH_SPANS } from './loadtrace.js';
 import { VEHICLES, CUBE_CLEAR, ROAD, DOCK } from './haul.js';
 import { KW as PORTAL_KW } from './portal.js';
+import * as STACK_DATA from './stack.js';
 
 function canvasTex(w, h, draw, repeat = null, srgb = true) {
   const c = document.createElement('canvas');
@@ -544,12 +545,13 @@ export function buildHall(scene) {
     '7. Hammer a support to read its load.',
     '8. Tamping adds 1.2 m of safe roof a level.',
     '9. A creaking roof is about to fall. Leave.',
+    '10. A shaft up and out lets daylight down.',
   ], 'Remove supports and the tunnel comes down.\nMine Rail: hold B to lay track, Backspace rushes you home.');
 
   // 6 and 7. the controls: short versions of the pause menu's Controls tab (a test checks every key named here is a real control)
   hall.controlBoards = [
     ['CONTROLS: MOVING AND HANDS', [
-      '#Moving', ['W A S D', 'walk'], ['Shift', 'sprint'], ['Space', 'jump (hold: punch up)'], ['C or Ctrl', 'crouch'],
+      '#Moving', ['W A S D', 'walk'], ['Shift', 'sprint'], ['Space', 'jump (hold: punch up)'], ['C', 'crouch'],
       '#Hands', ['Left click', 'grab (hold) / throw'], ['Z', 'throw one'], ['Right click or P', 'punch'], ['E', 'use what you aim at'],
       ['F', 'flashlight'], ['K', 'medkit'], ['U', 'cart out / park'], ['H (hold)', 'recall to depot'],
     ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH']],
@@ -593,6 +595,25 @@ export function buildHall(scene) {
       'Halts when the mountain presses. Needs fans.',
       'Never takes The One without a Scanner.',
     ], `Portal ${PORTAL_KW[6]} / ${PORTAL_KW[8]} / ${PORTAL_KW[12]} kW. Roads ${ROAD.speed}x speed. Docks ${DOCK.charge} kW.`, -Math.PI / 2); }
+
+  // 7. stacked building inside the pile (wave 10): levels, plates, stairs, ladders and the load column. The numbers come from the game data.
+  { const ST = STACK_DATA;
+    makeBoard(8.8, 4.1, 'STACKED BUILDING', [
+      '#A level inside a cube',
+      [`${ST.LEVEL} rows`, `1 plate row + ${ST.LEVEL - 1} clear`],
+      `Fits the walker, cart, belt and lift.`,
+      '#Plates: a Floor Pad aimed into a cube',
+      [ST.OPENINGS[0].name, 'the whole 4 x 4 floor'],
+      [ST.OPENINGS[1].name, `half: ${ST.OPENINGS[1].holes} open cells`],
+      [ST.OPENINGS[2].name, `${ST.OPENINGS[2].holes} open cells`],
+      '#Up one level',
+      ['Switchback stair', '2 Stairs, 2.4 m'],
+      ['Ladder', 'rim of an opening'],
+      ['Belt lift or ramp, elevator', 'through the openings'],
+      '#Load',
+      'A cube on a cube is one column.',
+      'The cube at the bottom carries the lot.',
+    ], `Stacked Building unlocks at ${(ST.UNLOCK / 1e6).toFixed(0)}M. Aim a Wall at a cube for a door frame.`, -Math.PI / 2); }
 
   // EXIT door in +X wall
   const door = new THREE.Group();

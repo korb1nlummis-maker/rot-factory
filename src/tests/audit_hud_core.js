@@ -77,7 +77,7 @@ export default async function (ctx) {
     if (!(g.hp >= g.hpMax - 0.01)) bad.push(`the new shift starts at ${Math.round(g.hp)} of ${g.hpMax} health`); const hp = D('hp'); if (hp.state !== 'ok' || hp.val !== String(Math.ceil(g.hpMax))) bad.push('health dial ' + JSON.stringify([hp.state, hp.val]));
     if (D('breath').on) bad.push('the air dial carried over'); if (g.trapOn || g.suffocating || g.airLeft !== undefined) bad.push('the air countdown carried over ' + JSON.stringify([g.trapOn, g.suffocating, g.airLeft]));
     if (!el('trap').classList.contains('hidden')) bad.push('the trapped overlay carried over');
-    const left = shown().filter((id) => !['hp', 'carry', 'clock', 'depth', 'range'].includes(id)); if (left.length) bad.push('dials from the last shift: ' + left.join(','));
+    const left = shown().filter((id) => !['hp', 'carry', 'clock', 'depth', 'range', 'tunnel'].includes(id)); if (left.length) bad.push('dials from the last shift: ' + left.join(','));
     return bad.length === 0 || bad.join('; ');
   });
 

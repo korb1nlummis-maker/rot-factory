@@ -30,6 +30,8 @@ export class Player {
     this.shakeAmt = 0;
     this.footCell = null;
     this.walk = null;   // (player) => true when standing on a ramp or stair; installed by build.js
+    this.climb = null;  // (player, input, dt) => true while holding a ladder (it sets vel.y itself); installed by catalog_stack.js
+    this.climbing = false;
     this.ride = null;   // (player) => true when standing on a lift car (it carries you); installed by transit.js
     this.landSafe = null;   // (player) => true when a fall here does no harm (a Cushion Pad, or a Jump Pad or the plush pile after a launch); installed by transit.js
     this.flight = 0;    // seconds since a Jump Pad threw you (0 = not flying): while it runs your sideways speed is kept, only steered a little
@@ -116,8 +118,11 @@ export class Player {
       if (dl > maxd) { this.vel.x += dvx / dl * maxd; this.vel.z += dvz / dl * maxd; } else { this.vel.x = tx; this.vel.z = tz; }
     }
 
-    this.vel.y -= 21 * dt;
-    if (input.jump && this.onGround) { this.vel.y = stats.jump; this.onGround = false; }
+    // a ladder (stack.js) holds you and sets your climbing speed itself; everywhere else gravity and the jump
+    if (!(this.climb && this.climb(this, input, dt))) {
+      this.vel.y -= 21 * dt;
+      if (input.jump && this.onGround) { this.vel.y = stats.jump; this.onGround = false; }
+    }
 
     // integrate in small steps
     const total = this.vel.length() * dt;

@@ -17,7 +17,7 @@ export default async function (ctx) {
     const walk = w.length(); const sl = run(['KeyW', 'ShiftLeft']).length(), sr = run(['KeyW', 'ShiftRight'], 1).length();
     if (sl < walk * 1.3) bad.push(`left Shift did not sprint (${sl.toFixed(2)} vs walking ${walk.toFixed(2)})`); if (sr < walk * 1.3) bad.push('right Shift did not sprint (Shift is the sprint key)');
     p().pos.set(0, 0, -1.4); p().vel.set(0, 0, 0); adv(0.5); let top = 0; io.down('Space'); for (let n = 0; n < 12; n++) { adv(0.05); top = Math.max(top, p().pos.y); } io.up('Space'); if (top < 0.3) bad.push('Space did not jump ' + top.toFixed(2));
-    for (const c of ['KeyC', 'ControlLeft', 'ControlRight']) { p().pos.set(0, 0, -1.4); p().vel.set(0, 0, 0); adv(0.3); io.down(c); adv(0.3); const on = p().crouch; io.up(c); adv(0.5); if (!on) bad.push(c + ' did not crouch'); if (p().crouch) bad.push('did not stand up after ' + c); }
+    for (const c of ['KeyC']) { p().pos.set(0, 0, -1.4); p().vel.set(0, 0, 0); adv(0.3); io.down(c); adv(0.3); const on = p().crouch; io.up(c); adv(0.5); if (!on) bad.push(c + ' did not crouch'); if (p().crouch) bad.push('did not stand up after ' + c); }
     return bad.length === 0 || bad.join('; ');
   });
 

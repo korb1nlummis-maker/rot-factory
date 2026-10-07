@@ -257,7 +257,7 @@ export function planDoor(g, tool, eye, dir, yaw) {
     let r; try { r = B.planWall(g, { ...tool, id: 'wall', kind: 'wall' }, eye, dir, yaw); } finally { g._bz = z0; }
     g._xInfo = null;
     const pe = r.plan.ent; if (!pe || pe.i0 === undefined) return bad(r.plan.why || 'Cannot build here');
-    ent = { type: 'door', ax: pe.ax, i0: pe.i0, k0: pe.k0, j: pe.j, blast, snap: pe.snap };
+    ent = { type: 'door', ax: pe.ax, i0: pe.i0, k0: pe.k0, j: pe.j, blast, snap: pe.snap, ...(pe.bay !== undefined ? { bay: pe.bay } : {}) };   // a door aimed into a cube is a door frame in it (stack.js)
     if (!r.plan.ok) return bad(r.plan.why, ent);
   }
   g._xInfo = { t: g.time + 0.35, title, lit: true, lines: [`${ent.snap}: 4 wide, 4 high`, `Slides up in ${doorSec(ent)} s, ${blast ? BLAST_KW : DOOR_KW} kW while it moves`, blast ? 'Holds the pile and anchors the roof beside it. Opens only on power or by the crank' : 'Closed it is solid, open it frees the cells. E opens it, the sensor opens it for you'] };
@@ -279,14 +279,16 @@ export function conflictDoor(g, e, tool) {
     if (!W || W.type !== 'wall' || W.ax !== e.ax || W.i0 !== e.i0 || W.k0 !== e.k0 || W.j !== e.j) return 'That wall section is gone';
     return null;
   }
-  return B.checkPiece(g, { type: 'wall', ax: e.ax, i0: e.i0, k0: e.k0, j: e.j });
+  const bay = e.bay !== undefined && B.hooks.deriveBay ? B.hooks.deriveBay(g, { type: 'wall', ax: e.ax, i0: e.i0, k0: e.k0, j: e.j }) : undefined;   // the host finds the cube itself, from the cell
+  return B.checkPiece(g, { type: 'wall', ax: e.ax, i0: e.i0, k0: e.k0, j: e.j, ...(bay !== undefined ? { bay } : {}) });
 }
 export function buildDoor(g, tool, e) {
   const why = conflictDoor(g, e, tool); if (why) return null;
   const blast = tool.id === 'door:blast';
-  if (e.replaces !== undefined) g.doDecon({ kind: 'mach', id: e.replaces });   // the wall section comes back to your pack, the door takes its cells
+  let bay = e.bay !== undefined && B.hooks.deriveBay ? B.hooks.deriveBay(g, { type: 'wall', ax: e.ax, i0: e.i0, k0: e.k0, j: e.j }) : undefined;
+  if (e.replaces !== undefined) { const W0 = entById(g, e.replaces); if (W0 && W0.bay !== undefined) bay = W0.bay; g.doDecon({ kind: 'mach', id: e.replaces }); }   // the wall section comes back to your pack, the door takes its cells
   const grp = (g.S.buildGrp = (g.S.buildGrp || 0) + 1);
-  return { type: 'door', ax: e.ax, i0: e.i0, k0: e.k0, j: e.j, blast, lock: 'none', auto: !blast, tgt: 0, p: 0, st: 'closed', rid: tool.id, grp };
+  return { ...(bay !== undefined ? { bay } : {}), type: 'door', ax: e.ax, i0: e.i0, k0: e.k0, j: e.j, blast, lock: 'none', auto: !blast, tgt: 0, p: 0, st: 'closed', rid: tool.id, grp };
 }
 export function infoDoor(g, e) {
   const st = doorState(e), name = e.blast ? 'BLAST DOOR' : 'DOOR';
@@ -1008,7 +1010,7 @@ export function useKey(g) {
   const grp = { door: 'doorcfg', jump: 'jumpcfg' }[e.type];
   if (grp && g.cfgClip && g.cfgClip.group === grp) { const r = g.pasteCfg(e); if (r.ok) { sound(g, (s) => s.place()); g.ui.hint('Settings pasted.', 2); } else { sound(g, (s) => s.error()); g.ui.hint(r.why || 'Could not paste', 2.5); } return true; }
   if (e.type === 'door') return useDoor(g, e);
-  if (e.type === 'jump') return useJump(g, e, !!(g.keys && (g.keys.KeyC || g.keys.ControlLeft || g.keys.ControlRight)));
+  if (e.type === 'jump') return useJump(g, e, !!(g.keys && g.keys.KeyC));
   if (e.type === 'callbtn') { const r = g.setCfg(e, { press: 1 }); if (r.ok) { sound(g, (s) => s.tone('triangle', 660, 660, 0.08, 0.06)); g.ui.hint('Called the elevator.', 1.5); } else { sound(g, (s) => s.error()); g.ui.hint(r.why || 'The elevator does not answer', 2.5); } return true; }
   if (e.type === 'plift' && pk && pk.row !== undefined && pk.ent === e) {   // a landing's call panel: bring the cab to that row
     if (isHost(g)) { const r = requestFloor(g, e, pk.row); if (r === 'ok' || r === 'queued' || r === 'here') { sound(g, (s) => s.tone('triangle', 660, 660, 0.08, 0.06)); g.ui.hint(r === 'here' ? 'The cab is here.' : 'Called the elevator.', 1.5); } else { sound(g, (s) => s.error()); g.ui.hint(r + '.', 3); } return true; }

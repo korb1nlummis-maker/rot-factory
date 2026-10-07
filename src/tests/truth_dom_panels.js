@@ -182,7 +182,7 @@ export default async function (ctx) {
     const card = [...document.querySelectorAll('#shopGrid .card')].find((c) => c.querySelector('h3 span').textContent === u.name), b = card.querySelector('button'); if (!b.disabled) bad.push('affordable-by-one-coin test setup failed');
     S().money = cost; g.ui.setMoney(cost); if (b.disabled) bad.push('the Buy button stayed disabled after the money arrived'); if (document.getElementById('shopMoney').textContent === '0') bad.push('balance not updated');
     S().money = cost - 1; g.ui.setMoney(cost - 1); if (!b.disabled) bad.push('the Buy button stayed enabled after the money went'); if ([...document.querySelectorAll('#shopGrid .card')].find((c) => c.querySelector('h3 span').textContent === u.name).querySelector('button') !== b) bad.push('the window was rebuilt under the mouse');
-    g.ui.closeModals(); g.ui.open('craft'); const cb = [...document.querySelectorAll('#craftGrid button')].find((x) => x.dataset.cost); if (cb) { const c = +cb.dataset.cost; S().money = c - 1; g.ui.setMoney(c - 1); if (!cb.disabled) bad.push('bench button not disabled'); S().money = c; g.ui.setMoney(c); if (cb.disabled) bad.push('bench button not enabled when money arrived'); }
+    g.ui.closeModals(); try { localStorage.removeItem('rf.bench'); } catch (e) { /* no storage */ } g.ui.bench = null; g.ui.open('craft'); const cb = [...document.querySelectorAll('#benchDetail button')].find((x) => x.dataset.cost); if (cb) { const c = +cb.dataset.cost; S().money = c - 1; g.ui.setMoney(c - 1); if (!cb.disabled) bad.push('bench button not disabled'); S().money = c; g.ui.setMoney(c); if (cb.disabled) bad.push('bench button not enabled when money arrived'); }
     g.ui.closeModals(); return bad.length === 0 || bad.join('; ');
   });
 

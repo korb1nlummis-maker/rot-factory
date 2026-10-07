@@ -18,6 +18,7 @@ import { compaction } from './util.js';
 import * as A from './arches.js';
 import * as VS from './vehiclescan.js';
 import { sellBatch, sinkNear, STALE_CHOKE } from './earth.js';
+import * as BINS from './bins.js';   // the bin a Portal sells what it cuts at
 
 export const KW = { 6: 150, 8: 260, 12: 480 };     // the cutter and its drive while it works (kW)
 export const CELLS_PER_S = 12;                       // cells a Portal cuts a second at the base Cutter Head (a Bucket-Wheel does about 13): a slab takes cells / 12 s
@@ -54,9 +55,12 @@ export function facePos(e, n) {
   return { x: e.cx + ax * along, z: e.cz + az * along };
 }
 
+// the bin a Portal's cuttings are credited to: its own when that one works, else the nearest
+function portalBin(g, e) { const r = BINS.pick(g, e.dest, e.cx, e.cz); if (r.why) BINS.fallback(g, { k: 'ent', o: e }, r.why, r.named ? r.named.name : ''); return r.bin.id; }
+
 // ---------------------------------------------------------------- the scanner on the line
 export function lineScanner(g, e) {
-  const sink = sinkNear(g, e.cx, e.cz), sc = VS.pickScanner(g, e.cx, e.cz, sink.x, sink.z, LINE_RANGE);
+  const rb = BINS.resolve(g, e.dest).bin, sink = rb ? { x: rb.x, z: rb.z } : sinkNear(g, e.cx, e.cz), sc = VS.pickScanner(g, e.cx, e.cz, sink.x, sink.z, LINE_RANGE);
   if (!sc) return null;
   const d0 = Math.hypot(sink.x - e.cx, sink.z - e.cz), detour = Math.hypot(sc.cx - e.cx, sc.cz - e.cz) + Math.hypot(sink.x - sc.cx, sink.z - sc.cz) - d0;
   return detour <= DETOUR ? sc : null;
@@ -102,7 +106,7 @@ function lineSection(g, it) {
     // a wall, a pad, a supply cache or remains in an open section cannot be cut (the cutter skips them): halt and say so, never sit silent
     for (const [i, j, k2] of inSec) if (isSpecialCell(w.get(i, j, k2))) { const why = 'A wall, a pad, a cache or remains stands in the open section behind the cutter. Take it down or open it (E) and the Portal goes on.'; stat(g, e, 'stuck', why); say(g, e, 'Portal blocked', why); it.timer = 2; return; }
     const flat = []; for (const [i, j, k2] of inSec) { const t = w.removeCell(i, j, k2); if (t) { flat.push(t.sp, t.vr); count(g, t); } }
-    if (flat.length) sellBatch(g, flat, 1);
+    if (flat.length) sellBatch(g, flat, 1, portalBin(g, e));
     return;
   }
   // an arch the player set by hand in this very module counts as the lining
@@ -173,7 +177,7 @@ function step(g, it, dt) {
     if (taken.sp === NEEDLE) { g.registerDex(NEEDLE); VS.raise(g, sc, { sp: taken.sp, vr: taken.vr }, 'A Portal cut THE ONE out of the pile and handed it to the scanner on its road. Go to the arch and press E to take it.'); continue; }
     count(g, taken); flat.push(taken.sp, taken.vr);
   }
-  if (flat.length) sellBatch(g, flat, 1);
+  if (flat.length) sellBatch(g, flat, 1, portalBin(g, e));
   e.adv++; e.ps = 'dig'; e.warned = '';
   g.S.stats.portalSlabs = (g.S.stats.portalSlabs || 0) + 1;
   g.noteDist(fp.x, fp.z);

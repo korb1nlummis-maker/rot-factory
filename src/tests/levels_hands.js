@@ -82,7 +82,7 @@ export default async function (ctx) {
 
   // ---------------------------------------------------------------- bucket hands: each grab takes the new number
   await T('levels.hands.bucketHands.effect', async () => {
-    fresh({ ...reqUp(UPGRADES, U('bucketHands')), bag: 8, reach: 4 }); clearBay(); let prev = 0; const got = [];
+    fresh({ ...reqUp(UPGRADES, U('bucketHands')), bag: 8, reach: 4 }); S().scoopSet = 1e9; clearBay(); let prev = 0; const got = [];
     for (let l = 0; l <= 4; l++) {
       S().up.bucketHands = l; g.T = g.tune(); const want = 12 + [0, 16, 40, 90, 200][l];
       block(2.0, 14, 6, 1.5, true); S().carry = []; g.grabCd = 0; const tg = target(); if (!tg || tg.type !== 'cell') { finish(); return 'no target'; }

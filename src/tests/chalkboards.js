@@ -5,7 +5,7 @@ export default async function (ctx) {
   const txt = (b) => [b.title, ...b.rows.map((r) => (Array.isArray(r) ? r.join(' ') : r)), b.foot].join('\n');
   await T('hall.six-chalkboards-stand-in-the-bay', async () => {
     const boards = []; g.renderer.scene.traverse((o) => { if (o.name === 'chalkboard') boards.push(o); });
-    return (boards.length >= 10 && g.hall.boards.length === 9) || `${boards.length} chalkboards in the scene, ${g.hall.boards.length} new ones`;   // wave 6 added the tunnels and portals board (8 -> 9)
+    return (boards.length >= 11 && g.hall.boards.length === 10) || `${boards.length} chalkboards in the scene, ${g.hall.boards.length} new ones`;   // wave 6 added the tunnels and portals board (8 -> 9), wave 10 the stacked building board (9 -> 10)
   });
   await T('hall.depth-board-lists-every-support-with-its-real-rating', async () => {
     const b = g.hall.boards.find((x) => /HOW DEEP/.test(x.title)); if (!b) return 'no depth board'; const t = txt(b), bad = [];

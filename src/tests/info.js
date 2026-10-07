@@ -23,7 +23,7 @@ export default async function (ctx) {
     const f = { id: g.nextId(), type: 'frame', kind: 'steel', axis: 'x', cx: cellX(i + 6), cz: cellZ(k + 1), y0: 0, w: 2.36, h: 2.38, gm: i + 6, glo: k - 1, gj: 0, yaw: 0.4, turned: true }; S().entities.push(f); g.addEntity(f);
     const fan = { id: g.nextId(), type: 'fan', mounted: true, frameId: f.id, px: f.cx, py: 2.0, pz: f.cz, fx: 1, fz: 0, fyaw: Math.PI / 2, dir: 0, i: toI(f.cx), j: 3, k: toK(f.cz) }; S().entities.push(fan); g.addEntity(fan); g.logi.byId.get(fan.id).pw = 1;
     g.queueLoad(f.cx, 1, f.cz); for (let n = 0; n < 6; n++) g.updateLoads(0.5);
-    const a = read(f.cx, 1.2, f.cz + 0.1, 2.0).info; if (!a || !/STEEL FRAME/.test(a.title) || !/Rated to 380 m deep/.test(a.lines.join(' ')) || !/Load \d+%/.test(a.lines.join(' ')) || !/turned 23 degrees/.test(a.lines.join(' ')) || !/Support Fan clamped/.test(a.lines.join(' '))) out.push('frame: ' + JSON.stringify(a));
+    const a = read(f.cx, 2.3, f.cz, 2.0).info;   // look at the beam over the middle: a frame reads out only when you look at its wood if (!a || !/STEEL FRAME/.test(a.title) || !/Rated to 380 m deep/.test(a.lines.join(' ')) || !/Load \d+%/.test(a.lines.join(' ')) || !/turned 23 degrees/.test(a.lines.join(' ')) || !/Support Fan clamped/.test(a.lines.join(' '))) out.push('frame: ' + JSON.stringify(a));
     const sf = { id: g.nextId(), type: 'strut', x: cellX(i + 3), y: 0, z: cellZ(k + 1) }; S().entities.push(sf); g.addEntity(sf); const b = read(sf.x, 0.6, sf.z, 1.6).info; if (!b || !/STRUT/.test(b.title) || !/Rated to 110 m/.test(b.lines.join(' '))) out.push('strut: ' + JSON.stringify(b));
     const c = read(f.cx, 2.0, f.cz, 2.0); void c;
     return out.length === 0 || out.join(' || ');

@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { C, cellX, cellZ, toI, toJ, toK, idx, NX, NZ, NY } from './config.js';
 import { NEEDLE, SPECIAL_MIN, species } from './plushdata.js';
+import * as BINS from './bins.js';   // the bin a line unloads at
 
 export const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];
 export const POWER_SPEED = 8;        // m/s on a powered line
@@ -184,6 +185,30 @@ export function carBeside(g, e) {
   const R = sync(g); let best = null, bd = 1.2;
   for (const c of R.cars) { const d = Math.hypot(c.x - cellX(e.i), c.z - cellZ(e.k)); if (d < bd && Math.abs(c.y - e.j * C) < 0.6) { bd = d; best = c; } }
   return best;
+}
+
+// the bin a line unloads at: the cart's own, else the first station on its line that has one (so assigning any one station assigns the line); 0 is Auto, the nearest bin
+export function lineDest(g, car) {
+  if (car.dest) return car.dest | 0;
+  const R = sync(g), comp = compOf(R, car.cache && car.cache.edge ? car.b : car.a);
+  if (comp) for (const s of [...comp.stns].sort((a, b) => a.id - b.id)) if (s.dest) return s.dest | 0;
+  return 0;
+}
+// where a cart sells: the assigned bin when the cart is within BIN_R of it, nothing yet when the line does reach it (it waits for the right station), and Auto when the track never gets near it
+function cartSink(g, car) {
+  const dest = lineDest(g, car);
+  if (dest) {
+    const r = BINS.resolve(g, dest);
+    if (r.bin) {
+      const R = sync(g), comp = compOf(R, car.cache && car.cache.edge ? car.b : car.a);
+      if (R._nearV !== R.ver) { R._near = new Map(); R._nearV = R.ver; }
+      const key = `${comp ? comp.id : -1}:${r.bin.id}`; let near = R._near.get(key);
+      if (near === undefined) { near = false; if (comp) for (const [k2, e] of R.nodes) if (R.comp.get(k2) === comp.id && Math.hypot(cellX(e.i) - r.bin.x, cellZ(e.k) - r.bin.z) < BIN_R) { near = true; break; } R._near.set(key, near); }
+      if (near) return Math.hypot(car.x - r.bin.x, car.z - r.bin.z) < BIN_R ? { kind: 'sell', x: r.bin.x, y: 1.0, z: r.bin.z, bin: r.bin.id } : null;
+      BINS.fallback(g, { k: 'ent', o: car }, 'unreachable', r.bin.name);
+    } else BINS.fallback(g, { k: 'ent', o: car }, r.why, r.named ? r.named.name : '');
+  }
+  return g.nearestSink(car.x, car.y + 0.5, car.z, BIN_R);
 }
 
 export function stationRole(g, e) {
@@ -846,11 +871,11 @@ function idleWork(g, R, car, dt) {
   if (car.cargo.length) {
     c.unT = (c.unT || 0) - dt;
     if (c.unT <= 0) {
-      const sink = g.nearestSink(car.x, car.y + 0.5, car.z, BIN_R);
+      const sink = cartSink(g, car);
       if (sink && sink.kind === 'sell') {
         c.unT = 0.07; const it = car.cargo.pop(); car.n = car.cargo.length;
         g.S.stats.railHauled = (g.S.stats.railHauled || 0) + 1;   // achievement counter
-        g.sellAuto(it.sp, it.vr);   // the plain price, like a belt into the bin: the hand-throw streak must not stack on a 120 plush load
+        g.sellAuto(it.sp, it.vr, 1, sink.bin);   // the plain price, like a belt into the bin: the hand-throw streak must not stack on a 120 plush load
         g.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(car.x, car.y + 0.6, car.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: 0, dur: 0.4, arc: 0.9 });
       }
     }

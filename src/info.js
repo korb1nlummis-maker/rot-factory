@@ -7,12 +7,15 @@ import { CART_NAMES, CART_CAP } from './cart.js';
 import { isEarth, earthInfo } from './earth.js';
 import { wireable } from './cables.js';
 import { infoReplace, infoExtra } from './ext.js';
+import { frameRay } from './machines.js';
 import { pickBuilt } from './build.js';
+import { infoCube } from './stack.js';
 import { pick as pickTransit } from './transit.js';
 import { pickRail } from './rail.js';
 import { pick as pickArch, holds as archHolds } from './arches.js';
 import { pickFlat } from './haul.js';
 import { C, cellX, cellZ } from './config.js';
+import * as BINS from './bins.js';   // the bin a machine sells at
 
 const pct = (v) => `${Math.round((v ?? 0) * 100)}%`;
 const SORT_NAMES = ['Sells everything', 'Keeps Uncommon and better', 'Keeps Rare and better', 'Keeps Epic and better', 'Keeps Legendary and better', 'Keeps Mythic'];
@@ -26,11 +29,14 @@ export function findInfoRef(g) {
   const tile = g.logi.pick(eye, dir, 3.6); if (tile) return { kind: 'tile', id: tile.id };
   let best = null, bd = 3.4;
   for (const it of g.machines.items.values()) {
-    const e = it.ent; if (e.type === 'garch') continue; const em = isEarth(e.type); const x = em ? it.obj.position.x : (e.cx ?? e.px ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.pz ?? e.z); if (x === undefined) continue;
+    const e = it.ent; if (e.type === 'garch') continue;
+    if (e.type === 'frame') { const fr = frameRay(e, eye, dir, 3.4); if (fr && !fr.through && fr.t < bd) { bd = fr.t; best = it; } continue; }   // a frame reads out only when you look at its wood (a pillar or beam), never from the hollow inside it
+    const em = isEarth(e.type); const x = em ? it.obj.position.x : (e.cx ?? e.px ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.pz ?? e.z); if (x === undefined) continue;
     const v = eye.clone().set(x - eye.x, y - eye.y, z - eye.z), d = v.length(); if (d > bd + (e.hr || 0) || v.normalize().dot(dir) < (e.hr ? 0.8 : 0.9)) continue; bd = d; best = it;
   }
   { let pb = pickBuilt(g, eye, dir, 3.6), pt = pickTransit(g, eye, dir, 3.6);   // build shell: the pad, catwalk, wall, ramp or stair under the crosshair; transit: a door, the lift car, a call button, a jump or cushion pad
     if (pb && pt) { if (pb.t <= pt.t) pt = null; else pb = null; }
+    if (pb && best && best.ent.type === 'frame' && pb.ent.bay !== undefined) { const fr = frameRay(best.ent, eye, dir, 3.6); if (!fr || fr.through || fr.t > pb.t) return { kind: 'mach', id: pb.ent.id }; }   // a plate, stair or door frame built into the cube you aim at is read before the cube (unless a pillar or beam is in front of it)
     if (pb && (!best || pb.t < bd)) return { kind: 'mach', id: pb.ent.id };
     if (pt && (!best || pt.t < bd)) return { kind: 'mach', id: pt.ent.id }; }
   { const rp = pickRail(g, eye, dir, 3.6); if (rp && (!best || rp.t < bd)) return { kind: 'mach', id: rp.ent.id }; }   // Mine Rail: the piece of track under the crosshair
@@ -48,6 +54,7 @@ export function infoFor(g, ref) {
   let r = e ? infoReplace(g, e, ref) : null;
   if (!r) r = infoBase(g, ref); if (!r) return r;
   if (e) { const more = infoExtra(g, e); if (more.length) r = { ...r, lines: [...more, ...r.lines] }; }
+  if (e && BINS.assignable(e)) r = { ...r, lines: [...r.lines, ...BINS.infoLines(g, e)] };   // which bin it sells at, and how to change it
   if (e && wireable(e)) { const extra = g.cables.infoLines(e); if (extra.length) return { ...r, lines: [...extra, ...r.lines] }; }
   return r;
 }
@@ -55,7 +62,7 @@ export function infoFor(g, ref) {
 function infoBase(g, ref) {
   if (!ref) return null;
   const T = g.T;
-  if (ref.kind === 'cart') { const c = g.S.cart; if (!c) return null; return { title: CART_NAMES[c.tier].toUpperCase(), lit: true, lines: [`Carrying ${c.load.length} of ${CART_CAP[c.tier]} plush`, `Mode: ${c.mode}`, 'Plush you grab ride on it when your hands are full. Throw plush at it, or hammer it to stow.'] }; }
+  if (ref.kind === 'cart') { const c = g.S.cart; if (!c) return null; return { title: CART_NAMES[c.tier].toUpperCase(), lit: true, lines: [`Carrying ${c.load.length} of ${CART_CAP[c.tier]} plush`, `Mode: ${c.mode}`, `Bin: ${BINS.destText(g, { k: 'cart', o: c, key: 'cart' })}`, 'Plush you grab ride on it when your hands are full. Throw plush at it, or hammer it to stow. ; picks the bin it unloads at.'] }; }
   if (ref.kind === 'tile') {
     const t = g.logi.byId.get(ref.id); if (!t) return null;
     if (t.type === 'gen') { const gi = g.genInfo(t); return { title: gi.title + (gi.lit ? ' · BURNING' : ' · OUT OF FUEL'), lit: gi.lit, lines: gi.lines }; }
@@ -78,7 +85,7 @@ function infoBase(g, ref) {
     if (e.type === 'frame') {
       const f = FRAME_TYPES[e.kind], s = g.world.supports.find((q) => q.id === e.id), d = supportDepth(e.cx, e.cz); const load = s && s.load !== undefined ? s.load : null;
       const mount = [...g.logi.tiles.values()].some((q) => q.mounted && q.frameId === e.id);
-      return { title: f.name.toUpperCase() + (e.auto ? ' (crew)' : ''), lit: load === null || load < 0.85, lines: [`${isFinite(f.maxDepth) ? 'Rated to ' + f.maxDepth + ' m deep' : 'Rated for any depth'}; this one stands at ${Math.round(d)} m`, load !== null ? `Load ${pct(load)} (creaks at 85%, breaks at 100%)` : 'Load not measured yet', `${e.d !== undefined ? 'A hollow cube, 4x4x4 cells (2.4 m)' : 'An old one cell deep frame'}. Holds the roof within ${f.radius} m of its centre${e.turned ? `; turned ${Math.round(((e.yaw % 6.2832) + 6.2832) % 6.2832 * 180 / Math.PI)} degrees` : ''}`, mount ? 'Has a Support Fan clamped under it' : 'A Support Fan can clamp under its top beam'] };
+      return { title: f.name.toUpperCase() + (e.auto ? ' (crew)' : ''), lit: load === null || load < 0.85, lines: [`${isFinite(f.maxDepth) ? 'Rated to ' + f.maxDepth + ' m deep' : 'Rated for any depth'}; this one stands at ${Math.round(d)} m`, load !== null ? `Load ${pct(load)} (creaks at 85%, breaks at 100%)` : 'Load not measured yet', `${e.d !== undefined ? 'A hollow cube, 4x4x4 cells (2.4 m)' : 'An old one cell deep frame'}. Holds the roof within ${f.radius} m of its centre${e.turned ? `; turned ${Math.round(((e.yaw % 6.2832) + 6.2832) % 6.2832 * 180 / Math.PI)} degrees` : ''}`, ...infoCube(g, e), mount ? 'Has a Support Fan clamped under it' : 'A Support Fan can clamp under its top beam'] };
     }
     if (e.type === 'strut') { const s = g.world.supports.find((q) => q.id === e.id), r = e.jack ? 2.7 : 1.9; const d = supportDepth(e.x, e.z); return { title: e.jack ? 'HYDRAULIC JACK' : 'STRUT', lit: !s || (s.load ?? 0) < 0.85, lines: [`Rated to ${e.jack ? STRUT_DEPTH.jack : STRUT_DEPTH.strut} m deep; this one stands at ${Math.round(d)} m`, s && s.load !== undefined ? `Load ${pct(s.load)}` : 'Load not measured yet', `Holds the roof within ${r} m`] }; }
     if (e.type === 'lantern') return { title: 'LANTERN', lit: true, lines: ['A steady light. No power needed.'] };

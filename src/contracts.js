@@ -1,4 +1,4 @@
-import { RARITY, species, speciesCount, ARCH_NAMES, pools } from './plushdata.js';
+import { RARITY, species, ARCH_NAMES, pools, allPools, speciesChance, bandOfDist } from './plushdata.js';
 import { mulberry32, fmt } from './util.js';
 
 // P(rarity >= r) in the pile
@@ -33,10 +33,14 @@ export class Contracts {
       c = { kind, r, need, desc: `Sell ${need} plush of ${RARITY[r].name} rarity or better.`, reward: Math.round(expected * 0.9 * prem * mult + need * this.avgValue(r) * prem * mult * 0.8) };
     } else if (kind === 'species') {
       const r = Math.max(0, Math.min(3, Math.floor(tier / 2) + ((rng() * 2) | 0)));
-      const pool = pools[r];
+      // a species the pile can show you: the originals, and the new ones whose home band is within the farthest you have been (a far one pays more, it is rarer)
+      const reach = bandOfDist(S.stats.maxDist || 0);
+      const pool = allPools[r].filter((q) => species[q].lo <= reach);
       const sp = pool[(rng() * pool.length) | 0];
       const need = 2 + ((rng() * 4) | 0);
-      const freq = RARITY[r].weight / pool.length;
+      let freq = 0;
+      for (let b = species[sp].lo; b <= Math.min(reach, species[sp].hi); b++) freq = Math.max(freq, speciesChance(sp, b));
+      if (!(freq > 0)) freq = RARITY[r].weight / pools[r].length;
       c = { kind, sp, need, desc: `Sell ${need} x ${species[sp].name}.`, reward: Math.round((need / freq) * 1.1 * prem * mult + need * RARITY[r].value * prem * mult * 2) };
     } else if (kind === 'shape') {
       const a = (rng() * ARCH_NAMES.length) | 0;

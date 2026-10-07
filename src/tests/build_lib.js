@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // Shared helpers for the build shell tests (build_*.js, mp.build.*). No default export, so the self test loader skips this file.
 // makeShell(ctx) returns the helpers: a cleared test box in the open bay, aiming, putting pieces down, and a full clean up (pads and walls are world cells,
 // so a test that leaves them behind would change what the next area sees).
@@ -21,7 +22,7 @@ export function makeShell(ctx) {
     g.keys = {}; g._bhold = null; g._bRot = 0; g._bn = 0; g._bz = { n: 1, w: 1 }; g._xInfo = null; g.stowed = true; if (g.cfgClip) g.cfgClip = null;
     for (const e of [...S().entities]) if (isShell(e)) { try { g.doDecon({ kind: 'mach', id: e.id }); } catch (x) { /* a half built ent */ } }
     const b = box();
-    for (let k = b.k0; k <= b.k1; k++) for (let i = b.i0; i <= b.i1; i++) for (let j = 0; j < b.j1; j++) { const s = w().get(i, j, k); if (s === 4095 || s === 4098) w().setCell(i, j, k, 0, 0); }
+    for (let k = b.k0; k <= b.k1; k++) for (let i = b.i0; i <= b.i1; i++) for (let j = 0; j < b.j1; j++) { const s = w().get(i, j, k); if (s === PD.PAD || s === PD.BULK) w().setCell(i, j, k, 0, 0); }
     for (const t of [...L().tiles.values()]) if (!t.free && t.i >= b.i0 && t.i <= b.i1 && t.k >= b.k0 && t.k <= b.k1) { L().remove(t); S().entities = S().entities.filter((x) => x.id !== t.id); }
     for (const it of [...g.machines.items.values()]) { const e = it.ent; if (e.type === 'frame' || e.type === 'strut' || e.type === 'lantern') { g.machines.disposeObj(it.obj); g.machines.root.remove(it.obj); g.machines.items.delete(e.id); S().entities = S().entities.filter((x) => x.id !== e.id); } }
     w().supports = []; w().stabQueue.length = 0; w().creaking.clear();
@@ -48,7 +49,7 @@ export function makeShell(ctx) {
     return { ok: true, pl, made: S().entities.filter((e) => !before.has(e.id)) };
   };
   const cellsOf = (e) => B.cellsOf(e);
-  const solidCells = (e) => B.cellsOf(e).every(([i, j, k]) => w().get(i, j, k) === (e.type === 'wall' ? 4098 : 4095));
+  const solidCells = (e) => B.cellsOf(e).every(([i, j, k]) => w().get(i, j, k) === (e.type === 'wall' ? PD.BULK : PD.PAD));
   const cloneJSON = (o) => JSON.parse(JSON.stringify(o));
   // a free-standing stack of plush above a floor cell (to test clearance): n plush at (i, j.., k)
   const plushAt = (i, j, k, n = 1) => { for (let q = 0; q < n; q++) w().setCell(i, j + q, k, 2, 0); };

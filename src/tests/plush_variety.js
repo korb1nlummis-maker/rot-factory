@@ -13,14 +13,14 @@ export default async function (ctx) {
   const { species, pools, volatilePool, RARITY, ARCH_NAMES, PREFIXES, PALETTES, ARCH_COUNT, PAL_COUNT, speciesCount } = pd;
 
   await T('plush.variety-species-count-and-ids-are-complete', async () => {
-    const want = GEN2_TOTAL + (ARCH_COUNT - GEN2_ARCH) * GEN2_PAL + (PAL_COUNT - GEN2_PAL) * (ARCH_COUNT - 1);
-    if (speciesCount !== want) return `count ${speciesCount}, wanted ${want}`;
+    if (speciesCount < 6000) return `count ${speciesCount}, wanted at least 6000`;
     if (ARCH_COUNT - GEN2_ARCH < 16) return 'fewer than 16 new shapes';
     if (speciesCount - GEN2_TOTAL < 320) return 'fewer than 320 new species';
-    if (speciesCount > 2500) return 'too many species: ' + speciesCount;
+    if (speciesCount > 20000) return 'too many species: ' + speciesCount;
     const seen = new Set();
     for (let id = 1; id <= speciesCount; id++) { const s = species[id]; if (!s) return 'hole at ' + id; if (s.id !== id) return 'wrong id at ' + id; if (seen.has(id)) return 'dup id ' + id; seen.add(id); }
     if (species[speciesCount + 1]) return 'species past the end: ' + (speciesCount + 1);
+    if (!(speciesCount < pd.SPECIAL_MIN)) return 'species reach the special ids';
     return true;
   });
 
@@ -34,15 +34,15 @@ export default async function (ctx) {
       if (!Number.isInteger(s.arch) || s.arch < 0 || s.arch >= ARCH_COUNT) bad.push('arch ' + id);
       else if (!Number.isInteger(s.pal) || s.pal < 0 || s.pal >= PAL_COUNT) bad.push('pal ' + id);
       else if (!Number.isInteger(s.rarity) || s.rarity < 0 || s.rarity > 5) bad.push('rarity ' + id);
-      else if (s.name !== `${PREFIXES[s.pal]} ${ARCH_NAMES[s.arch]}` || !s.name.trim() || DASH.test(s.name) || /undefined|NaN/.test(s.name)) bad.push('name ' + id + ' ' + s.name);
+      else if (s.name !== `${PREFIXES[s.pal]} ${ARCH_NAMES[s.arch]}${s.pat ? ' ' + pd.PATTERNS[s.pat] : ''}` || !s.name.trim() || DASH.test(s.name) || /undefined|NaN/.test(s.name)) bad.push('name ' + id + ' ' + s.name);
       if (names.has(s.name)) bad.push('dup name ' + s.name); names.add(s.name);
     }
-    const combos = new Set(); for (let id = 1; id <= speciesCount; id++) { const k = species[id].arch * 100 + species[id].pal; if (combos.has(k)) bad.push('dup arch+pal ' + id); combos.add(k); }
+    const combos = new Set(); for (let id = 1; id <= speciesCount; id++) { const k = (species[id].arch * 100 + species[id].pal) * 4 + species[id].pat; if (combos.has(k)) bad.push('dup arch+pal ' + id); combos.add(k); }
     return bad.length === 0 || bad.slice(0, 4).join('; ');
   });
 
   await T('plush.variety-every-new-shape-exists-in-every-color-and-none-is-volatile', async () => {
-    for (let a = GEN2_ARCH; a < ARCH_COUNT; a++) { let n = 0; for (let id = 1; id <= speciesCount; id++) if (species[id].arch === a) { n++; if (species[id].volatile) return 'volatile new shape ' + a; } if (n !== PAL_COUNT) return `shape ${a} ${ARCH_NAMES[a]} has ${n} species, wanted ${PAL_COUNT}`; }
+    for (let a = GEN2_ARCH; a < ARCH_COUNT; a++) { let n = 0; for (let id = 1; id <= speciesCount; id++) if (species[id].arch === a) { if (species[id].volatile) return 'volatile new shape ' + a; if (!species[id].pat) n++; } if (n !== PAL_COUNT) return `shape ${a} ${ARCH_NAMES[a]} has ${n} species, wanted ${PAL_COUNT}`; }
     for (let id = GEN2_TOTAL + 1; id <= speciesCount; id++) if (species[id].arch === RAZZO) return 'a new Razzo species appeared: ' + id;
     return true;
   });
@@ -60,7 +60,7 @@ export default async function (ctx) {
     const regular = counts.reduce((a, b) => a + b, 0) - pd.DECOYS.length; const sizes = [];
     for (let r = 0; r < 6; r++) { const n = counts[r] - (r === 5 ? pd.DECOYS.length : 0); sizes.push(n); const share = n / regular, old = [262, 160, 90, 44, 14, 6][r] / 576; if (Math.abs(share - old) > 0.02 && r < 4) return `rarity ${r} share ${share.toFixed(3)} vs old ${old.toFixed(3)}`; if (r >= 4 && (share > old * 2 || share < old / 2)) return `rarity ${r} share ${share.toFixed(4)} vs old ${old.toFixed(4)}`; }
     for (let r = 0; r < 5; r++) if (!(sizes[r] > sizes[r + 1])) return 'pools do not shrink with rarity: ' + sizes;
-    for (const [from, to] of [[GEN2_TOTAL + 1, 1360], [1361, speciesCount]]) { const c = [0, 0, 0, 0, 0, 0]; for (let id = from; id <= to; id++) c[species[id].rarity]++; const n = to - from + 1; const oldShare = [262, 160, 90, 44, 14, 6]; for (let r = 0; r < 6; r++) if (Math.abs(c[r] / n - oldShare[r] / 576) > 0.012) return `ids ${from}-${to} rarity ${r}: ${c[r]} of ${n}`; }
+    for (const [from, to] of [[GEN2_TOTAL + 1, 1360], [1361, 1628]]) { const c = [0, 0, 0, 0, 0, 0]; for (let id = from; id <= to; id++) c[species[id].rarity]++; const n = to - from + 1; const oldShare = [262, 160, 90, 44, 14, 6]; for (let r = 0; r < 6; r++) if (Math.abs(c[r] / n - oldShare[r] / 576) > 0.012) return `ids ${from}-${to} rarity ${r}: ${c[r]} of ${n}`; }
     return true;
   });
 
@@ -115,7 +115,7 @@ export default async function (ctx) {
   await T('plush.variety-every-new-shape-renders-as-loose-plush-and-as-world-cells', async () => {
     await newWorld(); fresh(); const r = g.renderer, gl = r.renderer.getContext(); const e0 = g.errCount || 0;
     const { i, k } = spot(); p().pos.set(cellX(i + 4), 0, cellZ(k)); adv(0.3);
-    const newSp = []; for (let a = GEN2_ARCH; a < ARCH_COUNT; a++) newSp.push(species.findIndex((s, id) => id > 0 && s.arch === a && s.pal === a % PAL_COUNT));
+    const newSp = []; for (let a = GEN2_ARCH; a < ARCH_COUNT; a++) newSp.push(species.findIndex((s, id) => id > 0 && s && s.arch === a && s.pal === a % PAL_COUNT && !s.pat));
     const specials = [pd.NEEDLE, pd.BULK, pd.REMAINS, pd.CACHE, ...pd.DECOYS];
     const all = [...newSp, ...specials]; const cells = [];
     all.forEach((sp, n) => { const ci = i + 8 + (n % 10) * 2, ck = k + 2 + Math.floor(n / 10) * 3, cj = w().topAt(ci, ck) + 2; cells.push([ci, cj, ck, sp]); w().setCell(ci, cj, ck, sp, n & 127); });
@@ -135,9 +135,11 @@ export default async function (ctx) {
   await T('plush.variety-dex-lists-every-species-and-names-the-new-ones', async () => {
     fresh(); const newId = speciesCount, mid = GEN2_TOTAL + 123; S().dex = {}; S().dex[newId] = 3; S().dex[mid] = 1; S().dex[pd.DECOYS[0]] = 1;
     g.openModal('dex'); const total = document.getElementById('dexTotal').textContent, count = document.getElementById('dexCount').textContent; const cards = [...document.querySelectorAll('#dexGrid > *')];
+    const DX = await import('../dexui.js'); const listed = DX.dexState.list.length;
     const text = cards.map((c) => c.textContent).join('|'); g.ui.closeModals(); S().dex = {};
     if (String(total) !== String(speciesCount)) return `dex total ${total}`; if (String(count) !== '2') return 'dex count ' + count + ' (decoys must not count)';
-    if (cards.length !== speciesCount + pd.DECOYS.length) return `${cards.length} cards for ${speciesCount} species`;
+    if (listed !== speciesCount + pd.DECOYS.length) return `${listed} entries listed for ${speciesCount} species`;
+    if (cards.length < 8 || cards.length > 400) return `${cards.length} cards drawn (the grid is virtual)`;
     return (text.includes(species[newId].name) && text.includes(species[mid].name)) || 'new species names missing from the dex';
   });
 

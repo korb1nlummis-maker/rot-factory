@@ -132,7 +132,8 @@ export default async function (ctx) {
   await T('qa.load.an-overloaded-roof-warns-for-3-to-5-seconds-then-falls-and-a-prop-saves-it', async () => {
     fresh({ timber: 1 }); clearQ(); const r = room(400, 8); const e = frame('timber', r.x, r.z); g.time += 5; g.queueLoad(e.cx, 1, e.cz); g._loadT = 0; pump(2, 0.4);
     const p = g.pendFail && g.pendFail.get(e.id); if (!p) return 'no countdown'; const bad = []; if (!(p.t >= 1.4 && p.t <= 5)) bad.push('countdown ' + p.t);
-    const start = g.time; let n = 0; while (alive(e.id) && n++ < 40) { g.time += 0.1; g._loadT = 0; g.updateLoads(0.1); if (alive(e.id)) { g.queueLoad(e.cx, 1, e.cz); } }
+    // (the countdown is 3 to 5 s and 0.4 s of it is gone after the pump: 40 steps of 0.1 s missed the long ones, about 30% of runs)
+    const start = g.time; let n = 0; while (alive(e.id) && n++ < 70) { g.time += 0.1; g._loadT = 0; g.updateLoads(0.1); if (alive(e.id)) { g.queueLoad(e.cx, 1, e.cz); } }
     const took = g.time - start + 0.8; if (alive(e.id)) bad.push('never fell'); if (took < 2.5 || took > 5.6) bad.push('fell after ' + took.toFixed(1) + ' s');
     return bad.length === 0 || bad.join('; ');
   });

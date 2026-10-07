@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // audit_mp.rail.*: the Mine Rail commands a guest can send, thrown at the host with bad and forged data (src/rail.js runCmd). Same no-network harness as mp_rail.js.
 import { makeRail } from './rail_lib.js';
 
@@ -18,7 +19,7 @@ export default async function (ctx) {
     // a guest can send any numbers: a species that does not exist would throw inside the host's sale loop on every frame the cart sits at the bin
     const s = hostSetup(), car = s.car, bad = []; adv(0.5);
     g.remote = fakeRemote(new V3(car.x - 1, 0, car.z));
-    cmdFromGuest({ t: 'cmd', c: 'rail', d: { act: 'load', id: car.id, items: [[999999, 0], [-4, 0], [4095, 0], [4098, 0], [3.5, 0], [3, 70000], [3, -1], [3, 1.5], [3, 0]] } });
+    cmdFromGuest({ t: 'cmd', c: 'rail', d: { act: 'load', id: car.id, items: [[999999, 0], [-4, 0], [PD.PAD, 0], [PD.BULK, 0], [3.5, 0], [3, 70000], [3, -1], [3, 1.5], [3, 0]] } });
     if (car.cargo.length !== 1 || car.cargo[0].sp !== 3 || car.cargo[0].vr !== 0) bad.push('cargo ' + JSON.stringify(car.cargo));
     // the cart sells whatever it holds: no throw
     X.until(() => false, 0.1); R.dispatch(g, car, R.keyOf(s.base)); let threw = null;

@@ -3,12 +3,15 @@ import { CONTROLS } from './controls.js';
 import { CATS, UPGRADES, GEAR, isUnlocked, needsText } from './upgrades.js';
 import { STATUS } from './crew.js';
 import { ACHIEVEMENTS } from './achievements.js';
-import { RARITY, species, speciesCount, NEEDLE, DECOYS, SPECIAL_MIN } from './plushdata.js';
+import { RARITY, species, speciesCount, NEEDLE, DECOYS, dexTally } from './plushdata.js';
 import { speciesIcon, needleFrames } from './icons.js';
+import * as DEXUI from './dexui.js';
 import { fmt } from './util.js';
 import { describeBoosts } from './remains.js';
-import { MATERIALS } from './crafting.js';
+import * as BENCH from './bench.js';   // the Crafting Table browser: tabs, search, cards, detail pane
 import { Dials } from './dials.js';
+import * as BINS from './bins.js';   // the bin a bot unloads at, shown and picked on each crew row
+import * as BINPANEL from './binspanel.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,7 +27,7 @@ export class UI {
     this.openModal = null;
     this.hotbarKey = '';
     this.ringLen = 113;
-    this.dials = new Dials($('dialsL'), $('dialsR'));
+    this.dials = new Dials($('dialsL'), $('dialsR'), (id, dir) => { if (id === 'scoop' && this.game) this.game.adjustScoop(dir); });   // the SCOOP dial's minus and plus buttons
     this.watchBelt();
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.closeModals());
     for (const b of document.querySelectorAll('[data-ptab]')) b.addEventListener('click', () => this.pauseTab(b.dataset.ptab));
@@ -56,6 +59,7 @@ export class UI {
     const m = this.openModal; const box = m === 'shop' ? 'shopMoney' : m === 'craft' ? 'craftMoney' : m === 'travel' ? 'travelMoney' : null; if (!box) return;
     $(box).textContent = fmt(v);
     for (const b of $(m).querySelectorAll('button[data-cost]')) b.disabled = v < +b.dataset.cost;
+    for (const c of $(m).querySelectorAll('.bcard[data-cost]')) c.classList.toggle('broke', v < +c.dataset.cost);   // a bench card whose price you cannot pay yet
   }
   gain(amount) {
     this.deltaAcc += amount;
@@ -218,6 +222,22 @@ export class UI {
     const state = lung > 0.6 ? 'crit' : dust > 0.3 || lung > 0.3 || /STALE|FAN/.test(txt || '') && dust > 0.15 ? 'warn' : 'ok';
     this.dials.set('dust', { on, frac: Math.min(1, dust), frac2: Math.min(1, lung), val: Math.round(Math.min(1, dust) * 100) + '%', unit: 'dust', sub: txt, state, text: `${txt}: dust in the air ${Math.round(Math.min(1, dust) * 100)} percent, in your lungs ${Math.round(Math.min(1, lung) * 100)} percent` });
   }
+  // OXYGEN: how good the air you are breathing is (100% is clean, fan-fed or open air). SUFFOCATION: how far your lungs have gone toward passing out.
+  setOxy(q, on, sub) {
+    if (!on) { this.dials.set('oxy', { on: false }); return; }
+    const c = Math.max(0, Math.min(1, Number.isFinite(q) ? q : 1)), state = c < 0.4 ? 'crit' : c < 0.7 ? 'warn' : 'ok';
+    this.dials.set('oxy', { on: true, frac: c, val: Math.round(c * 100) + '%', unit: 'O2', state, sub: sub || '', text: `oxygen ${Math.round(c * 100)} percent${sub ? ', ' + sub : ''}` });
+  }
+  setSuffocation(lung, on, sub) {
+    if (!on) { this.dials.set('suffoc', { on: false }); return; }
+    const c = Math.max(0, Math.min(1, Number.isFinite(lung) ? lung : 0)), state = c > 0.6 ? 'crit' : c > 0.3 ? 'warn' : 'ok';
+    this.dials.set('suffoc', { on: true, frac: c, val: Math.round(c * 100) + '%', unit: 'lungs', state, sub: sub || '', text: `suffocation ${Math.round(c * 100)} percent${sub ? ', ' + sub : ''}` });
+  }
+  // the scoop dial: how many plush a grab scoops right now, out of the most Scoop Hands allow. - and = change it, 3 at a time.
+  setScoop(n, max) {
+    if (!(max > 0)) { this.dials.set('scoop', { on: false }); return; }
+    this.dials.set('scoop', { on: true, frac: Math.min(1, n / max), val: String(n), unit: '/ ' + max, sub: '3 at a time', state: n >= max && max > 12 ? 'warn' : 'ok', dim: n === 0, canDn: n > 0, canUp: n < max, text: `scoop ${n} of ${max} plush per grab; the minus and plus buttons (or the - and = keys) change it by three` });
+  }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setCartLine(n, cap, mode) {
     const full = n >= 0 && cap > 0 && n >= cap;
@@ -250,6 +270,15 @@ export class UI {
       state: 'ok', sub: n.pile || '', info: { text: txt || '' }, text: `${high ? 'altitude' : 'buried'} ${(high ? n.alt : n.depth).toFixed(1)} metres` });
     const d = km(n.out), x = km(n.left);
     this.dials.set('range', { on: n.out > 30, frac: Math.min(1, n.out / (n.out + n.left)), val: d.val, unit: d.unit, sub: n.out > 300 ? `EXIT ${x.val} ${x.unit}` : '', state: 'ok', info: { text: txt || '' }, text: `${d.val} ${d.unit} from the bay${n.out > 300 ? `, exit ${x.val} ${x.unit}` : ''}` });
+  }
+  // the tunnel depth dial: how far from the bay you are while under a roof (0 in the open), against the best frame you own (its rating is the full ring)
+  setTunnel(d, rating, name) {
+    if (!(d > 0)) { this.dials.set('tunnel', { on: false }); return; }
+    const km = d >= 1000 ? { val: (d / 1000).toFixed(2), unit: 'km' } : { val: String(Math.round(d)), unit: 'm' };
+    const known = rating > 0 && isFinite(rating), frac = known ? Math.min(1, d / rating) : Math.min(1, d / 5000);
+    const state = !known ? 'ok' : d > rating ? 'crit' : d > rating * 0.85 ? 'warn' : 'ok';
+    this.dials.set('tunnel', { on: true, frac, val: km.val, unit: km.unit, state, sub: known ? `${name} to ${rating} m` : name || 'any depth', info: { text: `Tunnel depth ${Math.round(d)} m` + (known ? ` of the ${rating} m your best frame is rated for` : '') },
+      text: `tunnel depth ${Math.round(d)} metres` + (known ? `, best frame rated to ${rating} metres` : '') });
   }
   setTrap(on, secs, frac, pulse, dying) {
     const e = $('trap');
@@ -376,7 +405,7 @@ export class UI {
     if (id === 'dossier') { this.startDossier(); $('clueList').innerHTML = (this.game.S.clues || []).map((c) => `<div>📎 ${c}</div>`).join('') || '<div>No clues yet. Depot Beacons far from the bay turn up old paperwork.</div>'; }
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();
-    if (id === 'craft') this.renderCraft();
+    if (id === 'craft') { BENCH.installKeys(this); this.renderCraft({ open: true, fresh: true }); }
     if (id === 'inv') { this.invSel = this.invSel || null; this.renderInventory(); }
     if (id === 'crew') { this.renderCrew(); clearInterval(this._crewT); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
   }
@@ -414,42 +443,7 @@ export class UI {
     }
   }
 
-  renderCraft() {
-    const g = this.game;
-    $('craftMoney').textContent = fmt(g.S.money);
-    const grid = $('craftGrid');
-    grid.innerHTML = '';
-    for (const r of g.gearList()) {
-      const el = document.createElement('div');
-      el.className = 'card';
-      el.style.borderColor = 'rgba(215,242,106,0.45)';
-      el.innerHTML = `<h3><span>🧰 ${r.name}</span><small>GEAR</small></h3><p>${r.line}: ${r.desc}</p><p style="color:var(--accent2)">Unlocked tier ${r.bought}. Crafted tier ${r.have}. Craft it and it is equipped.</p><button data-cost="${r.price}" ${g.S.money >= r.price ? '' : 'disabled'}>Craft · ◈${fmt(r.price)}</button>`;
-      el.querySelector('button').onclick = () => { if (g.craftGearItem(r.id)) this.renderCraft(); };
-      grid.appendChild(el);
-    }
-    const list = g.recipeList();
-    if (!list.length && !grid.children.length) { grid.innerHTML = '<div class="jcard">Nothing to craft yet. Unlock Timber Frames, Work Lanterns, belts and more in the terminal.</div>'; return; }
-    for (const r of list) {
-      const isMat = r.kind === 'mat';
-      const have = isMat ? ((g.S.mats || {})[r.mk] || 0) : (g.S.items[r.id] || 0);
-      const stock = r.mat ? (g.S.mats || {})[r.mat] || 0 : 0;
-      const price = (n) => (r.mat ? Math.round(Math.max(0, r.matN * n - stock) * (r.price / r.matN)) : r.price * n);
-      const matLine = r.mat ? `<p style="color:var(--accent2);font-size:11.5px">Uses ${r.matN} ${MATERIALS[r.mat].name} each (you have ${stock}). Shortfall is bought at the full price.</p>` : '';
-      const el = document.createElement('div');
-      el.className = 'card';
-      if (isMat) el.style.borderColor = 'rgba(154,107,58,0.6)';
-      const isCart = r.kind === 'cart';
-      const owned = isCart && /already have|In use|in your pack/.test(r.status);
-      const btns = isCart
-        ? `<button data-n="1" ${owned ? '' : `data-cost="${r.price}"`} ${owned || g.S.money < r.price ? 'disabled' : ''} style="flex:1">${owned ? 'Owned' : /Upgrade/.test(r.status) ? 'Upgrade' : 'Craft'} · ◈${fmt(r.price)}</button>`
-        : [...new Set(r.batch)].map((n) => `<button data-n="${n}" data-cost="${price(n)}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('');
-      const statusLine = r.status ? `<p style="color:var(--accent2);font-size:11.5px">${r.status}</p>` : '';
-      const useLine = r.use ? `<p style="color:var(--dim);font-size:11.5px"><b>How to use:</b> ${r.use}</p>` : '';
-      el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? (isCart ? '' : 'have ' + have) : ''}</small></h3><p>${r.desc}</p>${matLine}${statusLine}${useLine}<div style="display:flex;gap:6px">${btns}</div>`;
-      for (const b of el.querySelectorAll('button')) b.onclick = () => { if (g.craftItem(r.id, +b.dataset.n)) this.renderCraft(); };
-      grid.appendChild(el);
-    }
-  }
+  renderCraft(opts) { BENCH.render(this, opts); }   // bench.js draws the whole Crafting Table window
 
   renderContracts(grid) {
     const g = this.game;
@@ -465,38 +459,7 @@ export class UI {
     });
   }
 
-  renderDex() {
-    const g = this.game;
-    const grid = $('dexGrid');
-    $('dexCount').textContent = Object.keys(g.S.dex).filter((k) => +k < SPECIAL_MIN).length;
-    $('dexTotal').textContent = speciesCount;
-    grid.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    const ids = [];
-    for (let s = 1; s <= speciesCount; s++) ids.push(s);
-    for (const d of DECOYS) ids.push(d);
-    if (g.S.dex[NEEDLE]) ids.unshift(NEEDLE);
-    // sort by rarity then id
-    ids.sort((a, b) => species[b].rarity - species[a].rarity || a - b);
-    for (const id of ids) {
-      const sp = species[id];
-      const n = g.S.dex[id] || 0;
-      const el = document.createElement('div');
-      el.className = 'dx' + (n ? '' : ' unk');
-      el.innerHTML = `<img ${n ? '' : 'loading="lazy"'} data-id="${id}" alt=""><div class="n r${sp.rarity}">${n ? sp.name : '???'}</div><div class="c">${n ? '×' + fmt(n) : RARITY[sp.rarity].name}</div>`;
-      frag.appendChild(el);
-    }
-    grid.appendChild(frag);
-    // render icons progressively to keep the UI responsive
-    const imgs = [...grid.querySelectorAll('img')];
-    let i = 0;
-    const work = () => {
-      const t0 = performance.now();
-      while (i < imgs.length && performance.now() - t0 < 10) { imgs[i].src = speciesIcon(+imgs[i].dataset.id); i++; }
-      if (i < imgs.length && this.openModal === 'dex') requestAnimationFrame(work);
-    };
-    work();
-  }
+  renderDex() { DEXUI.render(this); }   // dexui.js: the virtual grid with search and filters
 
   renderCrew() {
     const g = this.game, box = $('crewList');
@@ -504,7 +467,11 @@ export class UI {
     $('crewCount').textContent = `${bots.length} / ${g.T.crewMax} bots`;
     box.innerHTML = '';
     if (!bots.length) { box.innerHTML = '<div class="jcard">No crew yet. Buy a Scrapper Bot in the Crew tab of the terminal.</div>'; return; }
+    const freeBunks = g.T.crewMax - bots.length;
+    if (freeBunks > 0) box.insertAdjacentHTML('beforeend', `<div class="jcard" style="margin-bottom:8px"><b>${freeBunks} free bunk${freeBunks === 1 ? '' : 's'}.</b> Craft Scrapper Bots for them at the Crafting Table (Robots tab).</div>`);
     const hasChg = [...g.logi.tiles.values()].some((t) => t.type === 'charger'), hasGen = [...g.logi.tiles.values()].some((t) => t.type === 'gen');
+    // every bin by name, with the bots that unload at each (the Bin button on a row picks one)
+    box.insertAdjacentHTML('beforeend', `<div class="jcard" data-bins-strip style="margin-bottom:4px;grid-column:1/-1;align-self:start"><b>Bins:</b> ${BINS.listBins(g).map((bn) => { const n = bots.filter((q) => (q.dest | 0) === bn.id || (!(q.dest | 0) && bn.id === BINS.HALL)).length; return `${escHtml(bn.name)} (${n} bot${n === 1 ? '' : 's'}${BINS.usable(bn) ? '' : ', no power'})`; }).join(', ')}</div>`);
     for (const b of bots) {
       const need = g.crew.xpNeeded(b);
       const el = document.createElement('div');
@@ -521,11 +488,20 @@ export class UI {
           ${hasChg ? '<button data-a="charge" title="Send the bot to the nearest Charging Station that has charge, then it carries on.">Recharge now</button>' : ''}
           ${hasGen ? '<button data-a="fuel" title="The bot digs at the pile face nearest the generator and feeds it Common to Epic plush.">Keep generator fuelled</button>' : ''}
         </div>
+        <div class="crew-lbl">Unloads at</div>
+        <div class="crew-btns">
+          <button data-bin="next" title="Step through the bins: Auto (the SORT bin), the SORT bin, then every Depot Beacon. The bot unloads there from its next trip. The ; key does the same for the bot you have selected."></button>
+          <button data-bin="panel" title="Open the bins panel: every bin with its distance, what it sold today and what is assigned to it, and a name for each Depot Beacon.">Bins panel</button>
+        </div>
         <div class="crew-lbl">Dig from where you aim (or stand if you aim at nothing)</div>
         <div class="crew-btns">
           <button data-d="3" title="Dig north from the spot you aim at, or from where you stand.">Dig north</button><button data-d="0" title="Dig east from the spot you aim at, or from where you stand.">Dig east</button><button data-d="1" title="Dig south from the spot you aim at, or from where you stand.">Dig south</button><button data-d="2" title="Dig west from the spot you aim at, or from where you stand.">Dig west</button>
         </div>`;
       for (const btn of el.querySelectorAll('button')) btn.onclick = () => { g.crewCommand(b, btn.dataset); this.updateCrewLive(); };
+      const nb = el.querySelector('[data-bin=next]'), sb = { k: 'bot', o: b };
+      nb.textContent = `Bin: ${b.dest ? ((BINS.binById(g, b.dest) || {}).name || 'gone') : 'Auto'} ▸`;
+      nb.onclick = () => { const ops = BINPANEL.options(g, sb), at = Math.max(0, ops.findIndex((o) => o.current)); BINPANEL.choose(g, sb, ops[(at + 1) % ops.length].id); const again = () => { if (this.openModal === 'crew') this.renderCrew(); }; if (g.isGuest()) setTimeout(again, 700); else again(); };
+      el.querySelector('[data-bin=panel]').onclick = () => { this.closeModalsSilently(); BINPANEL.openFor(g, sb); };
       box.appendChild(el);
     }
     this.updateCrewLive();
@@ -595,7 +571,7 @@ export class UI {
       ['Fluff earned', fmt(S.totalEarned)], ['Tunnel dug', (s.cells * 0.1).toFixed(0) + ' m'],
       ['Collapses', s.collapses], ['Times buried', s.buried],
       ['Frames placed', s.props], ['Best streak', 'x' + s.bestStreak],
-      ['Species found', Object.keys(S.dex).filter((k) => +k < SPECIAL_MIN).length + ' / ' + speciesCount],
+      ['Species found', dexTally(S.dex, true).n + ' / ' + speciesCount],
       ['Deepest', s.maxDepth.toFixed(1) + ' m'], ['Distance walked', fmt(s.walked) + ' m'],
     ];
   }

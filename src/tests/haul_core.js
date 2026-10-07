@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // haul.*: the truck router, haul roads, truck docks, the truck battery (src/haul.js, the truck branch of src/earth.js). Run: `await __selftest('haul.')`
 import { UP as UPX } from './portal_lib.js';
 import { makeBeltKit, UP_BASE } from './belts_lib.js';
@@ -90,10 +91,10 @@ export default async function (ctx) {
     const { dk } = await dockRig({ belt: false }); const bad = [];
     if (HAUL.isSink(g, dk)) bad.push('a dock with no belt is a sink'); const dg = mk('excavator', toI(-48), toK(-6), { off: true }); const sn = (await import('../earth.js')).sinkNear(g, dg.x, dg.z); if (sn.dock) bad.push('the truck would unload at a bare dock');
     // The One in a bed at a dock with a belt: it is never fed to the belt
-    const r = await dockRig(); const tk = mk('truck', toI(-34), toK(-6)); tk.cargo = [3, 0, 4099, 64, 3, 0]; tk.cn = 3; tk.py = 0; let res = false;
+    const r = await dockRig(); const tk = mk('truck', toI(-34), toK(-6)); tk.cargo = [3, 0, PD.NEEDLE, 64, 3, 0]; tk.cn = 3; tk.py = 0; let res = false;
     for (let n = 0; n < 200 && res === false; n++) { res = HAUL.unloadTo(g, r.dk, tk, 0.1); B.seconds(0.1); }
-    if (tk.cargo.indexOf(4099) < 0 || tk.cargo.length !== 2) bad.push('The One left the bed or the rest stayed: ' + JSON.stringify(tk.cargo)); if (res !== 'one') bad.push('unloadTo returned ' + res);
-    B.seconds(20); if (r.v.stored.some((x) => x.sp === 4099)) bad.push('The One is in the vault'); if (r.v.stored.length !== 2) bad.push('the vault holds ' + r.v.stored.length + ' of the 2 other plush');
+    if (tk.cargo.indexOf(PD.NEEDLE) < 0 || tk.cargo.length !== 2) bad.push('The One left the bed or the rest stayed: ' + JSON.stringify(tk.cargo)); if (res !== 'one') bad.push('unloadTo returned ' + res);
+    B.seconds(20); if (r.v.stored.some((x) => x.sp === PD.NEEDLE)) bad.push('The One is in the vault'); if (r.v.stored.length !== 2) bad.push('the vault holds ' + r.v.stored.length + ' of the 2 other plush');
     return bad.length === 0 || bad.join('; ');
   });
   await T('haul.a-backed-up-dock-belt-makes-the-truck-wait-a-minute-and-then-sell-the-rest-never-lose-it', async () => {

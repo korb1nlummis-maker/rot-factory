@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // transit.*: doors (wave 5, spec 4.6). Doors are bulkhead cells while closed and empty cells while open, so every test checks the world cells, not just the ent.
 import { kit, UP } from './transit_lib.js';
 import * as TR from '../transit.js';
@@ -77,9 +78,9 @@ export default async function (ctx) {
     const pd = await K.put('pad:timber', i, k, { y: 0.6, back: 2.6 }); if (!pd.ok) return 'pad: ' + pd.why; const P0 = pd.made[0];
     const r = await K.put('door', P0.i0 + 1, P0.k0 + 3, { y: 0.6, back: 3.2 }); if (!r.ok) return 'door on the pad: ' + r.why; const D = r.made[0];
     if (D.j !== P0.j + 1 || D.ax !== 'x' || D.i0 !== P0.i0 || D.k0 !== P0.k0 + 3) bad.push('the door is not on the pad edge: ' + JSON.stringify({ j: D.j, ax: D.ax, i0: D.i0, k0: D.k0 }) + ' pad ' + JSON.stringify({ i0: P0.i0, k0: P0.k0, j: P0.j }));
-    if (!X.closedCells(D)) bad.push('cells'); if (g.world.get(D.i0, D.j - 1, D.k0) !== 4095) bad.push('the door does not stand on the pad');
+    if (!X.closedCells(D)) bad.push('cells'); if (g.world.get(D.i0, D.j - 1, D.k0) !== PD.PAD) bad.push('the door does not stand on the pad');
     // the pad under it cannot be taken away from under it... but the door can go first, and the pad stays
-    X.decon(D); if (!X.openCells(D) || g.world.get(D.i0, D.j - 1, D.k0) !== 4095) bad.push('taking the door down damaged the pad');
+    X.decon(D); if (!X.openCells(D) || g.world.get(D.i0, D.j - 1, D.k0) !== PD.PAD) bad.push('taking the door down damaged the pad');
     return bad.length === 0 || bad.join(' || ');
   });
 

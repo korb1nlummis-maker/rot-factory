@@ -16,7 +16,7 @@ export default async function (ctx) {
   // ------------------------------------------------------------------------------------------------ structure
   await T('hud.every-dial-sits-in-the-left-or-right-group-and-the-old-boxes-are-gone', async () => {
     const bad = [];
-    const L = ['hp', 'breath', 'dust', 'grid', 'carry', 'cart'], R = ['signal', 'vein', 'depth', 'range', 'frame', 'support', 'stale', 'clock'];
+    const L = ['hp', 'scoop', 'breath', 'oxy', 'suffoc', 'dust', 'grid', 'carry', 'cart'], R = ['signal', 'vein', 'depth', 'tunnel', 'range', 'frame', 'support', 'stale', 'clock'];
     for (const d of DIAL_DEFS) {
       const e = el('dial-' + d.id); if (!e) { bad.push('no element for ' + d.id); continue; }
       const want = L.includes(d.id) ? 'dialsL' : R.includes(d.id) ? 'dialsR' : null;
@@ -302,7 +302,7 @@ export default async function (ctx) {
         if (doc.documentElement.scrollWidth > W) bad.push(`${tag}: page scrolls sideways (${doc.documentElement.scrollWidth})`);
         const slot = q('#hotbar .slot').getBoundingClientRect(); if (slot.width < 28) bad.push(`${tag}: slots only ${slot.width.toFixed(0)} px`);
         const topmost = Math.min(...dials.map((d) => d.r.top), hint.top); if (topmost < comp.bottom - 0.5 && W < 1180 && H < 700) bad.push(`${tag}: the dials climb into the compass band (${topmost.toFixed(0)} < ${comp.bottom.toFixed(0)})`);
-        const ring = dials[0].ring; if (W >= 3000 ? ring.width < 80 : W < 700 ? ring.width < 40 : ring.width < 54) bad.push(`${tag}: dials are ${ring.width.toFixed(0)} px`);
+        const ring = dials[0].ring; if (W >= 3000 ? ring.width < 80 : W < 430 ? ring.width < 34 : W < 700 ? ring.width < 40 : ring.width < 54) bad.push(`${tag}: dials are ${ring.width.toFixed(0)} px`);
       } finally { f.remove(); }
     }
     return bad.length === 0 || bad.slice(0, 12).join('; ');

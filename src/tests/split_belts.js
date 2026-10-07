@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // split.* (wave 2B): mergers and priority mergers (fair turns, ranked lanes, speed by mark) and smart and programmable splitters (rules, overflow,
 // order, default), measured on real belts with plush in the open bay. The pure rule functions are in split_rules.js.
 import { makeSplitKit, UP, UPB, RAR, NEEDLE } from './split_lib.js';
@@ -180,7 +181,7 @@ export default async function (ctx) {
     // The One goes where its rule is; a fake does not
     X.setup(UPB); r = X.rigS('ssplit');
     if (setRules(r.s, [[{ k: 'one' }], [NONE], [ANY]]) !== true) return 'rules refused (2)';
-    X.pump(r.feed[0], [{ sp: RAR(1), vr: 0 }, { sp: NEEDLE, vr: 0 }, { sp: 4090, vr: 0 }, { sp: RAR(5), vr: 0 }], 20);
+    X.pump(r.feed[0], [{ sp: RAR(1), vr: 0 }, { sp: NEEDLE, vr: 0 }, { sp: PD.DECOYS[0], vr: 0 }, { sp: RAR(5), vr: 0 }], 20);
     const ids = (v) => v.stored.map((s) => s.sp).sort((a, b) => a - b).join();
     if (ids(r.v[0]) !== String(NEEDLE)) bad.push('only The One may take the forward output: ' + ids(r.v[0]));
     if (X.total(r.v[1]) !== 0) bad.push('an output set to None took ' + X.total(r.v[1]));

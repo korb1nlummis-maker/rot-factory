@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { C, NX, NY, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { FRAME_TYPES, supportDepth } from './upgrades.js';
-import { capacityOf, loadOn } from './loadtrace.js';
+import { capacityOf, loadOn, totalLoad } from './loadtrace.js';
 import { archTaken } from './arches.js';
+import { noteTall } from './stack.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { buildMountFan, MOUNT_FAN } from './mountfan.js';
@@ -463,10 +464,10 @@ export class Machines {
   // would buckle, the borer moves up a tier).
   supportHolds(e, kind, mode = 'lone') {
     const w = this.game.world, ft = FRAME_TYPES[kind], cap = capacityOf(kind); if (!isFinite(cap)) return true;
-    const hyp = { x: e.cx, y: e.y0 + e.h / 2, z: e.cz, r: ft.radius, kind, cap, id: 'hyp' };
-    if (mode === 'lone') return loadOn(w, hyp) / cap <= 1;
+    const hyp = { x: e.cx, y: e.y0 + e.h / 2, z: e.cz, r: ft.radius, kind, cap, id: 'hyp', blk: this.cubeBlk(e) };
+    if (mode === 'lone') return totalLoad(w, hyp) / cap <= 1;
     w.supports.push(hyp); let worst = 0;
-    for (const q of w.supports) if (q.kind === kind && q.cap !== undefined && Math.hypot(q.x - hyp.x, q.z - hyp.z) < ft.radius * 2) worst = Math.max(worst, loadOn(w, q) / q.cap);
+    for (const q of w.supports) if (q.kind === kind && q.cap !== undefined && Math.hypot(q.x - hyp.x, q.z - hyp.z) < ft.radius * 2) worst = Math.max(worst, totalLoad(w, q) / q.cap);
     w.supports.pop();
     return worst <= 1;
   }
@@ -749,6 +750,13 @@ export class Machines {
     return { group: g, head, teeth, ring };
   }
 
+  // the cell block {i0,i1,k0,k1,j0,j1} of a grid cube (4 x 4 x 4 cells), or undefined for a turned frame or an old one cell deep frame (they stand alone, never in a stack)
+  cubeBlk(ent) {
+    if (!ent || ent.turned || ent.d === undefined || ent.gm === undefined || frameCells(ent) !== FRAME_N) return undefined;
+    const b = this.blockBox(this.frameBlock(ent));
+    return Number.isFinite(b.i0) && Number.isFinite(b.j0) ? b : undefined;
+  }
+
   // ---------- adding ----------
   add(ent, silent = false) {
     const game = this.game;
@@ -759,8 +767,9 @@ export class Machines {
       it.obj.position.set(ent.cx, ent.y0, ent.cz);
       const ft = FRAME_TYPES[ent.kind];
       ent.supportId = ent.supportId || ent.id;
-      w.supports.push({ x: ent.cx, y: ent.y0 + ent.h / 2, z: ent.cz, r: ft.radius, b: ft.bonus, id: ent.id, kind: ent.kind, cap: capacityOf(ent.kind), born: game.time });
+      w.supports.push({ x: ent.cx, y: ent.y0 + ent.h / 2, z: ent.cz, r: ft.radius, b: ft.bonus, id: ent.id, kind: ent.kind, cap: capacityOf(ent.kind), born: game.time, blk: this.cubeBlk(ent) });   // blk: the cell block of a grid cube, so a cube standing on another carries through it (loadtrace.js, stacks)
       game.queueLoad && game.queueLoad(ent.cx, ent.y0 + ent.h / 2, ent.cz);
+      if (!ent.view && !silent && game.S && game.S.stats) noteTall(game, ent);   // the tallest column of cubes (an achievement counter, stack.js)
     } else if (ent.type === 'beacon') {
       it.obj = this.makeBeacon();
       it.obj.position.set(ent.x, ent.y, ent.z);
@@ -965,7 +974,7 @@ export class Machines {
         const i = nx + px * o, k = nk + pz * o, j = e.j + h;
         if (w.get(i, j, k) === NEEDLE) continue;   // the cutter never eats The One: that cell stays in the pile (heavy equipment never leaves with it)
         const taken = w.removeCell(i, j, k);
-        if (taken) { eaten++; game.borerEat(taken, cellX(i), cellY(j), cellZ(k)); }
+        if (taken) { eaten++; game.borerEat(taken, cellX(i), cellY(j), cellZ(k), e); }
       }
     }
     e.i = nx; e.k = nk;

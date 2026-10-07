@@ -39,7 +39,7 @@ const USE = {
   cart: 'Press U to roll it out. It stays near you, plush you grab ride on it once your hands are full, and it unloads near the bin. U parks it or calls it back, X (standing next to it) stows it when empty.',
   medkit: 'Press K to heal 50 health.',
   canister: 'Automatic: it kicks in when you run out of air while trapped.',
-  mat: 'Raw building material. Frames, struts, jacks and bulkheads use it automatically when you craft them.',
+  mat: 'Frames, struts, jacks and bulkheads are simply bought with Fluff when you craft them.',
 };
 
 const FRAME_NOTE = {
@@ -76,7 +76,7 @@ export function recipes(g) {
     list.push({ id: 'glow', kind: 'glow', icon: '🟢', name: 'Glow Stick', short: 'Glow', desc: 'A soft green light for ten minutes. Dimmer than a flare, lasts more than twice as long. Needs no power.', price: 5, batch: [1, 10, 25] });
     list.push({ id: 'flare', kind: 'flare', icon: '🔥', name: 'Road Flare', short: 'Flare', desc: 'A bright light for four minutes. Needs no power.', price: 15, batch: [1, 5, 25] });
   }
-  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. Anchors the roof within about 2.7 m. Costs Steel Beams to craft.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
+  if (T.jacks) list.push({ id: 'jack', kind: 'jack', icon: '🛠️', name: 'Hydraulic Jack', short: 'Jack', desc: 'A screw prop for bad ground. Anchors the roof within about 2.7 m. Crafted with Fluff.', price: 70, batch: [1, 5, 10], mat: 'steel', matN: 1 });
   if (T.struts) list.push({ id: 'strut', kind: 'strut', icon: '🪜', name: 'Strut', short: 'Strut', desc: 'A single prop. Anchors the roof within about 1.9 m. Goes anywhere.', price: 8, batch: [1, 5, 25], mat: 'timber', matN: 1 });
   if (T.firstAid) {
     list.push({ id: 'medkit', kind: 'supply', icon: '🩹', name: 'Medkit', short: 'Medkit', desc: 'Press K to heal 50 health.', price: 30, batch: [1, 5, 10] });
@@ -125,6 +125,61 @@ export function recipes(g) {
   return out;
 }
 
+// ---------------------------------------------------------------- robots (crew bots)
+// The Scrapper Bot upgrade unlocks the first bot and its hatch. More Scrappers and the Bot Foundry now buy a bunk (a crew slot, the same price as
+// before); the bot that fills it is crafted at the bench. What the bench charges follows what hiring a bot costs: BOT_SHARE of the price of the
+// upgrade level that used to hatch that bot, so a bot is never cheaper than it was and each one owned makes the next dearer.
+export const BOT_ID = 'bot:scrapper';
+export const BOT_SHARE = 0.5;
+// what the upgrade tree charged for the bot at index n (0 = the first bot): the Scrapper Bot upgrade, then More Scrappers, then the Bot Foundry
+export function botHireCost(n) {
+  const line = (id) => (UPGRADES.find((u) => u.id === id) || { cost: [0] }).cost;
+  const a = line('crew'), b = line('crewSlots'), c = line('foundry');
+  if (n <= 0) return a[0];
+  if (n <= b.length) return b[n - 1];
+  if (n <= b.length + c.length) return c[n - 1 - b.length];
+  return Math.round(c[c.length - 1] * Math.pow(2.4, n - b.length - c.length));
+}
+export const botPrice = (n) => Math.max(1, Math.round(botHireCost(n) * BOT_SHARE));
+// what crafting `count` bots costs when `have` are already out: each one is priced by how many there are by then
+export const botQuote = (have, count) => { let c = 0; for (let k = 0; k < count; k++) c += botPrice(have + k); return c; };
+const botCount = (g) => ((g.S && g.S.crew) || []).length;
+const BOT_USE = 'Automatic: the new bot hatches at the bin and follows you. V opens the crew panel, T sends the crew digging the way you face, Y calls them home. Aim at a bot and press E to give it an order.';
+
+// the bench rows for robots (they are not items in your pack: crafting one hatches a bot). Locked until the Scrapper Bot upgrade.
+export function botRecipes(g) {
+  const T = g.T || {}, out = [];
+  if (!(T.crewMax > 0)) return out;
+  const have = botCount(g), free = Math.max(0, T.crewMax - have);
+  const slotUp = have >= 9 ? 'Bot Foundry' : 'More Scrappers';
+  out.push({
+    id: BOT_ID, kind: 'bot', icon: '🤖', name: 'Scrapper Bot', short: 'Scrapper', price: botPrice(have), batch: [1, 2, 3], use: BOT_USE,
+    desc: 'A little robot crew member. It follows you, digs a tunnel when you give the order, hauls plush back to the bin and recharges at a Charging Station. It levels up as it works: bigger, stronger, faster. Each bot you own makes the next one dearer, and every bot needs a free bunk (More Scrappers and the Bot Foundry add bunks).',
+    status: `${have} of ${T.crewMax} bunks used${free > 0 ? `, ${free} free` : `. No free bunk: buy ${slotUp} at the terminal`}`,
+    free, have, quote: (n) => botQuote(have, n),
+  });
+  return out;
+}
+
+// everything the bench lists: the recipes (no raw material) and the robots
+export const benchRecipes = (g) => [...recipes(g).filter((r) => r.kind !== 'mat'), ...botRecipes(g)];
+
+// craft `n` robots: they hatch through the crew's own spawn, only into free bunks, and are paid all together or not at all
+function craftBots(g, n) {
+  const S = g.S, T = g.T;
+  S.crew = S.crew || [];
+  const have = S.crew.length, free = (T.crewMax || 0) - have;
+  if (!(T.crewMax > 0) || free < 1 || n > free) { g.sound.error(); if (g.ui && g.ui.hint) g.ui.hint(!(T.crewMax > 0) ? 'Unlock the Scrapper Bot at the terminal first.' : 'No free bunk for another bot. More Scrappers and the Bot Foundry at the terminal add bunks.', 3.5); return false; }
+  const cost = botQuote(have, n);
+  if (S.money < cost) { g.sound.error(); return false; }
+  S.money -= cost;
+  for (let k = 0; k < n; k++) g.crew.spawn();
+  g.ui.setMoney(S.money);
+  g.sound.place();
+  g.ui.toast({ icon: '🤖', title: n > 1 ? `${n} Scrapper Bots crafted` : 'Scrapper Bot crafted', text: `Hatched at the bin: ${S.crew.length} of ${T.crewMax} bunks used.`, ms: 3500 });
+  return true;
+}
+
 // wearable gear: one piece per upgrade line, crafted tier by tier once the upgrade is unlocked
 export function gearRecipes(g) {
   if (!g.GEAR_CRAFTING) return [];
@@ -158,6 +213,7 @@ export function craft(g, id, n) {
   const S = g.S;
   n = Math.floor(+n);
   if (!(n >= 1) && id.indexOf('cart:') !== 0) return false;
+  if (id === BOT_ID) return n >= 1 && craftBots(g, n);
   const r = recipes(g).find((x) => x.id === id);
   if (!r) return false;
   S.mats = S.mats || {};

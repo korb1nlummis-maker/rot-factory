@@ -7,7 +7,8 @@ export default async function (ctx) {
   const { g, S, w, p, T, UPGRADES, FRAME_TYPES, recipes, MATERIALS, CART_CAP, CART_NAMES, fresh, tune, craft, near, placeAtFloor, computeTuning, effLevels, newWorld, toI, toJ, toK, cellX, cellY, cellZ, clearBodies } = ctx;
   const maxAll = () => { const o = {}; for (const u of UPGRADES) o[u.id] = u.max; return o; };
   const grid = (id) => document.getElementById(id);
-  const openBench = () => { g.ui.closeModals(); g.ui.open('craft'); };
+  const openBench = () => { g.ui.closeModals(); try { localStorage.removeItem('rf.bench'); } catch (e) { /* no storage */ } g.ui.bench = null; g.ui.open('craft'); };
+  const pickRow = (id) => { const c = [...document.querySelectorAll('#craftGrid .bcard')].find((x) => x.dataset.id === id); if (!c) return null; c.click(); return document.getElementById('benchDetail'); };   // select a row of the bench grid and hand back the detail pane that holds its craft buttons
   // which upgrade unlocks which recipe (this is the claim the bench makes)
   const GATE = (id) => {
     if (id.startsWith('frame:') || id.startsWith('mat:')) return [id.split(':')[1]];
@@ -23,6 +24,7 @@ export default async function (ctx) {
     if (id.startsWith('pad:') || id === 'catwalk' || id === 'wall') return ['shellPads'];   // wave 3 build shell (src/catalog_build.js)
     if (id === 'wramp' || id === 'wramp:haul' || id === 'stair') return ['shellRamps'];
     if (id === 'levelpad') return ['shellLevel'];
+    if (id === 'ladder') return ['stackKit'];   // wave 10 stacked building (src/catalog_stack.js): the hatch ladder
     if (['sign', 'dsign', 'psign'].includes(id)) return ['furnSigns'];   // wave 4 furnish (src/furnish.js)
     if (id === 'locker' || id === 'pcrate') return ['furnStore'];
     if (['clamp', 'strip', 'wbeacon'].includes(id)) return ['furnLamps'];
@@ -53,6 +55,7 @@ export default async function (ctx) {
     if (document.getElementById('craftGrid') && g.gearList().length) return 'gear crafting is on: test assumes none';
     for (let idx = 0; idx < ids.length; idx++) {
       const id = ids[idx];
+      if (id.startsWith('mat:')) continue;   // raw building material has no card on the bench any more: frames are just bought
       const nb = recipes(g).find((r) => r.id === id).batch.filter((v, i, a) => a.indexOf(v) === i);
       for (const n of nb) {
         for (const seedStock of [false, true]) {
@@ -63,7 +66,7 @@ export default async function (ctx) {
           if (seedStock) S().mats[r.mat] = Math.floor(r.matN * n / 2) + 1;
           const stock0 = r.mat ? (S().mats[r.mat] || 0) : 0;
           openBench();
-          const card = grid('craftGrid').children[idx];
+          const card = pickRow(id);
           if (!card) { bad.push(id + ' no card'); continue; }
           const btn = [...card.querySelectorAll('button')].find((b) => (r.kind === 'cart' ? true : b.dataset.n === String(n)));
           if (!btn) { bad.push(`${id} no button x${n}`); continue; }

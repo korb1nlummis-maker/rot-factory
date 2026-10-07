@@ -8,7 +8,7 @@ import { CART_CAP, CART_NAMES } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { NEEDLE, BULK, species } from './plushdata.js';
 import { Slides } from './slide.js';
-import { capacityOf, loadOn } from './loadtrace.js';
+import { capacityOf, loadOn, totalLoad, totalRatio } from './loadtrace.js';
 
 const { cellX, cellY, cellZ, toI, toJ, toK } = cfg;
 
@@ -62,7 +62,7 @@ export async function runSelfTest(g, only = '') {
     return { i, k: kk };
   };
   const newWorld = async () => { await g.startPlay(true); g.mode = 'play'; g.noSave = true; await realSleep(250); };
-  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt'];
+  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.'];
   const aimPoint = (x, y, z, back = 2.0) => {
     p().pos.set(x - back, 0, z); p().vel.set(0, 0, 0);
     const e = p().eyePos(new V3()); const dx = x - e.x, dy = y - e.y, dz = z - e.z;
@@ -182,7 +182,7 @@ export async function runSelfTest(g, only = '') {
     const a = await run({}), b = await run({ repeat: 1 }); return (a > 0 && b >= a * 2) || `${a} vs ${b}`;
   });
   await T('hands.scoop-takes-more', async () => {
-    const run = async (sc) => { fresh({ bag: 8, scoop: sc, reach: 3 }); plushWall(40); standBeforeWall(); await sleep(40); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); if (!g.curTargetRef) return -1; g.instantGrab(g.curTargetRef); return S().carry.length; };
+    const run = async (sc) => { fresh({ bag: 8, scoop: sc, reach: 3 }); S().scoopSet = 1e9; plushWall(40); standBeforeWall(); await sleep(40); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); if (!g.curTargetRef) return -1; g.instantGrab(g.curTargetRef); return S().carry.length; };
     const a = await run(0), b = await run(4); return (a === 1 && b > a) || `${a} vs ${b}`;
   });
   await T('hands.vacuum-pulls-many', async () => {
@@ -757,7 +757,17 @@ export async function runSelfTest(g, only = '') {
 
   // extra test modules: src/tests/*.js each export default async (ctx) => { await ctx.T('area.name', async () => true | 'reason') }
   const mods = import.meta.glob('./tests/*.js', { eager: true });
-  const ctx = { capacityOf, loadOn, g, S, w, p, sim, L, V3, THREE, cfg, cellX, cellY, cellZ, toI, toJ, toK, UPGRADES, FRAME_TYPES, effLevels, computeTuning, recipes, MATERIALS, CART_CAP, CART_NAMES, species, NEEDLE, fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, plushWall, standBeforeWall, newWorld, realSleep, sleep, WORLD_TESTS };
+  const ctx = { capacityOf, loadOn, totalLoad, totalRatio, g, S, w, p, sim, L, V3, THREE, cfg, cellX, cellY, cellZ, toI, toJ, toK, UPGRADES, FRAME_TYPES, effLevels, computeTuning, recipes, MATERIALS, CART_CAP, CART_NAMES, species, NEEDLE, fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, plushWall, standBeforeWall, newWorld, realSleep, sleep, WORLD_TESTS };
+  if (typeof window !== 'undefined') window.__runFile = async (file, prefix = '') => {   // dev tooling: re-import ONE test file (cache busted) and run it against this ctx without the rest of the suite: `await __runFile('stack_plates.js')`
+    const rs = [], T2 = async (name, fn) => {
+      if (prefix && !name.startsWith(prefix)) return;
+      if (WORLD_TESTS.some((x) => name.startsWith(x))) await newWorld();
+      g.surgeT = 1e9; const before = g.errCount || 0;
+      try { const r = await fn(); if ((g.errCount || 0) > before) rs.push({ name, ok: false, msg: 'frame errors: ' + (g.errLog || []).slice(-1)[0] }); else if (typeof r === 'string') rs.push({ name, ok: false, msg: r }); else if (r === false || r === null || r === 0) rs.push({ name, ok: false, msg: 'returned ' + r }); else rs.push({ name, ok: true }); } catch (e) { rs.push({ name, ok: false, msg: 'THROW ' + String(e && e.stack || e).slice(0, 500) }); }
+    };
+    const mod = await import(/* @vite-ignore */ './tests/' + file + '?v=' + Date.now()); await mod.default({ ...ctx, T: T2 });
+    return { total: rs.length, failed: rs.filter((r) => !r.ok), ok: rs.filter((r) => r.ok).map((r) => r.name) };
+  };
   if (typeof window !== 'undefined') window.__stCtx = ctx;   // dev tooling: lets a runner re-import one test file with a cache-busting query and run it against this ctx
   for (const path of Object.keys(mods).sort()) { const fn = mods[path].default; if (typeof fn === 'function') await fn(ctx); }
 

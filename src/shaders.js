@@ -18,6 +18,10 @@ export const U = {
   uPtCol: { value: Array.from({ length: 10 }, () => new THREE.Color(0, 0, 0)) },
   uPtN: { value: 1 },
   uFloor: { value: 1 },
+  uGlow: { value: 0 },
+  uHoleSun: { value: new THREE.Color(1.05, 1.1, 0.95) },     // the hall's light as it comes down a hole: the hall level only, never dimmed by how deep the camera stands (renderEnv)
+  uHoleHemi: { value: new THREE.Color(0.36, 0.4, 0.3) },
+  uHoleLv: { value: 1 },
   uStressOn: { value: 0 },
 };
 
@@ -32,14 +36,41 @@ float vnoise(vec3 p){
 }
 `;
 
+export const noiseGLSL = noise;
+// Patterned species (stripes, spots, two-tone): the second color is made from the first (channels rotated, then pushed light or dark so there is always contrast), and the
+// parts that are not body (eyes, dark tips: vertex color well below white) keep their own color. p is the object space position, vc the vertex color.
+export const patternGLSL = /* glsl */ `
+vec3 plushPattern(vec3 alb, float pat, vec3 p, vec3 vc, float n0){
+  float body = smoothstep(0.30, 0.55, min(vc.r, min(vc.g, vc.b)));
+  if (body <= 0.0) return alb;
+  float lum = dot(alb, vec3(0.3333));
+  vec3 sec = pat < 2.5 ? (pat < 1.5 ? alb.gbr : alb.brg) : alb.gbr;
+  sec = lum > 0.42 ? sec * 0.5 : sec * 1.6 + 0.14;
+  float m = 0.0;
+  if (pat < 1.5) {
+    m = smoothstep(0.42, 0.58, abs(fract(p.y * 5.0 + 0.31) - 0.5) * 2.0 - 0.0);
+    m = 1.0 - m;
+  } else if (pat < 2.5) {
+    vec3 g = p * 5.6 + vec3(3.1, 1.7, 5.3);
+    vec3 c = floor(g);
+    vec3 f = fract(g) - 0.5 - (vec3(hash31(c), hash31(c + 7.0), hash31(c + 13.0)) - 0.5) * 0.4;
+    m = (1.0 - smoothstep(0.27, 0.36, length(f))) * step(0.22, hash31(c + 29.0));
+  } else {
+    m = 1.0 - smoothstep(-0.03, 0.03, p.y + 0.02);
+  }
+  return mix(alb, sec, m * body);
+}
+`;
+
 export const plushVert = /* glsl */ `
 attribute vec4 aData;
-varying vec3 vN; varying vec3 vWP; varying vec3 vCol; varying vec4 vData; varying vec3 vOP;
+varying vec3 vN; varying vec3 vWP; varying vec3 vCol; varying vec4 vData; varying vec3 vOP; varying vec3 vVC;
 void main(){
   vec4 wp = instanceMatrix * vec4(position, 1.0);
   vWP = wp.xyz;
   vN = normalize(mat3(instanceMatrix) * normal);
   vOP = position;
+  vVC = color;
   vCol = color * instanceColor;
   vData = aData;
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -51,11 +82,15 @@ precision highp float;
 uniform float uTime; uniform vec3 uFogColor; uniform float uFogDensity; uniform float uCamSky;
 uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uHemiSky; uniform vec3 uHemiGround;
 uniform vec3 uLampPos; uniform vec3 uLampDir; uniform vec3 uLampColor; uniform vec2 uLampCone; uniform float uLampRange;
-uniform vec4 uPt[10]; uniform vec3 uPtCol[10]; uniform int uPtN; uniform float uFloor;
-varying vec3 vN; varying vec3 vWP; varying vec3 vCol; varying vec4 vData; varying vec3 vOP;
+uniform vec4 uPt[10]; uniform vec3 uPtCol[10]; uniform int uPtN; uniform float uFloor; uniform float uGlow; uniform vec3 uHoleSun; uniform vec3 uHoleHemi; uniform float uHoleLv;
+varying vec3 vN; varying vec3 vWP; varying vec3 vCol; varying vec4 vData; varying vec3 vOP; varying vec3 vVC;
 ${noise}
+${patternGLSL}
 void main(){
-  float ao = vData.x, sky = vData.y, flags = vData.z, seed = vData.w;
+  float pat = floor(vData.w);                                // the pattern (0 plain, 1 stripes, 2 spots, 3 two-tone) rides in the whole part of the seed
+  float ao = vData.x, sky = vData.y, seed = vData.w - pat;
+  float flags = floor(vData.z + 0.01);                      // the flag (0 plush, 1 shiny, 2 The One) with the light that came down a hole in its fraction
+  float hole = clamp((vData.z - flags) / 0.97, 0.0, 1.0);
   vec3 N = normalize(vN);
   vec3 toCam = cameraPosition - vWP;
   float dist = length(toCam);
@@ -68,13 +103,17 @@ void main(){
     N = normalize(N + pert * 0.28 * (1.0 - dist / 16.0));
   }
   vec3 alb = vCol * (0.92 + 0.16 * n1);
+  if (pat > 0.5) alb = plushPattern(alb, pat, vOP, vVC, seed);
 
   vec3 L = vec3(0.0);
   // hall lights from above
   float wrap = clamp((dot(N, uSunDir) + 0.55) / 1.55, 0.0, 1.0);
   L += uSunColor * wrap * wrap * sky;
   float hm = N.y * 0.5 + 0.5;
-  L += mix(uHemiGround, uHemiSky, hm) * (0.10 + 0.90 * sky);
+  L += mix(uHemiGround, uHemiSky, hm) * max(0.10 + 0.90 * sky, uGlow);
+  // light from a hole in the pile (a shaft dug up and out, and what spills from its foot along the tunnel): only what it adds to the plain sky light above
+  float hx = max(hole - sky, 0.0);
+  L += uHoleSun * wrap * wrap * hx + mix(uHemiGround * uHoleLv, uHoleHemi, hm) * 0.9 * hx;
   L += vec3(0.020, 0.022, 0.026) * uFloor; // dark-room floor: gone at night and deep underground, so only light sources show anything
 
   // headlamp

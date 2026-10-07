@@ -1,6 +1,10 @@
 // Upgrade tree. Each upgrade has levels; effect(t, level) mutates the tuning object.
 // cat: hands | sort | mine | light | sense | move | machine
 import { mergeUpgrades } from './catalog.js';
+import { DEX_UNIT, speciesCount } from './plushdata.js';
+
+// the dex bonus per discovered species: scaled to the size of the Plushdex so a full one pays 7.5x with the Appraiser, as it always did (1,628 species at +0.4% each)
+const DEXPCT = (u) => (u * 100).toFixed(3).replace(/0+$/, '');
 
 export const CATS = [
   { id: 'contracts', name: 'Contracts', icon: '📋', special: true },
@@ -34,8 +38,9 @@ export const UPGRADES = [
   { id: 'haggle', cat: 'sort', name: 'Haggling', desc: '+14% of the base sell price per level (level 10 pays 2.4x).', max: 10, cost: geo(25, 2.0, 10), effect: (t, l) => { t.sellMult *= 1 + 0.14 * l; } },
   { id: 'streak', cat: 'sort', name: 'Hot Hands', desc: 'Sales within 4.5 s of each other build a combo worth +4.5% per plush in a row. Everyone can reach a 6 plush combo; each level raises the cap by 8 (14, 22, 30, 38, 46).', max: 5, cost: [30, 140, 700, 3500, 16000], effect: (t, l) => { t.streakCap = 6 + l * 8; } },
   { id: 'magnet', cat: 'sort', name: 'Bin Magnet', desc: 'The bin catches throws from further away: the mouth is 0.45 m wider per level and the pull reaches further out.', max: 3, cost: [60, 320, 1500], effect: (t, l) => { t.binCatch = 0.0 + l * 0.45; } },
+  { id: 'binpull', cat: 'sort', name: 'Bin Throughput', desc: 'Bins pull plush in faster: each pull takes a whole batch instead of one. 2, 4, 8, 16, 32, 64, 128, then 256 plush at a time, for the plush you carry and the plush on your cart, at the bin and at every Depot Beacon. Needs Long-Range Suction.', max: 8, cost: [150, 700, 3200, 15000, 70000, 320000, 1500000, 7000000], req: { id: 'dump', lvl: 1 }, effect: (t, l) => { t.binBatch = [1, 2, 4, 8, 16, 32, 64, 128, 256][l]; } },
   { id: 'dump', cat: 'sort', name: 'Long-Range Suction', desc: 'The bin already sucks in plush you carry when you are within 3.8 m. This widens the pull to 7.8, 13.8, then 25.8 m (your cart gets 80% of that). Gates and sorters must stay outside the pull.', max: 3, cost: [90, 700, 5200], effect: (t, l) => { t.autoDump = 3.8 + [0, 4, 10, 22][l]; } },
-  { id: 'dex', cat: 'sort', name: 'Plushdex Appraiser', desc: '+0.4% sell price for every species you have discovered (the Plushdex has 1,628, so a full dex pays about 7.5x).', max: 1, cost: [180], effect: (t) => { t.dexBonus = 0.004; } },
+  { id: 'dex', cat: 'sort', name: 'Plushdex Appraiser', desc: `+${DEXPCT(DEX_UNIT)}% sell price for every species you have discovered (the Plushdex has ${speciesCount.toLocaleString('en-US')}, so a full dex pays about 7.5x).`, max: 1, cost: [180], effect: (t) => { t.dexBonus = DEX_UNIT; } },
   { id: 'shinyEye', cat: 'sort', name: "Collector's Loupe", desc: 'Shiny plush are worth 8x instead of 5x.', max: 1, cost: [1200], effect: (t) => { t.shinyMult = 8; } },
 
   // ---------------- MINING ----------------
@@ -63,7 +68,7 @@ export const UPGRADES = [
   { id: 'padding', cat: 'mine', name: 'Impact Padding', desc: 'Foam and kevlar under your overalls. Falls, blasts and falling plush hurt 10% less per level.', max: 4, cost: [120, 900, 6500, 48000], effect: (t, l) => { t.dmgCut = 0.1 * l; } },
   { id: 'firstaid', cat: 'mine', name: 'First Aid Station', desc: 'Unlocks Medkits (K heals 50) and Air Canisters (kick in on their own when you run out of air while trapped) at the bench.', max: 1, cost: [160], effect: (t) => { t.firstAid = true; } },
   { id: 'slopeprobe', cat: 'mine', name: 'Slope Probe', desc: 'A clinometer on your wrist. Warns UNSTABLE SLOPE when the plush under or beside you can slide.', max: 1, cost: [380], effect: (t) => { t.slopeProbe = true; } },
-  { id: 'jacks', cat: 'mine', name: 'Hydraulic Jacks', desc: 'Unlocks Hydraulic Jacks: a single prop with a wider reach than a strut (2.7 m against 1.9 m). Made from Steel Beams. Place with B anywhere on the floor.', max: 1, cost: [1400], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.jacks = true; } },
+  { id: 'jacks', cat: 'mine', name: 'Hydraulic Jacks', desc: 'Unlocks Hydraulic Jacks: a single prop with a wider reach than a strut (2.7 m against 1.9 m). Crafted with Fluff. Place with B anywhere on the floor.', max: 1, cost: [1400], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.jacks = true; } },
   { id: 'airtank', cat: 'mine', name: 'Emergency Air Tank', desc: 'Buried or trapped, you have 60 seconds of air to dig out. Each level adds 30 more.', max: 5, cost: [150, 800, 4500, 30000, 220000], effect: (t, l) => { t.airTank = l; } },
   { id: 'resp', cat: 'mine', name: 'Respirator', desc: 'Dust gets into your lungs in enclosed tunnels. Each level filters 20% more.', max: 4, cost: [120, 900, 7000, 60000], effect: (t, l) => { t.resp = l; } },
   { id: 'hardhat', cat: 'mine', name: 'Hard Hat', desc: 'Falling plush hurt 30% less (on top of Impact Padding), and collapses shake the screen less.', max: 1, cost: [45], effect: (t) => { t.shakeMul = 0.45; t.plushCut = 0.3; } },
@@ -89,7 +94,7 @@ export const UPGRADES = [
 
   // ---------------- CREW ----------------
   { id: 'crew', cat: 'crew', name: 'Scrapper Bot', desc: 'A little robot crew member. It follows you around, and when you give the order it digs a tunnel in a direction, hauls plush back to the bin and recharges. It levels up as it works: bigger, stronger, faster, wider tunnels. Press V for the crew panel, T to send the crew digging the way you face, Y to call them home. Aim at a bot and press E to pick it, then E on a target to give it an order. Also unlocks the Charging Station.', max: 1, cost: [1800], needs: 150, req: { id: 'bag', lvl: 3 }, effect: (t) => { t.crewMax += 1; t.machines.push('charger'); } },
-  { id: 'crewSlots', cat: 'crew', name: 'More Scrappers', desc: 'Another bot hatches at the bin, up to nine in all. Needs 400 plush handled, and each bot costs 2.3x the one before.', max: 8, cost: geo(3500, 2.3, 8), needs: 400, req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewMax += l; } },
+  { id: 'crewSlots', cat: 'crew', name: 'More Scrappers', desc: 'Another bunk for a Scrapper Bot, up to nine in all. Needs 400 plush handled, and each bunk costs 2.3x the one before. The bot that fills a bunk is crafted at the Crafting Table (Robots tab).', max: 8, cost: geo(3500, 2.3, 8), needs: 400, req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewMax += l; } },
   { id: 'crewHaul', cat: 'crew', name: 'Bigger Buckets', desc: 'Bots haul 40% of their base load more per trip per level (a fresh bot carries 6, 8, 11, 13, then 16).', max: 4, cost: geo(1500, 3, 4), req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewHaul = 1 + 0.4 * l; } },
   { id: 'crewSpeed', cat: 'crew', name: 'Servo Tuning', desc: 'Bots dig 20% faster per level (walking speed is unchanged).', max: 6, cost: geo(2200, 2.6, 6), req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewSpeed = 1 + 0.2 * l; } },
   { id: 'crewBattery', cat: 'crew', name: 'Long-Life Cells', desc: 'Bots run 60% longer per level before they need to recharge, digging or walking.', max: 4, cost: geo(1800, 2.8, 4), req: { id: 'crew', lvl: 1 }, effect: (t, l) => { t.crewBattery = 1 + 0.6 * l; } },
@@ -127,13 +132,13 @@ export const UPGRADES = [
 ];
 
 // Everything is expensive on purpose: the early game is slow hand work, and the numbers only open up with machines.
-export const COST_SCALE = 12;  // price pacing: once you grab fast, income compounds, so prices must climb with it
+export const COST_SCALE = 8;  // price pacing: once you grab fast, income compounds, so prices must climb with it (was 12: the early and middle game felt too far apart)
 for (const u of UPGRADES) u.cost = u.cost.map((c) => Math.round(c * COST_SCALE));
 
 // Endgame perks: priced for runs that already own the whole tree (millions to hundreds of millions). Not scaled again.
 const ENDGAME = [
   { id: 'midas', cat: 'sort', name: 'Midas Contract', desc: 'A standing deal with the richest buyers: every sale pays x1.35 per level, on top of Haggling. Needs Haggling at level 10.', max: 5, cost: [2.5e6, 9e6, 32e6, 110e6, 400e6], req: { id: 'haggle', lvl: 10 }, effect: (t, l) => { t.sellMult *= Math.pow(1.35, l); } },
-  { id: 'exchange', cat: 'sort', name: 'Plushdex Exchange', desc: 'Collectors pay for completeness: +0.2% sell price per discovered species, per level, on top of the Appraiser. Needs the Appraiser.', max: 3, cost: [4e6, 20e6, 100e6], req: { id: 'dex', lvl: 1 }, effect: (t, l) => { t.dexBonus = (t.dexBonus || 0) + 0.002 * l; } },
+  { id: 'exchange', cat: 'sort', name: 'Plushdex Exchange', desc: `Collectors pay for completeness: +${DEXPCT(DEX_UNIT / 2)}% sell price per discovered species, per level (a full dex adds 3.3x per level), on top of the Appraiser. Needs the Appraiser.`, max: 3, cost: [4e6, 20e6, 100e6], req: { id: 'dex', lvl: 1 }, effect: (t, l) => { t.dexBonus = (t.dexBonus || 0) + (DEX_UNIT / 2) * l; } },
   { id: 'titanGrip', cat: 'hands', name: 'Titan Grip', desc: 'Servo-assisted fingers: the pause between grabs shrinks by 20% per level. Needs Grippy Gloves at the top level.', max: 3, cost: [1.5e6, 7e6, 30e6], req: { id: 'gloves', lvl: 7 }, effect: (t, l) => { t.grabTime *= Math.pow(0.8, l); } },
   { id: 'longArm', cat: 'hands', name: 'Gantry Arms', desc: 'Reach another 1.5 m per level. Needs the Telescoping Grabber at the top level.', max: 3, cost: [2e6, 9e6, 40e6], req: { id: 'reach', lvl: 4 }, effect: (t, l) => { t.reach += 1.5 * l; } },
   { id: 'fusion', cat: 'machine', name: 'Fusion Cores', desc: 'Generators put out 2.5x the power per level, on top of Turbine Upgrades (and burn each plush that much faster). Needs Turbines at the top level.', max: 3, cost: [3e6, 15e6, 75e6], req: { id: 'genOutput', lvl: 6 }, effect: (t, l) => { t.genOutput *= Math.pow(2.5, l); } },
@@ -161,7 +166,7 @@ const MORE = [
   { id: 'auction', cat: 'sort', name: 'Auction House', desc: 'Every sale goes to the highest bidder: x1.5 per level, on top of the Midas Contract. Needs the Midas Contract at the top level.', max: 5, cost: geo(1e9, 3.4, 5), req: { id: 'midas', lvl: 5 }, effect: (t, l) => { t.sellMult *= Math.pow(1.5, l); } },
   { id: 'fever', cat: 'sort', name: 'Fever Pitch', desc: 'Raises the Hot Hands combo cap by 16 per level. Needs Hot Hands at the top level.', max: 3, cost: geo(2.5e7, 3, 3), req: { id: 'streak', lvl: 5 }, effect: (t, l) => { t.streakCap += 16 * l; } },
   { id: 'tractor', cat: 'sort', name: 'Tractor Beam', desc: 'The bin mouth is 0.6 m wider per level, on top of the Bin Magnet. Needs the Bin Magnet at the top level.', max: 3, cost: geo(1.5e7, 3, 3), req: { id: 'magnet', lvl: 3 }, effect: (t, l) => { t.binCatch += 0.6 * l; } },
-  { id: 'registry', cat: 'sort', name: 'Species Registry', desc: '+0.2% sell price per discovered species, per level, on top of the Exchange. Needs the Plushdex Exchange at the top level.', max: 3, cost: geo(6e7, 3, 3), req: { id: 'exchange', lvl: 3 }, effect: (t, l) => { t.dexBonus = (t.dexBonus || 0) + 0.002 * l; } },
+  { id: 'registry', cat: 'sort', name: 'Species Registry', desc: `+${DEXPCT(DEX_UNIT / 2)}% sell price per discovered species, per level (a full dex adds 3.3x per level), on top of the Exchange. Needs the Plushdex Exchange at the top level.`, max: 3, cost: geo(6e7, 3, 3), req: { id: 'exchange', lvl: 3 }, effect: (t, l) => { t.dexBonus = (t.dexBonus || 0) + (DEX_UNIT / 2) * l; } },
   { id: 'prism', cat: 'sort', name: 'Prismatic Loupe', desc: 'Shiny plush are worth 4 more times the base price per level (on top of the Loupe: 12x, 16x, 20x, then 24x). Needs the Collector\'s Loupe.', max: 4, cost: geo(2e7, 2.6, 4), req: { id: 'shinyEye', lvl: 1 }, effect: (t, l) => { t.shinyMult += 4 * l; } },
   { id: 'brokerage', cat: 'sort', name: 'Brokerage', desc: 'One more contract slot per level, on top of More Contracts. Needs More Contracts at the top level.', max: 4, cost: geo(2e7, 4, 4), req: { id: 'contractSlots', lvl: 3 }, effect: (t, l) => { t.contractSlots += l; } },
 
@@ -187,7 +192,7 @@ const MORE = [
   { id: 'rocketBoots', cat: 'move', name: 'Rocket Boots', desc: 'Jump higher still: +0.7 per level, on top of Spring Insoles. Needs Spring Insoles at the top level.', max: 3, cost: geo(6e6, 3, 3), req: { id: 'springs', lvl: 3 }, effect: (t, l) => { t.jump += 0.7 * l; } },
 
   // ---------------- CREW ----------------
-  { id: 'foundry', cat: 'crew', name: 'Bot Foundry', desc: 'Another bot hatches at the bin per level, on top of the nine from More Scrappers. Needs More Scrappers at the top level.', max: 6, cost: geo(3e7, 2.4, 6), req: { id: 'crewSlots', lvl: 8 }, effect: (t, l) => { t.crewMax += l; } },
+  { id: 'foundry', cat: 'crew', name: 'Bot Foundry', desc: 'Another bunk for a Scrapper Bot per level, on top of the nine from More Scrappers. Craft the bots at the Crafting Table (Robots tab). Needs More Scrappers at the top level.', max: 6, cost: geo(3e7, 2.4, 6), req: { id: 'crewSlots', lvl: 8 }, effect: (t, l) => { t.crewMax += l; } },
   { id: 'titanBuckets', cat: 'crew', name: 'Titan Buckets', desc: 'Bots haul another 40% of their base load per trip per level, on top of Bigger Buckets. Needs Bigger Buckets at the top level.', max: 4, cost: geo(2e7, 2.8, 4), req: { id: 'crewHaul', lvl: 4 }, effect: (t, l) => { t.crewHaul += 0.4 * l; } },
   { id: 'servoOC', cat: 'crew', name: 'Overclocked Servos', desc: 'Bots dig another 20% faster per level, on top of Servo Tuning. Needs Servo Tuning at the top level.', max: 5, cost: geo(2.5e7, 2.6, 5), req: { id: 'crewSpeed', lvl: 6 }, effect: (t, l) => { t.crewSpeed += 0.2 * l; } },
   { id: 'fusionCells', cat: 'crew', name: 'Fusion Cells', desc: 'Bots run another 60% longer per level before they need to recharge, on top of Long-Life Cells. Needs Long-Life Cells at the top level.', max: 4, cost: geo(2e7, 2.8, 4), req: { id: 'crewBattery', lvl: 4 }, effect: (t, l) => { t.crewBattery += 0.6 * l; } },
@@ -265,7 +270,7 @@ export function effLevels(S) {
 export function defaultTuning() {
   return {
     grabTime: 1.5, reach: 2.4, carry: 1, autoRepeat: false, locator: 0, locatorRange: 0, exitMarker: false, assay: false, depots: false, scoop: 0, vac: 0, vacRate: 0, throwPower: 11,
-    sellMult: 1, streakCap: 6, binCatch: 0, autoDump: 3.8, dexBonus: 0, shinyMult: 5,
+    sellMult: 1, streakCap: 6, binCatch: 0, binBatch: 1, autoDump: 3.8, dexBonus: 0, shinyMult: 5,
     frames: [], stabBonus: 0, warn: 1.1, stressLens: false, survey: false, shakeMul: 1, compass: false,
     lampRange: 9, lampPower: 1, lantern: false,
     scan: 0, scanRange: 0,

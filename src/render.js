@@ -7,9 +7,10 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { C, NX, NY, NZ, CS, CX, CY, CZ, QUALITY, cellX, cellY, cellZ } from './config.js';
 import { h32, quatFromHash } from './util.js';
-import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, PAD, ARCH_COUNT } from './plushdata.js';
+import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, PAD, ARCH_COUNT, SPECIAL_MIN } from './plushdata.js';
 import { makeArchGeometry } from './plushgeo.js';
 import { U, makePlushMaterial, ghostVert, ghostFrag, gradeShader } from './shaders.js';
+import * as HL from './holelight.js';
 
 const NA = ARCH_COUNT + 10; // every shape + The One + bulkhead + gear + 4 fakes + cache + floor pad + catwalk plate
 const A_NEEDLE = ARCH_COUNT, A_BULK = ARCH_COUNT + 1, A_REMAINS = ARCH_COUNT + 2, A_PAD = ARCH_COUNT + 8, A_PADTHIN = ARCH_COUNT + 9;
@@ -76,6 +77,30 @@ function flush(m, n) {
   upd(m.instanceMatrix, 16);
   upd(m.instanceColor, 3);
   upd(m.geometry.attributes.aData, 4);
+}
+
+// What lies round one plush that has hole light near it (the padded copy of its chunk is PADN cells across): how many of its 26 neighbours are plush, the best sky light of the
+// empty ones (not counting the cells of a hole, which light through their own channel) and the best light that came down a hole. The results come back in _cnt, _sky and _hole.
+// Plush with no hole light near them keep the plain loop of scanChunk, exactly as it was.
+const PADN = CS + 4;
+let _cnt = 0, _sky = 0, _hole = 0;
+// the column tops come from the window of holelight.js (tw, at twb for this plush) and hf is the field of hole light
+function aroundField(pad, pi, j, tw, twb, hf, hb0, hWd) {   // (hb0: the plush's place in hf)
+  let cnt = 0, skyBest = 0, holeBest = 0;
+  for (let dj = -1; dj <= 1; dj++) for (let dk = -1; dk <= 1; dk++) for (let di = -1; di <= 1; di++) {
+    if (!di && !dj && !dk) continue;
+    const v = pad[pi + dj * PADN * PADN + dk * PADN + di];
+    if (v !== 0) { cnt++; continue; }
+    const nj = j + dj;
+    const t = tw[twb + dk * hWd + di];
+    const w2 = (di && dj ? 0 : 1) * (di && dk ? 0 : 1) * (dj && dk ? 0 : 1) ? 1 : 0.8;
+    // light that came down a hole (or spilled along the tunnel from one) is its own channel: the shader does not dim it with how deep you stand
+    const h = hf[hb0 + (dj * hWd + dk) * hWd + di];
+    if (h > 0) { if (h * w2 > holeBest) holeBest = h * w2; if (nj >= t) continue; }
+    const sk = nj >= t ? 1 : Math.exp(-(t - nj - 1) * 0.3);
+    if (sk * w2 > skyBest) skyBest = sk * w2;
+  }
+  _cnt = cnt; _sky = skyBest; _hole = holeBest;
 }
 
 export class Renderer {
@@ -246,6 +271,9 @@ export class Renderer {
         if (open) ring[pi2] = 1;
       }
     }
+    // daylight through holes (holelight.js): the column tops of the chunk's window, and a light field when a shaft dug out of the pile is within reach of it
+    const hl = HL.windowFor(w, i0, j0, k0, this._hl || (this._hl = HL.makeScratch()));
+    const tw = hl.on ? hl.tw : null, hf = hl.hf, hib = hl.ib, hkb = hl.kb, hjb = hl.jb, hWd = hl.Wd, bx0 = hl.bx0, bx1 = hl.bx1, bz0 = hl.bz0, bz1 = hl.bz1, bj0 = hl.bj0, bj1 = hl.bj1;
     const out = [];
     const pose = new Float32Array(9);
     for (let j = j0; j < j1; j++) {
@@ -274,6 +302,14 @@ export class Renderer {
             if (!near) continue;
           }
           const ao = Math.min(1, Math.max(0.3, 1 - (cnt - 14) * 0.075));
+          let skyOut = skyBest, hb = 0;
+          if (hf !== null) {
+            const cw = i - hib, kw = k - hkb;
+            if (cw >= bx0 && cw <= bx1 && kw >= bz0 && kw <= bz1 && j - hjb >= bj0 && j - hjb <= bj1) {
+              aroundField(pad, pi, j, tw, kw * hWd + cw, hf, ((j - hjb) * hWd + kw) * hWd + cw, hWd);   // a hole is near: look again with the hole light counted
+              skyOut = _sky; if (_hole > 0) hb = Math.min(1, _hole) * 0.97;   // the hole light rides in the fraction of the flag (the shader splits it again): flag 0, 1 or 2 plus the hole light
+            }
+          }
           const v = w.getVr(i, j, k);
           cellPose(i, j, k, v, pose);
           const s0 = species[s];
@@ -295,13 +331,28 @@ export class Renderer {
           else col = colOf(s0);
           out.push(
             pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6], pose[7],
-            ao, skyBest, flag, pose[8],
+            ao, skyOut, flag + hb, (pose[8] > 0.99 ? 0.99 : pose[8]) + (s0 && s0.pat && s < SPECIAL_MIN ? s0.pat : 0),
             col[0] * shade, col[1] * shade, col[2] * shade, arch,
           );
         }
       }
     }
-    return { n: out.length / STRIDE, data: new Float32Array(out) };
+    return { n: out.length / STRIDE, data: new Float32Array(out), hole: hl.on && hl.holes > 0 };   // (a hole column anywhere in the window, at any level: the light of a chunk can change with an edit at the mouth of a shaft many levels away)
+  }
+
+  // An edit in a chunk that is not loaded (the mouth of a shaft in the pile 40 m over your head, beyond the render radius) has no chunk record to cascade from, yet opening or
+  // capping it changes the light of the loaded chunks under it. Look at it the way a remesh would: a hole in the window of that chunk now, or a loaded chunk of its stack
+  // that had hole light before. Then the loaded chunks of the stack and their neighbours are scanned again.
+  farEdit(ci) {
+    const cx = ci % CX, cz = Math.floor(ci / CX) % CZ, cy = Math.floor(ci / (CX * CZ)), ids = [];
+    for (let ny = 0; ny < CY; ny++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = cx + dx, nz = cz + dz; if (nx < 0 || nz < 0 || nx >= CX || nz >= CZ) continue;
+      const ni = (ny * CZ + nz) * CX + nx; if (this.chunks.has(ni)) ids.push(ni);
+    }
+    if (!ids.length) return;
+    let near = false; for (const ni of ids) if (this.chunks.get(ni).hole) { near = true; break; }
+    if (!near) { const hl = HL.windowFor(this.world, cx * CS, cy * CS, cz * CS, this._hl2 || (this._hl2 = HL.makeScratch())); near = hl.on && hl.holes > 0; }
+    if (near) for (const ni of ids) this.pending.push(ni);
   }
 
   updateChunks(cam, budgetMs = 5) {
@@ -315,7 +366,8 @@ export class Renderer {
     if (w.dirtyChunks.size) {
       const list = [...w.dirtyChunks];
       w.dirtyChunks.clear();
-      for (const ci of list) if (this.chunks.has(ci)) this.pending.push(ci);
+      this.editRev = (this.editRev | 0) + 1;
+      for (const ci of list) { const ch = this.chunks.get(ci); if (ch) { ch.casc = true; this.pending.push(ci); } else this.farEdit(ci); }
     }
     // missing chunks
     if (this.lastHx !== hx || this.lastHy !== hy || this.lastHz !== hz || this.q !== this.lastQ) {
@@ -363,7 +415,22 @@ export class Renderer {
         const res = this.scanChunk(ch.cx, ch.cy, ch.cz, ch.deep);
         ch.n = res.n; ch.data = res.data; ch.cold = false;
         this.instDirty = true;
+        // an edit changes the light of the chunks round it as far as a hole spills (6 cells), which is further than the two cell border markDirty re-meshes:
+        // an edited chunk with a hole in reach (or that just lost one) sends the chunks next to it round again, once. Up and down it sends every level: opening or capping
+        // the mouth of a shaft (or raising its rim) changes the light at its foot however many chunk levels lower that lies (the column tops decide the hole and its strength)
+        if (ch.casc) {
+          ch.casc = false;
+          if (res.hole || ch.hole) for (let ny = 0; ny < CY; ny++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && ny === ch.cy && !dz) continue;
+            const nx = ch.cx + dx, nz = ch.cz + dz;
+            if (nx < 0 || ny < 0 || nz < 0 || nx >= CX || ny >= CY || nz >= CZ) continue;
+            const ni = (ny * CZ + nz) * CX + nx;
+            if (this.chunks.has(ni)) (this.spill || (this.spill = [])).push(ni);
+          }
+        }
+        ch.hole = !!res.hole;
       }
+      if (this.spill && this.spill.length) { for (const ni of this.spill) this.pending.push(ni); this.spill.length = 0; }
     }
   }
 
@@ -422,7 +489,7 @@ export class Renderer {
     const ca = m.instanceColor.array;
     ca[n * 3] = col[0] * shade; ca[n * 3 + 1] = col[1] * shade; ca[n * 3 + 2] = col[2] * shade;
     const aa = m.geometry.attributes.aData.array;
-    aa[n * 4] = ao; aa[n * 4 + 1] = sky; aa[n * 4 + 2] = flag; aa[n * 4 + 3] = ((vr * 37) & 255) / 255;
+    aa[n * 4] = ao; aa[n * 4 + 1] = sky; aa[n * 4 + 2] = flag; aa[n * 4 + 3] = Math.min(0.99, ((vr * 37) & 255) / 255) + (s0.pat && sp < SPECIAL_MIN ? s0.pat : 0);
   }
   endDynamic() { for (let a = 0; a < NA; a++) flush(this.dyn[a], this.dynCount[a]); }
 

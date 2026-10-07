@@ -9,7 +9,9 @@ export default async function (ctx) {
   const K = makeKit(ctx);
   const BAD = /undefined|NaN|\[object|null/;
   const rec = (id) => recipes(g).find((r) => r.id === id);
-  const card = (r) => [...document.querySelectorAll('#craftGrid .card')].find((c) => (c.querySelector('h3 span') || {}).textContent === `${r.icon} ${r.name}`);
+  // the bench: a card per row in #craftGrid and a detail pane (#benchDetail) with the row's text and craft buttons. card(r) selects the row and returns that pane (null when the row has no card).
+  const benchOpen = () => { try { localStorage.removeItem('rf.bench'); } catch (e) { /* no storage */ } g.ui.bench = null; g.ui.open('craft'); };
+  const card = (r) => { const c = [...document.querySelectorAll('#craftGrid .bcard')].find((x) => x.dataset.id === r.id); if (!c) return null; c.click(); return document.getElementById('benchDetail'); };
 
   await T('addons.craft.full-recipe-list-matches-the-item-table', async () => {
     fresh(ALL_UP);
@@ -39,7 +41,8 @@ export default async function (ctx) {
       const r = rec(id); if (!r) return 'no recipe';
       const isMat = r.kind === 'mat', isCart = r.kind === 'cart';
       // ---- the bench card shows the price it will charge
-      g.ui.open('craft'); const c0 = card(r); if (!c0) return 'no card on the crafting bench';
+      benchOpen(); const c0 = card(r); if (isMat) { return !c0 || 'raw building material still has a card on the bench'; }   // lumber is gone from the bench: frames are just bought
+      if (!c0) return 'no card on the crafting bench';
       const txt = c0.textContent; if (BAD.test(txt)) bad.push('card text has undefined/NaN');
       if (!txt.includes('How to use') || !txt.includes(r.use.slice(0, 20))) bad.push('card has no use text');
       const btn = c0.querySelector('button'); // the smallest batch (belts and building material only come in tens)
@@ -138,8 +141,8 @@ export default async function (ctx) {
 
   // ---------------------------------------------------------------- UI around crafting and the inventory
   await T('addons.ui.crafting-modal-lists-every-item-without-bad-text', async () => {
-    fresh(ALL_UP); S().money = 1e12; g.ui.open('craft'); const bad = [];
-    for (const r of recipes(g)) { const c = card(r); if (!c) { bad.push('no card ' + r.id); continue; } if (BAD.test(c.textContent)) bad.push('bad text ' + r.id); if (!c.querySelector('button')) bad.push('no button ' + r.id); if (!c.textContent.includes(r.desc.slice(0, 25))) bad.push('desc missing ' + r.id); }
+    fresh(ALL_UP); S().money = 1e12; benchOpen(); const bad = [];
+    for (const r of recipes(g).filter((x) => x.kind !== 'mat')) { const c = card(r); if (!c) { bad.push('no card ' + r.id); continue; } if (BAD.test(c.textContent)) bad.push('bad text ' + r.id); if (!c.querySelector('button')) bad.push('no button ' + r.id); if (!c.textContent.includes(r.desc.slice(0, 25))) bad.push('desc missing ' + r.id); }
     const all = document.getElementById('craftGrid').textContent; g.ui.closeModals();
     return bad.length ? bad.slice(0, 6).join('; ') : (!BAD.test(all) || 'bad text in the grid');
   });

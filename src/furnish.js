@@ -10,7 +10,7 @@
 // level, and catalog.js's V is only touched inside functions. upgrades.js and crafting.js are reached lazily (dynamic import below).
 import * as THREE from 'three';
 import { C, cellX, cellZ, toI, toJ, toK, idx } from './config.js';
-import { species, NEEDLE, RARITY } from './plushdata.js';
+import { species, NEEDLE, RARITY, speciesCount } from './plushdata.js';
 import { speciesIcon } from './icons.js';
 import { V } from './catalog.js';
 
@@ -913,7 +913,7 @@ function renderSign(g, e) {
   if (e.type === 'dsign') h += fld('Label', `<input id="fText" maxlength="16" value="${esc(e.text || '')}" style="flex:1;margin-left:12px;padding:6px 8px;border-radius:8px;background:rgba(0,0,0,0.35);color:var(--ink);border:1px solid var(--line)">`) + fld('Arrow', sel('fArrow', ARROWS.map((a, q) => [q, a]), e.arrow | 0));
   if (e.type === 'sign') {
     h += fld('Icon', sel('fIcon', Object.keys(ICONS).map((k) => [k, k === 'species' ? 'A plush species' : `${ICONS[k] || ''} ${k}`]), e.icon || 'none'));
-    const sp = Array.from({ length: species.length - 1 }, (_, q) => q + 1).filter((q) => g.S.dex && g.S.dex[q] !== undefined).sort((a, b) => spName(a).localeCompare(spName(b)));
+    const sp = Array.from({ length: speciesCount }, (_, q) => q + 1).filter((q) => g.S.dex && g.S.dex[q] !== undefined).sort((a, b) => spName(a).localeCompare(spName(b)));
     h += fld('Species (for the plush icon)', sel('fSp', [[0, 'none']].concat(sp.map((q) => [q, spName(q)])), e.sp | 0));
   }
   h += fld('Size', sel('fSize', [[1, '1 small'], [2, '2 medium'], [3, '3 large']], e.size || 1)) + fld('Colour', sel('fTone', Object.keys(TONES).map((k) => [k, k]), e.tone || 'green'));

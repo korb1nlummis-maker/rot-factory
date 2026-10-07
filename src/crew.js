@@ -5,6 +5,7 @@ import { compaction, clamp } from './util.js';
 import { NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { DX, DZ, CHARGE_RATE, CHARGER_RANGE } from './logistics.js';
 import { CART_CAP } from './cart.js';
+import * as BINS from './bins.js';   // which bin a bot unloads at (its own, the one its cart is bound for, or the SORT bin)
 
 const NAMES = ['Pip', 'Bolt', 'Nub', 'Clank', 'Sprocket', 'Widget', 'Doodle', 'Tinker', 'Gizmo', 'Rivet', 'Dot', 'Fidget', 'Cog', 'Bleep'];
 const COLORS = [0xd9a21c, 0xc9742b, 0x7fa6b8, 0x93b85d, 0xb87aa4, 0xd4c13a];
@@ -75,14 +76,28 @@ export class Crew {
 
   clear() { for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); } this.objs.clear(); this.connCache.clear(); }
 
-  home() { return { x: this.game.hall.binPos.x, z: this.game.hall.binPos.z + 1.6 }; }
+  // where a bot unloads: a spot just south of its bin. No bot (or Auto) is the SORT bin, as it has always been; a bot with a bin of its own that works uses that one.
+  home(b) {
+    const hp = this.game.hall.binPos;
+    if (!b) return { x: hp.x, z: hp.z + BINS.UNLOAD_OFFSET, id: BINS.HALL, name: BINS.HALL_NAME };
+    const r = BINS.botBin(this.game, b);
+    return { x: r.bin.x, z: r.bin.z + BINS.UNLOAD_OFFSET, id: r.bin.id, name: r.bin.name };
+  }
+  // can the bot walk this path (from where it stands) on the battery it has left? (a walking bot spends 0.004 per second, slower on a bigger battery)
+  canReach(b, path) {
+    let len = 0, px = b.x, pz = b.z;
+    for (const [x, z] of path) { len += Math.hypot(x - px, z - pz); px = x; pz = z; }
+    const spd = 1.5 + b.level * 0.06, need = (len / spd) * 0.004 / this.game.T.crewBattery;
+    return b.battery - need >= 0.02;
+  }
 
-  // make sure the crew matches the number of slots the player owns
+  // The Scrapper Bot upgrade hatches the first bot. More Scrappers and the Bot Foundry only add bunks (T.crewMax is the bunk count):
+  // the bots that fill them are crafted at the Crafting Table (crafting.js, the Robots tab), so the crew never outgrows the bunks.
   sync() {
     const g = this.game;
     const S = g.S, T = g.T;
     S.crew = S.crew || [];
-    if (!g.isGuest()) while (S.crew.length < T.crewMax) this.spawn();
+    if (!g.isGuest()) while (S.crew.length < Math.min(1, T.crewMax)) this.spawn();
     for (const [id, o] of [...this.objs]) if (!S.crew.some((b) => b.id === id)) { g.machines.disposeObj(o); this.root.remove(o); this.objs.delete(id); }
     for (const b of S.crew) { delete b.arm; delete b.aim; delete b.advTo; if (b.state === 'advance') b.state = 'farm'; if (!this.objs.has(b.id)) this.build(b); }
   }
@@ -163,10 +178,17 @@ export class Crew {
   }
 
   goHome(b) {
-    const h = this.home();
-    const path = [...b.trail.slice().reverse()];
-    if (b.origin) path.push(b.origin);
-    path.push([h.x, h.z]);
+    b.hallTrip = false;   // (a trip to the SORT bin that was never finished must not stand for the next one: the battery is asked again below)
+    let h = this.home(b);
+    const way = () => { const p = [...b.trail.slice().reverse()]; if (b.origin) p.push(b.origin); p.push([h.x, h.z]); return p; };
+    let path = way();
+    // a bin of its own that the battery cannot reach: a charger first (like any bot that runs low), else the SORT bin for this trip
+    if (h.id !== BINS.HALL && !this.canReach(b, path)) {
+      const cs = this.chargerFor(b);
+      if (cs && b.chgNext !== 'home') { BINS.fallback(this.game, { k: 'bot', o: b }, 'battery', h.name); this.startCharge(b, cs, 'home'); return; }
+      BINS.fallback(this.game, { k: 'bot', o: b }, 'range', h.name);
+      b.hallTrip = true; h = this.home(b); path = way();
+    }
     b.path = path; b.pi = 0; b.state = 'return';
   }
 
@@ -230,7 +252,7 @@ export class Crew {
   endCharge(b) {
     b.chg = null;
     const next = b.chgNext; b.chgNext = null;
-    if (next === 'home') { const h = this.home(); b.path = this.routePath(b, h.x, h.z); b.pi = 0; b.state = 'return'; }
+    if (next === 'home') { const h = this.home(b); b.path = this.routePath(b, h.x, h.z); b.pi = 0; b.state = 'return'; }
     else if (next === 'deliver' && this.startDeliver(b)) { /* walking on */ }
     else if (next === 'follow') b.state = 'follow';
     else if (next === 'dig' || next === 'deliver') { if (b.origin) this.resumeDig(b); else b.state = 'idle'; }
@@ -269,7 +291,7 @@ export class Crew {
   }
   // back from the bin: unloaded. Too weak to work means a station or the bin's trickle, else back to the dig
   afterUnload(b) {
-    b.cleared = false;
+    b.cleared = false; b.hallTrip = false; b.haulDest = 0;
     if (b.battery < LOW_BATTERY) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs, b.origin ? 'dig' : 'idle'); else this.enterLowbat(b); return; }
     if (b.origin) { b.path = [b.origin, ...b.trail]; b.pi = 0; b.state = 'goto'; } else b.state = 'idle';
   }
@@ -316,7 +338,7 @@ export class Crew {
   // done handing over: what the drop-off would not take goes to the bin, otherwise back to work
   endDeliver(b) {
     b.stall = 0;
-    if (b.carry.length) { const h = this.home(); b.path = this.routePath(b, h.x, h.z); b.pi = 0; b.state = 'return'; b.scanned = false; return; }
+    if (b.carry.length) { const h = this.home(b); b.path = this.routePath(b, h.x, h.z); b.pi = 0; b.state = 'return'; b.scanned = false; return; }
     if (b.origin) this.resumeDig(b); else b.state = 'idle';
   }
 
@@ -365,7 +387,13 @@ export class Crew {
       if (!f) return no(`Nothing to dig ${w} of that spot`);
       return { act: 'dig', ok: true, dir: tgt.dir, text: `Dig ${w} from that spot`, toast: `Digging ${w}.` };
     }
-    if (tgt.k === 'bin') return { act: 'home', ok: true, text: 'Go home and unload', toast: 'Heading home.' };
+    if (tgt.k === 'bin') {   // the SORT bin ({ k: 'bin' } with no id, as it always was) or a Depot Beacon ({ k: 'bin', id })
+      const id = tgt.id === undefined ? BINS.HALL : tgt.id, bin = BINS.binById(g, id), cur = b.dest | 0;
+      if (!bin) return no('That bin is gone');
+      if (id === BINS.HALL && !cur) return { act: 'home', ok: true, text: 'Go home and unload', toast: 'Heading home.' };
+      if (cur === id) return { act: 'home', ok: true, text: `Go and unload at ${bin.name}`, toast: `Heading to ${bin.name}.` };
+      return { act: 'binto', ok: true, bin: id, text: `Unload at ${bin.name} from now on${BINS.usable(bin) ? '' : ' (no power there yet: Auto until it has)'}`, toast: `Unloading at ${bin.name} from now on.` };
+    }
     if (tgt.k === 'feet') return { act: 'follow', ok: true, text: 'Follow you', toast: 'Following you.' };
     if (tgt.k === 'cart') {
       const c = g.myCart();   // the guest ordering a haul means the guest's cart
@@ -388,6 +416,7 @@ export class Crew {
       case 'deliver': b.deliver = it.tile.id; if (b.carry.length && ['idle', 'follow', 'return'].includes(b.state)) this.startDeliver(b); break;
       case 'dig': ran = this.order(b, it.dir, tgt.x, tgt.y, tgt.z); break;
       case 'home': this.sendHome(b); break;
+      case 'binto': b.dest = it.bin; b.haulDest = 0; b.hallTrip = false; if (b.carry.length && ['idle', 'follow', 'return', 'unload'].includes(b.state)) this.sendHome(b); break;   // a bot at work finishes its load first: the new bin is where its next trip goes
       case 'follow': this.follow(b); break;
       case 'haul': b.state = 'haulgo'; b.haulKey = g.myCartKey(); b.origin = null; b.trail = []; break;
     }
@@ -399,14 +428,14 @@ export class Crew {
   // one plain sentence about what a bot is doing right now (the crew panel and the tests read it)
   statusLine(b) {
     const g = this.game, pct = Math.round(b.battery * 100), dir = DIRNAME[b.dir || 0].toLowerCase();
-    const dt = b.deliver ? g.logi.byId.get(b.deliver) : null;
+    const dt = b.deliver ? g.logi.byId.get(b.deliver) : null, bd = BINS.resolve(g, b.dest), hn = bd.bin && bd.bin.id !== BINS.HALL ? bd.bin.name : 'the bin';
     const dn = dt ? { gen: 'the Generator', sorter: 'the Sorting Box', vault: 'the Vault Crate', belt: 'a belt' }[dt.type] || 'its drop-off' : '';
     let base;
     switch (b.state) {
       case 'farm': case 'advance': base = `Digging ${dir}, ${b.adv || 0} cells in`; break;
       case 'goto': base = `Heading out to dig ${dir}`; break;
-      case 'return': base = 'Hauling plush back to the bin'; break;
-      case 'unload': base = 'Unloading at the bin'; break;
+      case 'return': base = `Hauling plush back to ${hn}`; break;
+      case 'unload': base = `Unloading at ${hn}`; break;
       case 'haulgo': base = 'Fetching your cart load'; break;
       case 'follow': base = 'Following you'; break;
       case 'idle': base = 'Waiting at the bin'; break;
@@ -419,7 +448,7 @@ export class Crew {
       default: base = STATUS[b.state] || b.state;
     }
     if (dn && b.state !== 'dwalk' && b.state !== 'dgive') base += `, drop-off ${dn}`;
-    return `${base}, battery ${pct}%, carrying ${b.carry.length} plush`;
+    return `${base}, battery ${pct}%, carrying ${b.carry.length} plush${b.dest && b.state !== 'return' && b.state !== 'unload' ? `, unloads at ${BINS.destText(g, { k: 'bot', o: b })}` : ''}`;   // (hauling back and unloading already name the bin)
   }
 
   // a ring on the floor and an arrow over the selected bot
@@ -497,8 +526,8 @@ export class Crew {
       const cap = CART_CAP[c.tier];
       if (!c.hauling && c.load.length < cap * 0.9) continue; // a full cart starts a haul, bots then keep hauling until it is empty
       c.hauling = true;
-      const h = this.home();
-      if (Math.hypot(c.x - h.x, c.z - h.z) < 14) continue; // near the bin the cart dumps itself
+      const hp = BINS.pickHall(g, c.dest).bin;   // the bin the cart is bound for (the SORT bin on Auto)
+      if (Math.hypot(c.x - hp.x, c.z - (hp.z + BINS.UNLOAD_OFFSET)) < 14) continue; // near the bin the cart dumps itself
       const busy = this.bots.some((b) => b.state === 'haulgo' && (b.haulKey || 'cart') === key);
       if (busy) continue;
       let best = null, bd = 60;
@@ -527,13 +556,14 @@ export class Crew {
 
   think(b, dt, time, o) {
     const g = this.game, T = g.T, pp = g.player.pos;
-    const h = this.home();
+    const h = this.home(b), hh = this.home();   // h: where this bot unloads; hh: the SORT bin, where bots wait, loiter and trickle charge
     b.battery = clamp(b.battery, 0, 1);
     switch (b.state) {
       case 'haulgo': {
         const c = g.S[b.haulKey || 'cart'];
         if (!c || !c.load.length) { this.stand(b); break; }
         b.tx = c.x; b.tz = c.z;
+        if (c.dest) b.haulDest = c.dest;   // a cart bound for a bin takes its load there, whatever bin the bot itself unloads at
         if (Math.hypot(c.x - b.x, c.z - b.z) < 1.7) {
           const take = Math.min(this.capacity(b), c.load.length);
           for (let n = 0; n < take; n++) b.carry.push(c.load.pop());
@@ -553,8 +583,8 @@ export class Crew {
       }
       case 'idle': {
         // loiter around the bin
-        b.tx = h.x + Math.sin(time * 0.3 + b.id) * 2.0; b.tz = h.z + Math.cos(time * 0.27 + b.id * 1.7) * 1.6;
-        this.charge(b, dt, h);
+        b.tx = hh.x + Math.sin(time * 0.3 + b.id) * 2.0; b.tz = hh.z + Math.cos(time * 0.27 + b.id * 1.7) * 1.6;
+        this.charge(b, dt, hh);
         break;
       }
       case 'follow': {
@@ -589,19 +619,20 @@ export class Crew {
       }
       case 'unload': {
         b.tx = h.x; b.tz = h.z;
+        if (Math.hypot(b.x - h.x, b.z - h.z) > 5) { b.state = 'return'; b.path = [[h.x, h.z]]; b.pi = 0; break; }   // nothing is sold from afar (a bot whose bin changed under it, or that was set down far away, walks there first)
         // nothing is sold before it has been scanned at a detector gate (when one exists)
         if (!b.cleared && b.carry.length && g.logi.bestGate(b.x, b.z, h.x, h.z)) { b.state = 'return'; b.path = []; b.pi = 0; b.scanned = false; break; }
         b.timer -= dt;
         if (b.timer <= 0) {
           b.timer = 0.12;
           const it = b.carry.shift();
-          if (it) { g.sellAuto(it.sp, it.vr, 1); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.3 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(1.5 + Math.random() * 0.5); }
+          if (it) { g.sellAuto(it.sp, it.vr, 1, h.id); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.3 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(1.5 + Math.random() * 0.5); }
           else this.afterUnload(b);
         }
         break;
       }
       case 'charge': this.afterUnload(b); break;   // an older save: the bin no longer charges fast
-      case 'lowbat': this.thinkLowbat(b, dt, time, h); break;
+      case 'lowbat': this.thinkLowbat(b, dt, time, hh); break;
       case 'recharge': this.thinkRecharge(b, dt); break;
       case 'dgive': this.thinkDeliver(b, dt); break;
       case 'farm': case 'advance': this.thinkFarm(b, dt, time); break;
@@ -649,7 +680,8 @@ export class Crew {
   }
 
   beam(b) {
-    const g = this.game, h = this.home();
+    const g = this.game, h = this.home();   // (phased back to the SORT bin: it unloads there this trip, whatever bin it has)
+    b.hallTrip = true;
     g.fx.sparkle(b.x, b.y + 0.4, b.z, 16, 0.5, 0.9, 1);
     b.x = h.x; b.z = h.z; b.y = 0.6; b.vy = 0; b.stuckT = 0;
     // phased to base, but still goes through the gate before anything is sold

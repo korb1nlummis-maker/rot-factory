@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // cavein.*: the roof rules for the two tunnel classes (Wave 6 tuning). The tunnel rule in world.js (a tunnel stands as long as no stretch runs further than the safe length from an
 // anchor, the safe length shrinks with the pile above and the distance from the bay, grows with Pile Tamping) must give the same safe length at every width, so a 4 wide cube tunnel
 // and a 12 wide giant arch tunnel both stay open when they are lined at the spacing their supports cover, and both really cave in when the supports are skipped.
@@ -52,7 +53,7 @@ export default async function (ctx) {
   await T('cavein.a-wide-hall-is-judged-by-the-distance-to-its-anchors-not-by-how-many-cells-it-has', async () => {
     await world({ ...UP, tamp: 8 }); const bad = [];
     // a hall 40 cells (24 m) wide with a bulkhead wall across it 20 cells in: the roof 20 cells past the wall is 19 from an anchor and the limit is 27, so it stands
-    const b = bore(40, 5, { rows: 30, len: 60, queue: false }); for (let k = b.lo; k < b.lo + 40; k++) for (let j = 0; j < 5; j++) w().setCell(b.i0 + 20, j, k, 4098, 0);
+    const b = bore(40, 5, { rows: 30, len: 60, queue: false }); for (let k = b.lo; k < b.lo + 40; k++) for (let j = 0; j < 5; j++) w().setCell(b.i0 + 20, j, k, PD.BULK, 0);
     const probe = (a) => w().stress(b.i0 + a, 5, b.lo + 20);
     const near = probe(28), far = probe(40); if (!near || !far) return 'no roof cell';
     if (!(near.d === 7 && near.margin >= 0)) bad.push(`8 cells past the wall: distance ${near.d} margin ${near.margin}`);

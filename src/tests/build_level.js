@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // build.level-*: the Leveling Pad machine. It digs out a box of plush in front of it and lays pads (pays for them), one 4 x 4 slot at a time, from a pole or generator in reach.
 import { makeShell } from './build_lib.js';
 import { DEMAND } from '../power.js';
@@ -27,7 +28,7 @@ export default async function (ctx) {
     adv(2); const dug2 = cells.filter(([ci, cj, ck]) => w().get(ci, cj, ck) === 0).length; if (!(dug2 > 0 && dug2 < cells.length) || E.st !== 'dig') bad.push(`after 2 s: state ${E.st}, dug ${plush - cells.filter(([ci, cj, ck]) => w().get(ci, cj, ck)).length} of ${plush}`);
     // at most 8 cells a second at full power
     const dugNow = plush - cells.filter(([ci, cj, ck]) => w().get(ci, cj, ck)).length; if (dugNow > 8 * 2.4) bad.push('dug faster than the rate: ' + dugNow + ' in 2 s');
-    adv(12); const left = cells.filter(([ci, cj, ck]) => { const s = w().get(ci, cj, ck); return s && s !== 4095; }).length; if (left) bad.push(left + ' plush left in the box');
+    adv(12); const left = cells.filter(([ci, cj, ck]) => { const s = w().get(ci, cj, ck); return s && s !== PD.PAD; }).length; if (left) bad.push(left + ' plush left in the box');
     const pads = S().entities.filter((e) => e.type === 'pad'); if (pads.length !== 1) bad.push('pads laid: ' + pads.length); else if (pads[0].i0 !== slot.i0 || pads[0].k0 !== slot.k0 || pads[0].j !== slot.j || pads[0].grp !== E.grp) bad.push('pad at the wrong place or group: ' + JSON.stringify(pads[0]));
     if (pads[0] && !K.solidCells(pads[0])) bad.push('the pad has no cells');
     if (E.st !== 'done' || E.on !== false) bad.push('state ' + E.st + ' on ' + E.on);
@@ -54,11 +55,11 @@ export default async function (ctx) {
     if (B.levelSlots(E).length !== 4) bad.push('size 2 has ' + B.levelSlots(E).length + ' slots');
     // slot 0: The One in the way. slot 1: a bulkhead. slot 2: a belt on the floor. slot 3 is clear.
     const s0 = slotCells(E, 0), s1 = slotCells(E, 1), s2 = slotCells(E, 2);
-    w().setCell(s0.slot.i0 + 1, 2, s0.slot.k0 + 1, NEEDLE, 0); w().setCell(s1.slot.i0 + 2, 1, s1.slot.k0 + 2, 4098, 0);
+    w().setCell(s0.slot.i0 + 1, 2, s0.slot.k0 + 1, NEEDLE, 0); w().setCell(s1.slot.i0 + 2, 1, s1.slot.k0 + 2, PD.BULK, 0);
     const bt = { id: g.nextId(), type: 'belt', i: s2.slot.i0 + 1, j: 0, k: s2.slot.k0 + 1, dir: 0, rise: 0, items: [] }; S().entities.push(bt); g.addEntity(bt);
     adv(8);
     if (w().get(s0.slot.i0 + 1, 2, s0.slot.k0 + 1) !== NEEDLE) bad.push('The One was dug up'); if (S().needleLost) bad.push('The One was lost');
-    if (w().get(s1.slot.i0 + 2, 1, s1.slot.k0 + 2) !== 4098) bad.push('the bulkhead was removed');
+    if (w().get(s1.slot.i0 + 2, 1, s1.slot.k0 + 2) !== PD.BULK) bad.push('the bulkhead was removed');
     const pads = S().entities.filter((e) => e.type === 'pad'); if (pads.length !== 1) bad.push('expected one pad (the clear slot), got ' + pads.length); else if (pads[0].i0 !== B.levelSlots(E)[3].i0 || pads[0].k0 !== B.levelSlots(E)[3].k0) bad.push('the pad is not in slot 3');
     if (E.skip !== 3 || E.laid !== 1) bad.push(`skipped ${E.skip} laid ${E.laid}`); if (E.st !== 'done') bad.push('state ' + E.st);
     w().setCell(s0.slot.i0 + 1, 2, s0.slot.k0 + 1, 0, 0); w().setCell(s1.slot.i0 + 2, 1, s1.slot.k0 + 2, 0, 0); L().remove(bt); S().entities = S().entities.filter((x) => x.id !== bt.id);

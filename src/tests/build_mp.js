@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // mp.build.*: the build shell in multiplayer with no network. One page plays both roles by switching g.net.role and capturing g.netSend.
 // The host owns every piece: it places them, sets the world cells and announces ents (ent+) and cells; a guest only draws what it is told and asks with `place`, `decon` and `cfg`.
 import { makeShell } from './build_lib.js';
@@ -119,7 +120,7 @@ export default async function (ctx) {
     craft('wall', 1); K.equip('wall'); K.aim(pads[0].i0 + 1, pads[0].k0, { y: 0.6, back: 3.2 }); const wp = await plan(); if (!wp.ok) return 'wall: ' + wp.why; g.placeCurrent(g.curTool()); const W = S().entities.find((e) => e.type === 'wall');
     const [wi, wj, wk] = B.cellsOf(W)[5];
     // a guest asking for the hand take (the `bulk` command) of a wall panel gets nothing
-    sent.length = 0; g.netMessage({ t: 'cmd', c: 'bulk', d: { i: wi, j: wj, k: wk } }); if (w().get(wi, wj, wk) !== 4098 || S().items.bulk) bad.push('a guest took a wall panel by hand');
+    sent.length = 0; g.netMessage({ t: 'cmd', c: 'bulk', d: { i: wi, j: wj, k: wk } }); if (w().get(wi, wj, wk) !== PD.BULK || S().items.bulk) bad.push('a guest took a wall panel by hand');
     // rails by cfg
     sent.length = 0; g.netMessage({ t: 'cmd', c: 'cfg', d: { id: pads[1].id, patch: { rail: 9 } } }); if (pads[1].rail !== 9 || !ofType('ent-').length || !ofType('ent+').length) bad.push('cfg rail: ' + pads[1].rail);
     sent.length = 0; g.netMessage({ t: 'cmd', c: 'cfg', d: { id: pads[1].id, patch: { rail: 99 } } }); if (pads[1].rail !== 9 || !ofType('toast').length) bad.push('a bad rail patch changed the pad or did not toast');

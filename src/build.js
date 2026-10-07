@@ -26,6 +26,8 @@ export const LEVEL_KW = 15;
 export const LEVEL_RATE = 8;                // cells dug per second at full power
 
 export const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];
+// hooks the stacked building module (stack.js, wave 10) installs: plates, stairs and ladders that snap into the cubes (build.js imports nothing of it, so the cycle stays open)
+export const hooks = {};
 export const PAD_N = 4;                      // a pad is 4 x 4 cells (2.4 m)
 export const PAD_CLEAR = 4;                  // empty cells above a pad
 export const CAT_LEN = 4, CAT_CLEAR = 3;
@@ -80,17 +82,28 @@ export function spec(e) {
 }
 // the world cells a pad, catwalk or wall owns
 export function cellsOf(e) {
-  const s = spec(e), out = [];
-  for (let r = 0; r < s.rows; r++) for (let dz = 0; dz < s.nz; dz++) for (let dx = 0; dx < s.nx; dx++) out.push([e.i0 + dx, e.j + r, e.k0 + dz]);
+  const s = spec(e), out = [], op = e.type === 'pad' && e.op ? e.op | 0 : 0, od = e.od | 0;
+  for (let r = 0; r < s.rows; r++) for (let dz = 0; dz < s.nz; dz++) for (let dx = 0; dx < s.nx; dx++) { if (op && holeAt(op, od, dx, dz)) continue; out.push([e.i0 + dx, e.j + r, e.k0 + dz]); }
   return out;
+}
+// the openings of a plate in a cube (wave 10): 0 a full plate, 1 a landing (a 2 x 4 opening on one side, for a stair, a ramp or a belt ramp), 2 a shaft plate (a 2 x 2 opening in one corner, for a ladder or a belt lift).
+// (dx, dz) are the cell's place in the plate (0..3); od turns the opening a quarter at a time (0 is the +x side or the +x +z corner).
+export const OPENINGS = [{ key: 'full', name: 'Full plate', holes: 0 }, { key: 'landing', name: 'Landing', holes: 8 }, { key: 'shaft', name: 'Shaft plate', holes: 4 }];
+export function holeAt(op, od, dx, dz) {
+  let x = dx, z = dz;
+  for (let q = 0; q < ((4 - (od & 3)) & 3); q++) { const nx = 3 - z, nz = x; x = nx; z = nz; }   // turn the cell back to where the opening is at turn 0, one quarter per step
+  if (op === 1) return x >= 2;
+  if (op === 2) return x >= 2 && z >= 2;
+  return false;
 }
 export const cellVr = (e) => Math.max(0, KINDS.indexOf(e.mk)) | (e.type === 'catwalk' ? 16 : 0);
 
 function register(g, e) {
   const r = reg(g);
-  if (CELL_TYPES.has(e.type)) for (const [i, j, k] of cellsOf(e)) r.own.set(idx(i, j, k), e.id);
+  if (CELL_TYPES.has(e.type)) for (const [i, j, k] of cellsOf(e)) { if (e.type === 'pad' && e.bay !== undefined && g.world.get(i, j, k) === BULK) continue; r.own.set(idx(i, j, k), e.id); }   // a door frame already standing on the edge of a plate keeps its cells
   if (WALK_TYPES.has(e.type)) { const s = spec(e); for (let dz = 0; dz < s.nz; dz++) for (let dx = 0; dx < s.nx; dx++) { const key = colKey(e.i0 + dx, e.k0 + dz); let a = r.walk.get(key); if (!a) r.walk.set(key, a = []); if (!a.includes(e.id)) a.push(e.id); } }
 }
+export const reRegister = (g, e) => register(g, e);
 function unregister(g, e) {
   const r = reg(g);
   if (CELL_TYPES.has(e.type)) for (const [i, j, k] of cellsOf(e)) { const key = idx(i, j, k); if (r.own.get(key) === e.id) r.own.delete(key); }
@@ -126,7 +139,7 @@ function overlapRect(ax, az, ay, aw, ad, bx, bz, by, bw, bd) {
 export function volumeOf(p) {
   const s = spec(p);
   let own = 1, top;
-  if (p.type === 'pad') { own = 1; top = 1 + PAD_CLEAR; }
+  if (p.type === 'pad') { own = 1; top = p.ro === 'f' ? 4 : p.ro === 'c' ? 1 : 1 + PAD_CLEAR; }   // a plate in a cube (wave 10): a floor plate has the 3 cells of the level above it, a ceiling plate nothing to clear
   else if (p.type === 'catwalk') { own = 1; top = 1 + CAT_CLEAR; }
   else if (p.type === 'wall') { own = 4; top = 4; }
   else if (WALK_TYPES.has(p.type)) { own = p.rise; top = p.rise + 3; }
@@ -139,11 +152,12 @@ export function checkPiece(g, p, o = {}) {
   const w = g.world, v = volumeOf(p);
   if (!int(p.i0, 0, NX - 1) || !int(p.k0, 0, NZ - 1) || !int(p.j, 0, NY - 1)) return 'Out of the hall';
   if (p.i0 + v.nx > NX || p.k0 + v.nz > NZ || p.j + v.top > NY) return 'Out of the hall';
+  if (p.bay !== undefined && hooks.checkBay) { const why = hooks.checkBay(g, p, o); if (why) return why; }   // a piece that belongs to a cube (stack.js): the cube must be there, whole and not crowded
   let dig = 0, solidIn = false, ownSolid = false;
   for (let r = 0; r < v.top; r++) for (let dz = 0; dz < v.nz; dz++) for (let dx = 0; dx < v.nx; dx++) {
     const i = p.i0 + dx, j = p.j + r, k = p.k0 + dz, s = w.get(i, j, k);
     if (!s) continue;
-    if (isSpecialCell(s)) { solidIn = true; if (r < v.own) ownSolid = true; } else dig++;
+    if (isSpecialCell(s)) { if (p.type === 'wall' && p.bay !== undefined && s === PAD && hooks.ownPlateCell && hooks.ownPlateCell(g, p, i, j, k)) continue; if (p.type === 'pad' && p.bay !== undefined && s === BULK && hooks.ownWallCell && hooks.ownWallCell(g, p, i, j, k)) continue; solidIn = true; if (r < v.own) ownSolid = true; } else dig++;   // (a door frame in a cube takes the edge of the plate it stands on, stack.js)
   }
   if (solidIn) return ownSolid ? 'Something solid is already here' : 'Something solid is in the way above it';
   if (dig) {
@@ -153,6 +167,7 @@ export function checkPiece(g, p, o = {}) {
   // belts, machines and reserved cells in the piece's own rows (and the walking rows of a ramp or stair)
   const rowsBlocked = WALK_TYPES.has(p.type) ? v.top : v.own;
   for (let r = 0; r < rowsBlocked; r++) for (let dz = 0; dz < v.nz; dz++) for (let dx = 0; dx < v.nx; dx++) {
+    if (p.op && p.type === 'pad' && r < v.own && holeAt(p.op | 0, p.od | 0, dx, dz)) continue;   // the opening of a plate is where a stair or a ladder stands: nothing is built on those cells
     const key = idx(p.i0 + dx, p.j + r, p.k0 + dz);
     if (w.reserved.has(key) || g.logi.tiles.has(key)) return 'Something is in the way (a belt or machine)';
   }
@@ -164,6 +179,7 @@ export function checkPiece(g, p, o = {}) {
   for (const it of g.machines.items.values()) {
     const e = it.ent; if (isBuildType(e.type) || e === o.self) continue;
     if (e.type === 'frame') {
+      if (p.bay !== undefined && !e.turned && e.gm !== undefined) continue;   // a piece built into a cube stands in the open section of the grid cubes of its column (the cell checks above keep plush and machines out)
       const fy0 = e.y0, fy1 = e.y0 + (e.h || 2.4);
       if (fy0 >= yt - 0.05 || fy1 <= yb + 0.05) continue;
       const fyaw = e.yaw !== undefined ? e.yaw : e.axis === 'x' ? Math.PI / 2 : 0;
@@ -175,11 +191,16 @@ export function checkPiece(g, p, o = {}) {
     if (ex > x0 - 0.15 && ex < x1 + 0.15 && ez > z0 - 0.15 && ez < z1 + 0.15 && ey >= yb - 0.12 && ey < yt - 0.05) return 'A machine stands here';
   }
   // you cannot build into yourself, or into your friend (the host knows where a guest stands from its position messages)
-  if (!o.skipPlayer) for (const pp of peopleAt(g)) { if (pp.x > x0 - 0.3 && pp.x < x1 + 0.3 && pp.z > z0 - 0.3 && pp.z < z1 + 0.3 && pp.y < yt - 0.02 && pp.y + 1.7 > yb) return 'Step out of the way first'; }
+  if (!o.skipPlayer) for (const pp of peopleAt(g)) {
+    if (!(pp.x > x0 - 0.3 && pp.x < x1 + 0.3 && pp.z > z0 - 0.3 && pp.z < z1 + 0.3 && pp.y < yt - 0.02 && pp.y + 1.7 > yb)) continue;
+    if (p.type === 'pad' && p.ro === 'f' && pp.y < yb + 0.25) continue;   // a floor plate laid under your own feet lifts you onto it (stack.js liftOnto)
+    return 'Step out of the way first';
+  }
   // support
   const below = (i, k) => w.solid(i, p.j - 1, k);
   let n = 0; for (let dz = 0; dz < v.nz; dz++) for (let dx = 0; dx < v.nx; dx++) if (below(p.i0 + dx, p.k0 + dz)) n++;
   const total = v.nx * v.nz;
+  if (p.bay !== undefined) return null;   // a plate, stair or ladder built into a cube hangs from the cube's frame: the cube is its support
   if (p.type === 'pad') { if (n < 8 && !(touchesLanding(g, p) || (n >= 1 && touchesPad(g, p)))) return 'No ground under this floor: it needs solid ground under at least half of it, or a pad or stair to rest on'; }
   else if (p.type === 'catwalk') { if (n < 1 && !(touchesPad(g, p) || touchesLanding(g, p))) return 'A catwalk must start from the ground, a pad or another catwalk'; }
   else if (p.type === 'wall') { if (n < 1 && !touchesWall(g, p)) return 'A wall stands on the ground, a pad or another wall'; }
@@ -315,6 +336,7 @@ function zoopPieces(g, mk, base, zd, n, wd, have, rd = (zd + 1) & 3) {
 // plans (one per tool kind). Each returns { plan: { ok, why, ent }, cost }
 // ======================================================================================================
 export function planPad(g, tool, eye, dir, yaw) {
+  if (hooks.planBayPad) { const r = hooks.planBayPad(g, tool, eye, dir, yaw); if (r) return r; }   // aiming into a cube with Stacked Building: a floor or ceiling plate that snaps to it (stack.js)
   const mk = kindFromId(tool.id, 'timber'), a = aimCells(g, eye, dir, g._bhold ? 18 : 6);   // while dragging, the crosshair may reach far along the floor
   if (!a) return bad('Aim at the floor or at a pad');
   const nudge = (g._bn || 0) & 3, sp = padSpot(g, a, nudge);
@@ -395,6 +417,7 @@ export function planCatwalk(g, tool, eye, dir, yaw) {
 }
 
 export function planWall(g, tool, eye, dir, yaw) {
+  if (hooks.planBayWall) { const r = hooks.planBayWall(g, tool, eye, dir, yaw); if (r) return r; }   // aiming into a cube: a door frame on its outer layer (stack.js)
   const a = aimCells(g, eye, dir); if (!a) return bad('Aim at the floor or the top of a pad');
   const z = zoopOf(g), n = Math.min(ZOOP_LINE, z.n), have = Math.max(1, g.S.items[tool.id] || 0);
   let ax, start, j, snap = 'free';
@@ -431,6 +454,7 @@ export function planWall(g, tool, eye, dir, yaw) {
 
 // ramps and stairs: aim at the side of a pad (or a plate) and the piece climbs up to it; otherwise it starts at the floor you aim at and rises the way you face
 export function planSlope(g, tool, eye, dir, yaw) {
+  if ((tool.kind === 'stair' || (tool.kind === 'wramp' && tool.id === 'wramp')) && hooks.planBayStair) { const r = hooks.planBayStair(g, tool, eye, dir, yaw); if (r) return r; }   // aiming into a cube: a switchback stair (or ramp) of two flights (stack.js)
   const sh = SHAPE[tool.id] || SHAPE[tool.kind]; if (!sh) return bad('Unknown piece');
   const type = tool.kind, a = aimCells(g, eye, dir);
   if (!a) return bad('Aim at the floor, or at the side of a pad to climb to it');
@@ -484,13 +508,18 @@ export function previewPieces(g, tool, plan) {
   if (!plan || !plan.ent) { mc.setGhost(null); return; }
   const e = plan.ent, ok = plan.ok;
   if (e.type === 'wramp' || e.type === 'stair') {
-    const key = `b${e.type}${ok}${e.i0},${e.k0},${e.j},${e.dir}${e.w}${e.len}`;
+    const flights = e.mod === 'u' && hooks.moduleFlights ? hooks.moduleFlights(g, e) : [e];   // a switchback stair of a cube shows both flights
+    const key = `b${e.type}${ok}${flights.map((f) => `${f.i0},${f.k0},${f.j},${f.dir}${f.w}${f.len}`).join('|')}`;
     if (mc.ghostKey !== key) {
-      const wedge = M.ghostWedge(e, ok), grp = new THREE.Group(); grp.add(wedge);
-      const s = spec(e), x0 = xMin(e.i0), z0 = zMin(e.k0), xc = x0 + s.nx * C / 2, zc = z0 + s.nz * C / 2;
-      const px = e.dir === 0 ? x0 : e.dir === 2 ? x0 + s.nx * C : xc, pz = e.dir === 1 ? z0 : e.dir === 3 ? z0 + s.nz * C : zc;
-      grp.position.set(px, e.j * C, pz); grp.rotation.y = M.yawOf(e.dir);
-      mc.setGhost(grp, key);
+      const all = new THREE.Group();
+      for (const f of flights) {
+        const wedge = M.ghostWedge(f, ok), grp = new THREE.Group(); grp.add(wedge);
+        const s = spec(f), x0 = xMin(f.i0), z0 = zMin(f.k0), xc = x0 + s.nx * C / 2, zc = z0 + s.nz * C / 2;
+        const px = f.dir === 0 ? x0 : f.dir === 2 ? x0 + s.nx * C : xc, pz = f.dir === 1 ? z0 : f.dir === 3 ? z0 + s.nz * C : zc;
+        grp.position.set(px, f.j * C, pz); grp.rotation.y = M.yawOf(f.dir);
+        all.add(grp);
+      }
+      mc.setGhost(all, key);
     }
     return;
   }
@@ -505,9 +534,10 @@ export function previewPieces(g, tool, plan) {
   }
   // pads, catwalks, walls: one translucent box per piece (the first piece alone when the plan is refused)
   const list = e.zoop && e.zoop.length ? e.zoop : [[e.i0, e.k0]];
-  const key = `bp${e.type}${ok}${e.j}${e.ax || ''}|${list.map((q) => q.join(',')).join(';')}`;
+  const key = `bp${e.type}${ok}${e.j}${e.ax || ''}${e.op ? 'o' + e.op + ':' + (e.od | 0) : ''}|${list.map((q) => q.join(',')).join(';')}`;
   if (mc.ghostKey !== key) {
-    const boxes = list.map(([i0, k0]) => boxOf({ ...e, i0, k0 }));
+    // a plate with an opening (wave 10) is drawn without it: the ghost is one box per row of cells that will be laid
+    const boxes = e.op ? cellsOf({ ...e, i0: list[0][0], k0: list[0][1] }).map(([i, , k]) => ({ x0: xMin(i), x1: xMin(i) + C, z0: zMin(k), z1: zMin(k) + C, y0: e.j * C, y1: (e.j + 1) * C })) : list.map(([i0, k0]) => boxOf({ ...e, i0, k0 }));
     mc.setGhost(M.ghostBoxes(boxes, ok), key);
   }
 }
@@ -522,6 +552,7 @@ export function piecesFrom(g, type, rid, e) {
   if (type === 'levelpad') return null;
   const list = Array.isArray(e.zoop) && e.zoop.length ? e.zoop : [[e.i0, e.k0]];
   if (list.length > ZOOP_MAX) return null;
+  if ((type === 'pad' || type === 'stair' || type === 'wramp' || type === 'wall') && (e.bay !== undefined || e.op !== undefined) && hooks.bayPieces) return hooks.bayPieces(g, type, rid, e, list);   // a plate or a switchback stair built into a cube: the host rebuilds it from the cube it stands in, never from the numbers it was sent
   const out = [];
   for (const q of list) {
     if (!Array.isArray(q) || q.length !== 2 || !int(q[0], 0, NX - 1) || !int(q[1], 0, NZ - 1)) return null;
@@ -563,6 +594,7 @@ export function buildPieces(g, tool, e) {
   for (let q = 1; q < fields.length; q++) { const { type: t, ...rest } = fields[q]; g.placeEntity(t, rest, { quiet: true, rebuild: false }); }
   if (extra) g.S.stats.built = (g.S.stats.built || 0) + extra;
   S.stats.shellPieces = (S.stats.shellPieces || 0) + ok.length;   // achievement counter: every pad, catwalk, wall, ramp and stair set down by hand
+  if (hooks.counted) hooks.counted(g, ok);   // the pieces built into cubes: plates, switchback stairs, door frames (stack.js)
   const { type: _t, ...first } = fields[0];
   return { type, ...first };
 }
@@ -587,11 +619,12 @@ export function addBuild(machines, e) {
   if (CELL_TYPES.has(e.type)) {
     if (!e.view) {
       const sp = e.type === 'wall' ? BULK : PAD, vr = e.type === 'wall' ? 0 : cellVr(e);
-      for (const [i, j, k] of cellsOf(e)) if (w.get(i, j, k) !== sp) { w.setCell(i, j, k, sp, e.type === 'wall' ? (128 | ((i * 7 + j * 13 + k * 3) & 127)) : vr); w.stabQueue.push({ i, j, k }); }
+      for (const [i, j, k] of cellsOf(e)) if (w.get(i, j, k) !== sp && !(e.type === 'pad' && e.bay !== undefined && w.get(i, j, k) === BULK)) { w.setCell(i, j, k, sp, e.type === 'wall' ? (128 | ((i * 7 + j * 13 + k * 3) & 127)) : vr); w.stabQueue.push({ i, j, k }); }
     }
     obj.position.set(x0, e.y0, z0);
     const bits = e.type === 'wall' ? 0 : (e.rail | 0) & 15;
     if (bits) { const rg = M.railGroup(bits, L, W, C); rg.userData.rails = true; obj.add(rg); }
+    if (e.type === 'pad' && e.op && hooks.holeRails) obj.add(hooks.holeRails(e));   // guard rails round the opening of a plate in a cube (stack.js)
   } else {
     const o = e.type === 'stair' ? M.stairObject(e) : M.rampObject(e);
     const px = e.dir === 0 ? x0 : e.dir === 2 ? x0 + L : x0 + L / 2, pz = e.dir === 1 ? z0 : e.dir === 3 ? z0 + W : z0 + W / 2;
@@ -619,6 +652,7 @@ export function removeBuild(g, e) {
   if (CELL_TYPES.has(e.type)) {
     const sp = e.type === 'wall' ? BULK : PAD;
     for (const [i, j, k] of cellsOf(e)) if (w.get(i, j, k) === sp) { w.setCell(i, j, k, 0, 0); w.stabQueue.push({ i, j, k }); }
+    if (e.type === 'wall' && e.bay !== undefined && hooks.afterWall) { unregister(g, e); hooks.afterWall(g, e); return; }   // a door frame leaves the plate whole again
   } else if (WALK_TYPES.has(e.type)) {
     const s = spec(e); for (let r = 0; r < e.rise; r++) for (let dz = 0; dz < s.nz; dz++) for (let dx = 0; dx < s.nx; dx++) w.reserved.delete(idx(e.i0 + dx, e.j + r, e.k0 + dz));
   }
@@ -637,12 +671,12 @@ export function removeGroup(g, ref) {
 // what the hammer hands back
 export function nameOf(e) {
   const n = KIND_NAME[e.mk] || 'Timber';
-  return e.type === 'pad' ? `${n} Pad` : e.type === 'catwalk' ? `${n} Catwalk` : e.type === 'wall' ? 'Wall Section' : e.type === 'wramp' ? (e.len >= 3 ? `${n} Truck Ramp` : `${n} Ramp`) : e.type === 'stair' ? `${n} Stair` : e.type === 'levelpad' ? 'Leveling Pad' : e.type;
+  return e.type === 'pad' ? `${n} Pad` : e.type === 'catwalk' ? `${n} Catwalk` : e.type === 'wall' ? 'Wall Section' : e.type === 'wramp' ? (e.len >= 3 && e.w > 1 ? `${n} Truck Ramp` : `${n} Ramp`) : e.type === 'stair' ? `${n} Stair` : e.type === 'levelpad' ? 'Leveling Pad' : e.type;
 }
 export function itemOfBuild(e) {
   if (e.rid) return e.rid;
   if (e.type === 'pad') return 'pad:' + (kindOk(e.mk) ? e.mk : 'timber');
-  if (e.type === 'wramp') return e.len >= 3 ? 'wramp:haul' : 'wramp';
+  if (e.type === 'wramp') return e.len >= 3 && e.w > 1 ? 'wramp:haul' : 'wramp';
   return e.type;
 }
 
@@ -691,6 +725,20 @@ export const slopeOf = (e) => (e.rise || 0) / (e.len || 1);
 export const truckOk = (e) => slopeOf(e) <= TRUCK_SLOPE + 1e-9;
 
 const R_BODY = 0.3, SNAP_UP = 0.36;
+// the top of a floor cell (a pad or a plate) beside the stair or ramp you stand on, when it is higher than the tread by less than 0.2 m and your body overlaps its edge: that is a lip you step onto.
+// The collision alone cannot do it for a slow walker (crouching, or slowed by dust): it pushes up a hair, and the snap to the tread pulls the feet down again, so the last step of a stair onto the plate beside it stuck.
+function lipBeside(g, pl, sy) {
+  const w = g.world, ci = toI(pl.pos.x), ck = toK(pl.pos.z), j = Math.ceil((sy + 0.005) / C) - 1, top = (j + 1) * C;
+  if (j < 0 || top - sy > 0.2 || top - sy < 0.005) return 0;
+  let best = 0;
+  for (let dk = -1; dk <= 1; dk++) for (let di = -1; di <= 1; di++) {
+    if (!di && !dk) continue;
+    const i = ci + di, k = ck + dk; if (w.get(i, j, k) !== PAD || w.solid(i, j + 1, k) || w.solid(i, j + 2, k) || w.solid(i, j + 3, k)) continue;
+    const x0 = xMin(i), z0 = zMin(k), nx = Math.min(x0 + C, Math.max(x0, pl.pos.x)), nz = Math.min(z0 + C, Math.max(z0, pl.pos.z));
+    if (Math.hypot(pl.pos.x - nx, pl.pos.z - nz) <= R_BODY - 0.02) best = top;
+  }
+  return best;
+}
 // player.walk: called inside the player's step loop. Lifts the feet onto a slope under them, keeps the flanks solid. Returns true when standing on one.
 export function walkStep(g, pl) {
   const rg = reg(g); if (!rg.walk.size) return false;
@@ -703,7 +751,7 @@ export function walkStep(g, pl) {
       if (seen.has(id)) continue; seen.add(id);
       const e = entOf(g, id); if (!e) continue;
       const r = slopeAt(e, pl.pos.x, pl.pos.z); if (r.out > R_BODY) continue;
-      const feet = pl.pos.y, sy = r.sy;
+      const feet = pl.pos.y; let sy = r.sy;
       if (feet < sy - SNAP_UP) {
         // well below the surface: this is the flank (or the high end wall) of a wedge. Push out sideways, never through the low end.
         const s = spec(e), lowEdge = e.dir === 0 ? 'x0' : e.dir === 2 ? 'x1' : e.dir === 1 ? 'z0' : 'z1';
@@ -722,6 +770,7 @@ export function walkStep(g, pl) {
         continue;
       }
       if (r.out > 0) continue;    // beside the slope and above its edge: nothing to stand on
+      if (feet >= sy - 0.01) { const lip = lipBeside(g, pl, sy); if (lip > sy) sy = lip; }   // the plate beside the top of a stair
       if (feet <= sy + 0.1) {
         const lift = sy - feet;
         if (lift > 0.02) pl.stepOff -= lift;     // the camera eases up a stair tread instead of jumping
@@ -772,6 +821,7 @@ export function rotateKey(g, tool, shift) {
 }
 // - and =: shorten / lengthen the zoop (pads: a line up to 10, Shift for the width up to 5; the Leveling Pad uses the length as its size 1 to 3)
 export function zoopKey(g, tool, delta, shift) {
+  if (hooks.zoopKey && hooks.zoopKey(g, tool, delta, shift)) return true;   // aiming into a cube: - and = pick the opening of the plate
   if (!tool || !isShellTool(tool.kind) || tool.kind === 'wramp' || tool.kind === 'stair') return false;
   const z = zoopOf(g);
   if (shift && tool.kind === 'pad') z.w = Math.max(1, Math.min(ZOOP_SIDE, z.w + delta)); else z.n = Math.max(1, Math.min(tool.kind === 'levelpad' ? 3 : ZOOP_LINE, (tool.kind === 'levelpad' ? Math.min(3, z.n) : z.n) + delta));   // the Leveling Pad's size is 1 to 3: the number never runs past it, so - always moves
@@ -806,14 +856,15 @@ export function infoBuilt(g, e) {
   const name = KIND_NAME[e.mk] || 'Timber', mates = e.grp !== undefined ? allBuilt(g).filter((q) => q.grp === e.grp && q.type === e.type).length : 1;
   const grpLine = mates > 1 ? `Part of a group of ${mates}: Shift+X takes the whole group down` : null;
   const hammer = 'The hammer or X takes this piece down and gives it back';
+  const bayLines = hooks.infoPart ? hooks.infoPart(g, e) : [];
   if (e.type === 'pad') {
     const mount = padOnTop(g, e);
-    return { title: `${name.toUpperCase()} PAD (4 x 4)`, lit: true, lines: [`Solid floor, top at ${((e.j + 1) * C).toFixed(1)} m. Never falls, takes no roof load`, 'Holds belts, poles, frames and trucks', `Rails: ${railNames(e.rail)}. E toggles the edge you aim at`, mount, grpLine, hammer].filter(Boolean) };
+    return { title: `${name.toUpperCase()} ${e.bay !== undefined ? 'PLATE' : 'PAD'} (4 x 4)`, lit: true, lines: [...bayLines, `Solid floor, top at ${((e.j + 1) * C).toFixed(1)} m. Never falls, takes no roof load`, 'Holds belts, poles, frames and trucks', `Rails: ${railNames(e.rail)}. E toggles the edge you aim at`, mount, grpLine, hammer].filter(Boolean) };
   }
   if (e.type === 'catwalk') return { title: `${name.toUpperCase()} CATWALK (1 x 4)`, lit: true, lines: ['A thin deck: holds belts and poles, not trucks', `Rails: ${railNames(e.rail)}. E toggles the edge you aim at`, grpLine, hammer].filter(Boolean) };
-  if (e.type === 'wall') return { title: 'WALL (4 x 4)', lit: true, lines: ['Bulkhead panels: never fall, hold the pile back and anchor the roof beside them', grpLine, hammer].filter(Boolean) };
-  if (e.type === 'wramp') return { title: e.len >= 3 ? `${name.toUpperCase()} TRUCK RAMP` : `${name.toUpperCase()} RAMP`, lit: true, lines: [`Rises ${(e.rise * C).toFixed(1)} m over ${(e.len * C).toFixed(1)} m, ${e.w * C} m wide`, truckOk(e) ? 'Gentle enough for trucks' : 'Steep: fine on foot, too steep for trucks', hammer] };
-  if (e.type === 'stair') return { title: `${name.toUpperCase()} STAIR`, lit: true, lines: [`Rises ${(e.rise * C).toFixed(1)} m over ${(e.len * C).toFixed(1)} m in ${e.rise * 4} treads`, hammer] };
+  if (e.type === 'wall') return { title: e.bay !== undefined ? 'DOOR FRAME (4 x 4)' : 'WALL (4 x 4)', lit: true, lines: [...bayLines, 'Bulkhead panels: never fall, hold the pile back and anchor the roof beside them', grpLine, hammer].filter(Boolean) };
+  if (e.type === 'wramp') return { title: e.len >= 3 && e.w > 1 ? `${name.toUpperCase()} TRUCK RAMP` : `${name.toUpperCase()} RAMP`, lit: true, lines: [...bayLines, `Rises ${(e.rise * C).toFixed(1)} m over ${(e.len * C).toFixed(1)} m, ${e.w * C} m wide`, truckOk(e) ? 'Gentle enough for trucks' : 'Steep: fine on foot, too steep for trucks', grpLine, hammer].filter(Boolean) };
+  if (e.type === 'stair') return { title: `${name.toUpperCase()} STAIR`, lit: true, lines: [...bayLines, `Rises ${(e.rise * C).toFixed(1)} m over ${(e.len * C).toFixed(1)} m in ${e.rise * 4} treads`, grpLine, hammer].filter(Boolean) };
   return null;
 }
 const railNames = (b) => { const n = []; for (let q = 0; q < 4; q++) if (((b | 0) >> q) & 1) n.push(['east', 'south', 'west', 'north'][q]); return n.length ? n.join(', ') : 'none'; };

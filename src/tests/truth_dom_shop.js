@@ -124,14 +124,15 @@ export default async function (ctx) {
   });
 
   // ---------------------------------------------------------------- crafting bench
-  const benchCards = () => [...document.querySelectorAll('#craftGrid .card')];
-  const cardFor = (name) => benchCards().find((c) => norm(c.querySelector('h3 span').textContent).endsWith(name));
+  // the bench is a grid of cards (#craftGrid .bcard) and a detail pane (#benchDetail) holding the text and the craft buttons of the selected card: pickRow(id) selects a row and returns that pane
+  const benchOpen = () => { try { localStorage.removeItem('rf.bench'); } catch (e) { /* no storage */ } g.ui.bench = null; g.ui.open('craft'); };
+  const pickRow = (id) => { const c = [...document.querySelectorAll('#craftGrid .bcard')].find((x) => x.dataset.id === id); if (!c) return null; c.click(); return document.getElementById('benchDetail'); };
   await T('truth.dom.bench-every-batch-button-charges-its-label-and-gives-that-many', async () => {
     fresh(maxAll()); const bad = []; const recs = g.recipeList().filter((r) => r.kind !== 'cart');
     if (recs.length < 20) return `only ${recs.length} recipes with every upgrade bought`;
     for (const r of recs) {
       for (const n of new Set(r.batch)) {
-        fresh(maxAll()); S().money = 1e13; S().mats = {}; g.ui.open('craft'); let card = benchCards().find((c) => norm(c.querySelector('h3 span').textContent) === `${r.icon} ${r.name}`); if (!card) { bad.push(`${r.id}: no card`); closeAll(); continue; }
+        fresh(maxAll()); S().money = 1e13; S().mats = {}; benchOpen(); let card = pickRow(r.id); if (!card) { bad.push(`${r.id}: no card`); closeAll(); continue; }
         const btn = [...card.querySelectorAll('button')].find((b) => +b.dataset.n === n); const m = /^x(\d+) · ◈([\d,.]+\S*)$/.exec(norm(btn.textContent)); if (!m || +m[1] !== n) { bad.push(`${r.id}: batch button says "${norm(btn.textContent)}" for x${n}`); closeAll(); continue; }
         const stock = r.mat ? 0 : 0; void stock; const priceText = m[2]; const have0 = r.kind === 'mat' ? (S().mats[r.mk] || 0) : (S().items[r.id] || 0), money0 = S().money;
         btn.click(); const spent = money0 - S().money; const have1 = r.kind === 'mat' ? (S().mats[r.mk] || 0) : (S().items[r.id] || 0);
@@ -145,30 +146,30 @@ export default async function (ctx) {
   await T('truth.dom.bench-unaffordable-batches-are-disabled-and-charge-nothing', async () => {
     fresh(maxAll()); const bad = [];
     for (const r of g.recipeList().filter((x) => x.kind !== 'cart').slice(0, 40)) {
-      fresh(maxAll()); S().money = 0; S().mats = {}; g.ui.open('craft'); const card = benchCards().find((c) => norm(c.querySelector('h3 span').textContent) === `${r.icon} ${r.name}`); if (!card) continue;
+      fresh(maxAll()); S().money = 0; S().mats = {}; benchOpen(); const card = pickRow(r.id); if (!card) continue;
       for (const b of card.querySelectorAll('button')) { if (!b.disabled && !/x\d+ · ◈0$/.test(norm(b.textContent))) bad.push(`${r.id}: "${norm(b.textContent)}" enabled with no money`); b.click(); }
       if (S().money !== 0 || (S().items[r.id] || 0) !== 0) bad.push(`${r.id}: crafted with no money`); closeAll();
     }
     return bad.length === 0 || bad.slice(0, 5).join(' || ');
   });
   await T('truth.dom.bench-uses-your-stock-first-and-the-card-says-so', async () => {
-    fresh(maxAll()); const r = g.recipeList().find((x) => x.id === 'strut'); if (!r) return 'no strut recipe'; S().money = 1e9; S().mats = { timber: 10 }; g.ui.open('craft'); const card = cardFor(r.name);
+    fresh(maxAll()); const r = g.recipeList().find((x) => x.id === 'strut'); if (!r) return 'no strut recipe'; S().money = 1e9; S().mats = { timber: 10 }; benchOpen(); const card = pickRow(r.id);
     if (!/Uses 1 Lumber each \(you have 10\)/.test(norm(card.textContent))) { closeAll(); return 'card does not state the stock: ' + norm(card.textContent).slice(0, 160); }
     const b = [...card.querySelectorAll('button')].find((x) => +x.dataset.n === 5); const label = norm(b.textContent); const m0 = S().money; b.click();
     const ok = label === 'x5 · ◈0' && S().money === m0 && S().mats.timber === 5 && S().items.strut === 5; closeAll(); return ok || `label ${label}, money change ${m0 - S().money}, timber ${S().mats.timber}, struts ${S().items.strut}`;
   });
   await T('truth.dom.bench-partial-stock-is-used-and-only-the-shortfall-is-charged-as-the-label-says', async () => {
-    fresh(maxAll()); const r = g.recipeList().find((x) => x.id === 'strut'); S().money = 1e9; S().mats = { timber: 2 }; g.ui.open('craft'); const card = cardFor(r.name); const b = [...card.querySelectorAll('button')].find((x) => +x.dataset.n === 5);
+    fresh(maxAll()); const r = g.recipeList().find((x) => x.id === 'strut'); S().money = 1e9; S().mats = { timber: 2 }; benchOpen(); const card = pickRow(r.id); const b = [...card.querySelectorAll('button')].find((x) => +x.dataset.n === 5);
     const m = /◈([\d,.]+\S*)$/.exec(norm(b.textContent)); const m0 = S().money; b.click(); const spent = m0 - S().money; closeAll(); const expect = Math.round(3 * (r.price / r.matN));
     return (spent === expect && m && m[1] === fmt(spent) && S().items.strut === 5 && !S().mats.timber) || `label ${m && m[1]}, charged ${spent}, expected ${expect}, struts ${S().items.strut}, timber left ${S().mats.timber}`;
   });
   await T('truth.dom.bench-cart-button-says-craft-upgrade-or-owned-and-does-that', async () => {
-    fresh(maxAll()); const bad = []; S().money = 1e12; g.ui.open('craft'); const names = g.recipeList().filter((r) => r.kind === 'cart');
+    fresh(maxAll()); const bad = []; S().money = 1e12; benchOpen(); const names = g.recipeList().filter((r) => r.kind === 'cart');
     if (names.length < 2) { closeAll(); return 'fewer than two carts at max levels'; }
-    const lo = names[0], hi = names[1]; let card = cardFor(lo.name); let b = card.querySelector('button'); if (!/^Craft · ◈/.test(norm(b.textContent)) || b.disabled) bad.push(`first cart says "${norm(b.textContent)}" disabled=${b.disabled}`);
+    const lo = names[0], hi = names[1]; let card = pickRow(lo.id); let b = card.querySelector('button'); if (!/^Craft · ◈/.test(norm(b.textContent)) || b.disabled) bad.push(`first cart says "${norm(b.textContent)}" disabled=${b.disabled}`);
     const price = lo.price; const m0 = S().money; b.click(); if (m0 - S().money !== price) bad.push(`cart charged ${m0 - S().money}, label ${price}`); if (!(S().items[lo.id] > 0)) bad.push('cart not in the pack');
-    card = cardFor(lo.name); b = card.querySelector('button'); if (!/Owned/.test(b.textContent) || !b.disabled) bad.push(`owned cart says "${norm(b.textContent)}" disabled=${b.disabled}`);
-    card = cardFor(hi.name); b = card.querySelector('button'); if (!/^Upgrade · ◈/.test(norm(b.textContent)) || b.disabled) bad.push(`better cart says "${norm(b.textContent)}" disabled=${b.disabled}`);
+    card = pickRow(lo.id); b = card.querySelector('button'); if (!/Owned/.test(b.textContent) || !b.disabled) bad.push(`owned cart says "${norm(b.textContent)}" disabled=${b.disabled}`);
+    card = pickRow(hi.id); b = card.querySelector('button'); if (!/^Upgrade · ◈/.test(norm(b.textContent)) || b.disabled) bad.push(`better cart says "${norm(b.textContent)}" disabled=${b.disabled}`);
     const m1 = S().money; b.click(); if (m1 - S().money !== hi.price) bad.push(`upgrade charged ${m1 - S().money}, label ${hi.price}`); if (!(S().items[hi.id] > 0) || S().items[lo.id]) bad.push('upgrade did not swap the carts');
     closeAll(); return bad.length === 0 || bad.join(' || ');
   });

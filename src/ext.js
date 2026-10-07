@@ -2,6 +2,7 @@
 // one line each, so later waves add behavior through catalog_*.js handlers and never touch those shared files again.
 // See catalog.js for the handler contract.
 import { TYPES, REJECT, catalogType, TRANSIENT } from './catalog.js';
+import * as BINS from './bins.js';   // every assignable thing also takes a `dest` (the bin it sells at), see bins.js
 
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -29,13 +30,16 @@ export function aimedEnt(g) {
 }
 
 // ---------- cfg: the one guest-safe way to change a placed thing's settings ----------
-export function cfgSpec(ent) { const h = TYPES[ent.type]; if (!h || !h.cfg) return null; return typeof h.cfg === 'function' ? h.cfg(ent) : h.cfg; }
+// the settings the type itself declares (null for a machine that has none), and with the bin every assignable thing also takes
+function ownSpec(ent) { const h = TYPES[ent.type]; return h && h.cfg ? (typeof h.cfg === 'function' ? h.cfg(ent) : h.cfg) : null; }
+export function cfgSpec(ent) { if (!TYPES[ent.type]) return null; return BINS.extendSpec(ent, ownSpec(ent)) || null; }
 
 // validate a patch against the whitelist. Any unknown key or bad value rejects the WHOLE patch (nothing is half applied).
 export function validateCfg(ent, patch) {
   const spec = cfgSpec(ent); if (!spec) return { ok: false, why: 'This has no settings' };
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, why: 'Bad settings' };
   const keys = Object.keys(patch); if (!keys.length || keys.length > 32) return { ok: false, why: 'Bad settings' };
+  if (!ownSpec(ent) && keys.some((k) => k !== 'dest')) return { ok: false, why: 'This has no settings' };   // (a plain belt, a truck: the bin is all it has)
   const clean = {};
   for (const k of keys) {
     if (!hasOwn(spec, k)) return { ok: false, why: `Unknown setting ${String(k).slice(0, 24)}` };
@@ -50,11 +54,13 @@ export function applyCfg(g, id, patch, actor = 'host') {
   const ent = entById(g, id); if (!ent) return { ok: false, why: 'That is gone' };
   const v = validateCfg(ent, patch); if (!v.ok) return v;
   const h = TYPES[ent.type];
-  if (h.check) { const why = h.check(g, ent, v.clean, actor); if (why) return { ok: false, why }; }
+  const binOnly = Object.keys(v.clean).every((k) => k === 'dest');   // choosing a bin is not one of the type's own settings: its check and redraw (a splitter's rules, a station's role) do not apply
+  if (h.check && !binOnly) { const why = h.check(g, ent, v.clean, actor); if (why) return { ok: false, why }; }
+  { const why = BINS.checkCfg(g, ent, v.clean); if (why) return { ok: false, why }; }   // a bin that is gone
   const old = {}; for (const k of Object.keys(v.clean)) old[k] = ent[k];
   Object.assign(ent, v.clean);
-  if (h.onCfg) h.onCfg(g, ent, v.clean, old);
-  g.power.markDirty();
+  if (h.onCfg && !binOnly) h.onCfg(g, ent, v.clean, old);
+  if (!binOnly) g.power.markDirty();   // (a bin changes nothing about what a machine draws: no new solve of the grid for it)
   g.netSend({ t: 'ent-', id: ent.id }); g.netSend({ t: 'ent+', ent: g.stripEnt(ent) });
   return { ok: true, clean: v.clean };
 }
@@ -74,18 +80,22 @@ export function runCfgCmd(g, d) {
 }
 
 // ---------- copy / paste settings (Shift+E on the source, E on a target) ----------
-export function copyKeys(ent) { const h = TYPES[ent.type]; if (!h) return null; const spec = cfgSpec(ent); if (!spec) return null; return h.copy || Object.keys(spec); }
+export function copyKeys(ent) { const h = TYPES[ent.type]; if (!h) return null; const spec = cfgSpec(ent); if (!spec) return null; const keys = h.copy || Object.keys(spec); return spec.dest && !keys.includes('dest') ? [...keys, 'dest'] : keys; }
+
+// a copied bin alone (Shift+; on a machine or a bot) pastes onto anything that can be assigned one; every other copy only onto its own kind
+export const clipFits = (c, ent) => { const h = TYPES[ent.type]; return !!h && ((h.group || ent.type) === c.group || (c.group === 'bindest' && BINS.assignable(ent))); };
 
 export function copyCfg(g, ent) {
   const keys = copyKeys(ent); if (!keys || !keys.length) return null;
-  const vals = {}; for (const k of keys) if (ent[k] !== undefined) vals[k] = JSON.parse(JSON.stringify(ent[k]));
+  { const own = ownSpec(ent), h = TYPES[ent.type]; const ownKeys = (h.copy || Object.keys(own || {})).filter((k) => k !== 'dest'); if (!ownKeys.length && !(ent.dest | 0)) return null; }   // a machine whose only setting is its bin copies it once it has one: Shift+E on an Auto truck or belt is still E (Shift+; copies Auto)
+  const vals = {}; for (const k of keys) if (k === 'dest') vals.dest = ent.dest | 0; else if (ent[k] !== undefined) vals[k] = JSON.parse(JSON.stringify(ent[k]));   // (Auto is a setting too: a copied Auto sets the others back)
   g.cfgClip = { type: ent.type, group: TYPES[ent.type].group || ent.type, vals };
   return g.cfgClip;
 }
 
 export function pasteCfg(g, ent) {
   const c = g.cfgClip; if (!c) return { ok: false, why: 'Nothing copied. Shift+E on a machine copies its settings.' };
-  const h = TYPES[ent.type]; if (!h || (h.group || ent.type) !== c.group) return { ok: false, why: 'Those settings belong to a different kind of machine' };
+  const h = TYPES[ent.type]; if (!h || !clipFits(c, ent)) return { ok: false, why: 'Those settings belong to a different kind of machine' };
   const keys = copyKeys(ent) || []; const vals = {}; for (const k of keys) if (c.vals[k] !== undefined) vals[k] = JSON.parse(JSON.stringify(c.vals[k]));
   if (!Object.keys(vals).length) return { ok: false, why: 'Nothing to paste' };
   return setCfg(g, ent, vals);
@@ -105,7 +115,7 @@ export function copyKey(g) {
 // E: a held clipboard pastes into a matching target; otherwise the type's own use() runs. Returns true when handled.
 export function useKey(g) {
   const e = aimedEnt(g); if (!e) return false;
-  if (g.cfgClip && (TYPES[e.type].group || e.type) === g.cfgClip.group && copyKeys(e)) {
+  if (g.cfgClip && clipFits(g.cfgClip, e) && copyKeys(e)) {
     const r = pasteCfg(g, e);
     if (r.ok) { g.sound.place(); g.ui.hint('Settings pasted.', 2); } else { g.sound.error(); g.ui.hint(r.why || 'Could not paste', 2.5); }
     return true;

@@ -16,6 +16,7 @@ import { FRAME_TYPES } from './upgrades.js';
 import { BASE_LOAD, PRESS, loadOn } from './loadtrace.js';
 import * as VS from './vehiclescan.js';
 import * as HAUL from './haul.js';   // wave 6: tunnel routes, haul roads, docks and the truck battery
+import * as BINS from './bins.js';   // which bin a machine sells at (an assignment, else the nearest)
 const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];   // the same direction table the belts use
 
 export const EARTH = {
@@ -212,7 +213,7 @@ function scoopedOne(game, e, spec) {
 }
 
 // sell a batch of plush at once: one money update, one coin sound, the same value rules as any machine sale
-export function sellBatch(game, flat, mult = 1) {
+export function sellBatch(game, flat, mult = 1, bin) {
   const S = game.S; let total = 0, n = 0; const memo = new Map();
   if (VS.hasOne(flat)) {   // a machine never sells The One: whatever got this far is set down loose at the bin, not lost
     flat = flat.slice(); const one = VS.takeOne(flat), bp = game.hall.binPos;
@@ -225,6 +226,7 @@ export function sellBatch(game, flat, mult = 1) {
   }
   if (!n) return 0;
   S.money += total; S.totalEarned += total; S.stats.sold += n;
+  if (bin !== undefined) BINS.note(game, bin, n, total);   // the bin it was sold at (the money is the same at every bin)
   game.ui.setMoney(S.money); game.ui.gain(total);
   if (game.coinCd <= 0) { game.coinCd = 0.12; game.sound.coin(0); }
   return total;
@@ -308,7 +310,7 @@ export function updateEarth(m, it, dt, time) {
   it.obj.position.x += (tx - it.obj.position.x) * Math.min(1, dt * 5); it.obj.position.z += (tz - it.obj.position.z) * Math.min(1, dt * 5); it.obj.position.y += (ty - it.obj.position.y) * Math.min(1, dt * 5);
   it.shield.x = it.obj.position.x; it.shield.z = it.obj.position.z; it.shield.y = ty + 0.9;
   if (e.off) { e.state = 'off'; return; }
-  it.flushT -= dt; if (it.flushT <= 0) { it.flushT = 0.5; flushHopper(game, it, spec); if (spec.direct && e.hop.length && !(e.hop.length === 2 && e.hop[0] === NEEDLE) && !outletTiles(game, e, spec).length) { const one = VS.takeOne(e.hop); sellBatch(game, e.hop, DOZER_CHUTE); e.hop = one ? [one.sp, one.vr] : []; e.hn = e.hop.length / 2; } }
+  it.flushT -= dt; if (it.flushT <= 0) { it.flushT = 0.5; flushHopper(game, it, spec); if (spec.direct && e.hop.length && !(e.hop.length === 2 && e.hop[0] === NEEDLE) && !outletTiles(game, e, spec).length) { const one = VS.takeOne(e.hop); sellBatch(game, e.hop, DOZER_CHUTE, binFor(game, e)); e.hop = one ? [one.sp, one.vr] : []; e.hn = e.hop.length / 2; } }
   const pw = e.pw ?? 0;
   if (pw < 0.05) { e.state = 'nopower'; return; }
   it.timer -= dt * pw;
@@ -330,7 +332,7 @@ export function updateEarth(m, it, dt, time) {
       const taken = w.removeCell(i, j, k); if (!taken) continue;
       n++; cx += cellX(i); cy += cellY(j); cz += cellZ(k);
       countDug(game, taken); e.dug = (e.dug || 0) + 1;
-      if (spec.direct && taken.sp !== NEEDLE && !outletTiles(game, e, spec).length) sellBatch(game, [taken.sp, taken.vr], DOZER_CHUTE); else { e.hop.push(taken.sp, taken.vr); if (taken.sp === NEEDLE) scoopedOne(game, e, spec); }
+      if (spec.direct && taken.sp !== NEEDLE && !outletTiles(game, e, spec).length) sellBatch(game, [taken.sp, taken.vr], DOZER_CHUTE, binFor(game, e)); else { e.hop.push(taken.sp, taken.vr); if (taken.sp === NEEDLE) scoopedOne(game, e, spec); }
     }
     e.hn = e.hop.length / 2;
     if (n) { game.noteDist(cellX(e.i), cellZ(e.k)); game.fx.dust(cx / n, cy / n, cz / n, 5, 1.0, 1.0); }
@@ -352,11 +354,26 @@ export function updateEarth(m, it, dt, time) {
 
 // ---------------------------------------------------------------- hauling
 export function sinkNear(game, x, z) {
-  const bp = game.hall.binPos; let best = { x: bp.x, z: bp.z, name: 'the bin' }, bd = Math.hypot(x - bp.x, z - bp.z);
-  for (const it of game.machines.items.values()) if (it.ent.type === 'beacon') { const d = Math.hypot(x - it.ent.x, z - it.ent.z); if (d < bd) { bd = d; best = { x: it.ent.x, z: it.ent.z, name: 'a depot' }; } }
+  const bp = game.hall.binPos; let best = { x: bp.x, z: bp.z, name: 'the bin', bin: BINS.HALL }, bd = Math.hypot(x - bp.x, z - bp.z);
+  for (const it of game.machines.items.values()) if (it.ent.type === 'beacon') { const d = Math.hypot(x - it.ent.x, z - it.ent.z); if (d < bd) { bd = d; best = { x: it.ent.x, z: it.ent.z, name: 'a depot', bin: it.ent.id }; } }
   for (const dk of HAUL.docksOf(game)) { if (!HAUL.isSink(game, dk)) continue; const c = HAUL.dockCentre(dk), d = Math.hypot(x - c.x, z - c.z); if (d < bd) { bd = d; best = { x: c.x, z: c.z, name: 'a dock', dock: dk.id }; } }   // a dock with a belt at its end is a place a truck unloads
   return best;
 }
+// where a truck takes a load picked up at (fx, fz): its own bin, else its digger's, else the nearest (Auto). An assigned bin that has no power, is gone or is farther
+// than one charge can drive is set aside, and the truck says so and uses Auto: nothing is ever stranded and a far bin is only ever slower.
+function pickSink(game, e, d, fx, fz) {
+  const dest = (e.dest | 0) || (d && (d.dest | 0)) || 0;
+  if (dest) {
+    const r = BINS.resolve(game, dest), me = { k: 'ent', o: e.dest ? e : (d || e) };
+    if (r.bin) {
+      if (HAUL.tripNeed(game.T, Math.hypot(r.bin.x - fx, r.bin.z - fz)) <= HAUL.battCap(game.T)) return { x: r.bin.x, z: r.bin.z, name: r.bin.name, bin: r.bin.id, assigned: true };
+      BINS.fallback(game, me, 'range', r.bin.name);
+    } else BINS.fallback(game, me, r.why, r.named ? r.named.name : '');
+  }
+  return sinkNear(game, fx, fz);
+}
+// the bin a digger's own sales (a bulldozer's chute) are credited to
+function binFor(game, e) { const r = BINS.pick(game, e.dest, e.x, e.z); if (r.why) BINS.fallback(game, { k: 'ent', o: e }, r.why, r.named ? r.named.name : ''); return r.bin.id; }
 // stop short of a target so the truck parks beside it
 const stopBefore = (fx, fz, tx, tz, gap) => { const d = Math.hypot(tx - fx, tz - fz) || 1; const g = Math.min(gap, d); return [tx - ((tx - fx) / d) * g, tz - ((tz - fz) / d) * g]; };
 
@@ -401,7 +418,7 @@ const tagOf = VS.tagOf;
 
 // the straight route for the rest of a trip from where the truck stands: a powered Vehicle Scanner on the way when there is one, the sink, home
 function buildRoute(game, e, d) {
-  const from = d ? [d.x, d.z] : [e.px, e.pz], sink = sinkNear(game, from[0], from[1]);
+  const from = d ? [d.x, d.z] : [e.px, e.pz], sink = pickSink(game, e, d, from[0], from[1]);
   const [sx, sz] = sink.dock ? [sink.x, sink.z] : stopBefore(from[0], from[1], sink.x, sink.z, 3.0);   // a dock: the truck drives into the pad
   const sc = VS.pickScanner(game, from[0], from[1], sx, sz, earthTune(game.T, 'truck').range);
   const route = [[e.px, e.pz, 'dig']];
@@ -412,7 +429,7 @@ function buildRoute(game, e, d) {
   route.push(...rt.vias);
   if (sc) route.push(...via);
   route.push([sx, sz, 'sink'], [e.x, e.z, 'home']);
-  return { route, sc: sc ? sc.id : 0, dockId: sink.dock || 0, tun: !!rt.tun };
+  return { route, sc: sc ? sc.id : 0, dockId: sink.dock || 0, bin: sink.bin, tun: !!rt.tun };
 }
 // no way through for a truck: it stays where it is and says why (the router names what is too narrow)
 function blockRoute(game, e, it, why) {
@@ -450,21 +467,21 @@ function truckLogic(m, it, dt) {
     const d = findJob(game, e); if (!d) return;
     const back = outletBackPoint(d);
     e.px = e.px ?? e.x; e.pz = e.pz ?? e.z;
-    const [hx, hz] = [e.x, e.z], sink = sinkNear(game, d.x, d.z), [sx, sz] = sink.dock ? [sink.x, sink.z] : stopBefore(d.x, d.z, sink.x, sink.z, 3.0);
+    const [hx, hz] = [e.x, e.z], sink = pickSink(game, e, d, d.x, d.z), [sx, sz] = sink.dock ? [sink.x, sink.z] : stopBefore(d.x, d.z, sink.x, sink.z, 3.0);
     const sc = VS.pickScanner(game, d.x, d.z, sx, sz, tu.range);
     const rt = HAUL.jobRoute(game, { x: e.px, z: e.pz, y: e.y ?? 0 }, { x: back[0], z: back[1], y: d.y ?? d.j * C });
     if (!rt.ok) { const c = e.cache || (e.cache = {}); (c.skip || (c.skip = {}))[d.id] = game.time + 8; e.why = rt.why; blockRoute(game, e, it, rt.why); e.state = 'idle'; it.timer = 1.0; return; }
     const need = HAUL.tripNeed(T, Math.max(Math.hypot(back[0] - e.px, back[1] - e.pz), rt.len || 0) + Math.hypot(sx - back[0], sz - back[1]));   // (the length of the searched route, not the straight line to the digger: a tunnel can wind)
     if (e.batt < need && need <= cap) { e.why = `Charging for the trip (${Math.round(100 * e.batt / cap)}%)`; return; }
     e.why = ''; e.warnedWhy = '';
-    e.job = d.id; e.sc = sc ? sc.id : 0; e.dockId = sink.dock || 0; e.tun = !!rt.tun; e.route = [...rt.vias, [back[0], back[1], 'dig'], ...(sc ? VS.routeVia(sc, back[0], back[1]) : []), [sx, sz, 'sink'], [hx, hz, 'home']]; e.seg = 0; e.state = 'go';
+    e.job = d.id; e.sc = sc ? sc.id : 0; e.dockId = sink.dock || 0; e.sinkBin = sink.bin; e.tun = !!rt.tun; e.route = [...rt.vias, [back[0], back[1], 'dig'], ...(sc ? VS.routeVia(sc, back[0], back[1]) : []), [sx, sz, 'sink'], [hx, hz, 'home']]; e.seg = 0; e.state = 'go';
     return;
   }
   if (e.state === 'blocked') {   // the road after loading was cut (or a frame is too narrow for a truck): look again every couple of seconds
     it.timer -= dt; if (it.timer > 0) return; it.timer = 2;
     const d = game.machines.items.get(e.job), built = buildRoute(game, e, d && d.ent);
     if (built.why) { blockRoute(game, e, it, built.why); return; }
-    e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.tun = e.tun || built.tun; e.warnedWhy = ''; e.why = ''; e.state = 'go'; e.seg = 1; return;
+    e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.sinkBin = built.bin; e.tun = e.tun || built.tun; e.warnedWhy = ''; e.why = ''; e.state = 'go'; e.seg = 1; return;
   }
   if (e.state === 'go' || e.state === 'back') {
     const tg = e.route[e.seg]; if (!tg) { e.state = 'idle'; e.job = 0; return; }
@@ -506,7 +523,7 @@ function truckLogic(m, it, dt) {
     const sc = e.sc ? VS.byId(game, e.sc) : null;
     const done = !sc ? 'gone' : VS.dumpStep(game, e, sc, dt, groundY(game, e.px, e.pz));
     if (done) {
-      if (done !== true && e.cargo.length) sellBatch(game, e.cargo, 1);   // the scanner is gone or the floor is full: the rest of the load is sold like any haul, never erased
+      if (done !== true && e.cargo.length) sellBatch(game, e.cargo, 1, e.sinkBin);   // the scanner is gone or the floor is full: the rest of the load is sold like any haul, never erased
       VS.leaveLane(sc, e.id); e.cargo = []; e.cn = 0; e.dumpN = 0; e.dumpWait = 0; e.state = 'back'; e.seg = e.route.length - 1;
     }
     return;
@@ -514,7 +531,7 @@ function truckLogic(m, it, dt) {
   if (e.state === 'refuse') {
     it.timer -= dt; if (it.timer > 0) return; it.timer = 1.5;
     const d = game.machines.items.get(e.job), built = buildRoute(game, e, d && d.ent);
-    if (!VS.hasOne(e.cargo) || built.sc) { if (built.why) { blockRoute(game, e, it, built.why); return; } e.warned = false; e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.tun = e.tun || built.tun; e.state = 'go'; e.seg = 1; }   // someone took The One, or a scanner is up now
+    if (!VS.hasOne(e.cargo) || built.sc) { if (built.why) { blockRoute(game, e, it, built.why); return; } e.warned = false; e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.sinkBin = built.bin; e.tun = e.tun || built.tun; e.state = 'go'; e.seg = 1; }   // someone took The One, or a scanner is up now
     return;
   }
   if (e.state === 'load' || e.state === 'unload') {
@@ -522,7 +539,7 @@ function truckLogic(m, it, dt) {
     if (e.state === 'load') {
       const d = game.machines.items.get(e.job), built = buildRoute(game, e, d && d.ent);   // the scanners may have changed since the truck left its yard
       if (built.why) { blockRoute(game, e, it, built.why); return; }
-      e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.tun = e.tun || built.tun;
+      e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.sinkBin = built.bin; e.tun = e.tun || built.tun;
       if (VS.hasOne(e.cargo) && !built.sc) { refuse(game, e, it); return; }
       e.state = 'go'; e.seg = 1; return;
     }
@@ -537,7 +554,7 @@ function truckLogic(m, it, dt) {
       e.dockId = 0; e.un0 = 0;
     }
     const n = e.cargo.length / 2;
-    if (n) { sellBatch(game, e.cargo, 1); game.S.stats.hauled = (game.S.stats.hauled || 0) + n; game.S.stats.hauls = (game.S.stats.hauls || 0) + 1; e.trips = (e.trips || 0) + 1; game.fx.coin && game.fx.coin(e.px, 1.4, e.pz, 3); }
+    if (n) { sellBatch(game, e.cargo, 1, e.sinkBin); game.S.stats.hauled = (game.S.stats.hauled || 0) + n; game.S.stats.hauls = (game.S.stats.hauls || 0) + 1; e.trips = (e.trips || 0) + 1; game.fx.coin && game.fx.coin(e.px, 1.4, e.pz, 3); }
     e.cargo = []; e.cn = 0; e.state = 'back'; e.seg = e.route.length - 1;
   }
 }

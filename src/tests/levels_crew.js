@@ -12,17 +12,20 @@ export default async function (ctx) {
   await numbers(ctx, 'crew', 'servoOC', (t) => t.crewSpeed, (l) => 2.2 + 0.2 * l);
   await numbers(ctx, 'crew', 'fusionCells', (t) => t.crewBattery, (l) => 3.4 + 0.6 * l);
 
-  await T('levels.crew.foundry.every-level-hatches-another-bot-at-once-and-the-panel-counts-them', async () => {
+  await T('levels.crew.foundry.every-level-adds-a-bunk-the-bench-fills-it-and-the-panel-counts-them', async () => {
     const bad = [];
     for (let l = 0; l <= 6; l++) {
       fresh({ crew: 1, crewSlots: 8, foundry: l }); g.crew.sync(); const want = 9 + l;
-      if (g.T.crewMax !== want || S().crew.length !== want) bad.push(`level ${l}: crewMax ${g.T.crewMax}, ${S().crew.length} bots, expected ${want}`);
+      if (g.T.crewMax !== want || S().crew.length !== 1) bad.push(`level ${l}: crewMax ${g.T.crewMax}, ${S().crew.length} bots, expected ${want} bunks and the one bot of the Scrapper Bot upgrade`);
+      S().money = 1e15; if (!g.craftItem('bot:scrapper', want - 1) || S().crew.length !== want) bad.push(`level ${l}: the bench made ${S().crew.length} bots, expected ${want}`);
+      if (g.craftItem('bot:scrapper', 1) || S().crew.length !== want) bad.push(`level ${l}: a bot was crafted with no free bunk`);
       if (new Set(S().crew.map((b) => b.id)).size !== S().crew.length || new Set(S().crew.map((b) => b.name)).size !== S().crew.length) bad.push(`level ${l}: duplicate bot ids or names`);
       g.ui.renderCrew(); const t = document.getElementById('crewCount').textContent; if (t !== `${want} / ${want} bots`) bad.push(`level ${l}: panel says "${t}"`);
     }
-    // buying a level hatches the bot right then
-    fresh({ ...reqUp(UPGRADES, U('foundry')), crew: 1 }); g.crew.sync(); const n0 = S().crew.length; S().money = U('foundry').cost[0]; S().stats.plush = 1e9; g.buy('foundry');
-    if (S().crew.length !== n0 + 1) bad.push(`buying: ${n0} -> ${S().crew.length} bots`);
+    // buying a level adds a bunk right then and no bot until one is crafted
+    fresh({ ...reqUp(UPGRADES, U('foundry')), crew: 1 }); g.crew.sync(); const n0 = S().crew.length, m0 = g.T.crewMax; S().money = U('foundry').cost[0]; S().stats.plush = 1e9; g.buy('foundry');
+    if (S().crew.length !== n0 || g.T.crewMax !== m0 + 1) bad.push(`buying: ${n0} -> ${S().crew.length} bots, bunks ${m0} -> ${g.T.crewMax}`);
+    S().money = 1e15; g.craftItem('bot:scrapper', 1); if (S().crew.length !== n0 + 1) bad.push(`crafting: ${n0} -> ${S().crew.length} bots`);
     return bad.length === 0 || bad.join('; ');
   });
 

@@ -1,8 +1,18 @@
 // Achievements. check(S) returns true when earned. S is the game state.
-import { SPECIAL_MIN, DECOYS, speciesCount } from './plushdata.js';
+import { DECOYS, speciesCount, dexTally, REGIONS, regionTotals, regionRange } from './plushdata.js';
 import { UPGRADES, CATS } from './upgrades.js';
 import { UPGRADES as CATALOG_UPGRADES } from './catalog.js';
 const A = (id, name, desc, check, icon = '★', secret = false) => ({ id, name, desc, check, icon, secret });
+const dexN = (S) => dexTally(S.dex).n;   // regular species found (the decoys and The One do not count)
+// Plushdex milestones scale with the size of the dex: the old absolute ones stay (earned ids are kept in saves), the new ones are shares of all of it
+const PCT = [[10, 'dexp10', 'Hobbyist', '📖'], [25, 'dexp25', 'Keeper of the Catalogue', '📖'], [50, 'dexp50', 'Half the Hall', '📘'], [75, 'dexp75', 'Three Quarters Home', '📘'], [90, 'dexp90', 'Nearly Everything', '📚']];
+const dexPct = PCT.map(([p, id, name, icon]) => A(id, name, `Discover ${p} percent of all species (${Math.ceil(speciesCount * p / 100).toLocaleString('en-US')}).`, (S) => dexN(S) >= Math.ceil(speciesCount * p / 100), icon));
+// one pair per region: half of the species whose home region it is, then every one of them (the originals count for the Bay Floor)
+const REGION_NAMES = ['Homebody', 'Stacker', 'Hill Walker', 'Deep Diver', 'Far Wanderer', 'Last Mile'];
+const dexRegion = REGIONS.flatMap((r) => [
+  A('dexr' + r.id + 'h', REGION_NAMES[r.id], `Discover half of the ${regionTotals[r.id].toLocaleString('en-US')} species of ${r.name} (${regionRange(r)} from the bay).`, (S) => dexTally(S.dex).byRegion[r.id] * 2 >= regionTotals[r.id], '🧭'),
+  A('dexr' + r.id, r.name + ' Complete', `Discover all ${regionTotals[r.id].toLocaleString('en-US')} species of ${r.name} (${regionRange(r)} from the bay).`, (S) => dexTally(S.dex).byRegion[r.id] >= regionTotals[r.id], '🗺️'),
+]);
 
 export const ACHIEVEMENTS = [
   // Grabbing
@@ -30,13 +40,15 @@ export const ACHIEVEMENTS = [
   A('shiny1', 'Ooh, Shiny', 'Find a shiny plush.', (S) => S.stats.shiny >= 1, '✨'),
   A('shiny10', 'Magpie', 'Find 10 shiny plush.', (S) => S.stats.shiny >= 10, '✨'),
   // Plushdex
-  A('dex25', 'Collector', 'Discover 50 species.', (S) => Object.keys(S.dex).length >= 50, '📖'),
-  A('dex75', 'Curator', 'Discover 150 species.', (S) => Object.keys(S.dex).length >= 150, '📖'),
-  A('dex300', 'Archivist', 'Discover 300 species.', (S) => Object.keys(S.dex).length >= 300, '📖'),
-  A('dex450', 'Taxonomist', 'Discover 450 species.', (S) => Object.keys(S.dex).filter((k) => +k < SPECIAL_MIN).length >= 450, '📖'),
-  A('dex700', 'Field Guide', 'Discover 700 species.', (S) => Object.keys(S.dex).filter((k) => +k < SPECIAL_MIN).length >= 700, '📖'),
-  A('dex850', 'Naturalist', 'Discover 850 species.', (S) => Object.keys(S.dex).filter((k) => +k < SPECIAL_MIN).length >= 850, '📖'),
-  A('dexall', 'Gotta Squish Em All', `Discover all ${speciesCount} species.`, (S) => Object.keys(S.dex).filter((k) => +k < SPECIAL_MIN).length >= speciesCount, '📚'),
+  A('dex25', 'Collector', 'Discover 50 species.', (S) => dexN(S) >= 50, '📖'),
+  A('dex75', 'Curator', 'Discover 150 species.', (S) => dexN(S) >= 150, '📖'),
+  A('dex300', 'Archivist', 'Discover 300 species.', (S) => dexN(S) >= 300, '📖'),
+  A('dex450', 'Taxonomist', 'Discover 450 species.', (S) => dexN(S) >= 450, '📖'),
+  A('dex700', 'Field Guide', 'Discover 700 species.', (S) => dexN(S) >= 700, '📖'),
+  A('dex850', 'Naturalist', 'Discover 850 species.', (S) => dexN(S) >= 850, '📖'),
+  ...dexPct,
+  ...dexRegion,
+  A('dexall', 'Gotta Squish Em All', `Discover all ${speciesCount} species.`, (S) => dexN(S) >= speciesCount, '📚'),
   A('fake1', 'Fool\'s Gold', 'Pick up a counterfeit Rotto Supremo.', (S) => DECOYS.some((d) => S.dex[d]), '🪙'),
   A('fakeall', 'Connoisseur of Fakes', 'Find all four counterfeits.', (S) => DECOYS.every((d) => S.dex[d]), '🪙'),
   A('remains1', 'Last Shift', 'Find the gear of a lost worker.', (S) => (S.stats.remains || 0) >= 1, '⛑️'),
@@ -114,7 +126,7 @@ export const ACHIEVEMENTS = [
   A('medic', 'Patched Up', 'Use a medkit.', (S) => (S.stats.medkits || 0) >= 1, '🩹'),
   A('tank', 'Deep Breath', 'Buy the Emergency Air Tank.', (S) => (S.up.airtank || 0) >= 1, '🫧'),
   A('hardhat4', 'Thick Skull', 'Fully upgrade the Hard Hat.', (S) => (S.up.hpmax || 0) >= 4, '⛑️'),
-  A('lumber', 'Lumberjack', 'Own 100 building material at once.', (S) => Object.values(S.mats || {}).reduce((a, b) => a + b, 0) >= 100, '🪵'),
+  A('lumber', 'Framer', 'Set down 100 building pieces.', (S) => (S.stats.built || 0) >= 100, '🪵'),
   A('dyn1', 'Stick of Dynamite', 'Buy Dynamite.', (S) => (S.up.dynamite || 0) >= 1, '🧨'),
   A('throw6', 'Cannon Arm', 'Max out the Throwing Arm.', (S) => (S.up.throw || 0) >= 6, '⚾'),
   A('died', 'Back From the Pile', 'Die in the warehouse and wake up on the floor.', (S) => (S.stats.deaths || 0) >= 1, '💀'),
@@ -325,6 +337,12 @@ stat('vscans', '🚛', [
   ['vscan1k', 1e3, 'Fleet Inspector', 'Scan {n} truck loads at Vehicle Scanners.'], ['vscan10k', 1e4, 'Port Authority', 'Scan {n} truck loads at Vehicle Scanners.'],
 ]);
 stat('vscanAlarms', '🚨', [['vsalarm1', 1, 'Caught in the Beam', 'Have a Vehicle Scanner catch The One on a truck.'], ['vsalarm10', 10, 'Stop That Truck', 'Have a Vehicle Scanner catch The One {n} times.']]);
+stat('stackPlates', '🏢', [['plate1', 1, 'Level One', 'Build a floor or ceiling plate into a frame cube.'], ['plate25', 25, 'Floor Manager', 'Build {n} plates into frame cubes.'], ['plate250', 250, 'High Rise Crew', 'Build {n} plates into frame cubes.']]);
+stat('stackStairs', '🪜', [['sstair1', 1, 'Switchback', 'Build a switchback stair in a frame cube.'], ['sstair25', 25, 'Stairwell Builder', 'Build {n} switchback stairs.']]);
+stat('stackLadders', '🪜', [['ladder1', 1, 'Hatch Ladder', 'Hang a ladder on the rim of a plate opening.'], ['ladder25', 25, 'Fire Escape', 'Hang {n} ladders.']]);
+stat('stackFrames', '🚪', [['dframe1', 1, 'Framed', 'Build a door frame on a frame cube.'], ['dframe25', 25, 'Bulkhead Row', 'Build {n} door frames on cubes.']]);
+stat('stackTall', '🏗️', [['stack2', 2, 'Two Storeys', 'Stand a cube on a cube.'], ['stack3', 3, 'Three Levels', 'Stand {n} cubes in one column.'], ['stack6', 6, 'Tower in the Pile', 'Stand {n} cubes in one column.']]);
+stat('stackCascades', '💥', [['domino1', 1, 'Domino', 'Lose a cube because the cube under it gave way.']]);
 const owned = (S, ids) => ids.filter((id) => ((S.up || {})[id] || 0) >= 1).length;
 const setOwned = (ids) => (S, v) => { S.up = S.up || {}; ids.forEach((id, n) => { if (n < v) S.up[id] = 1; else delete S.up[id]; }); };
 const MARKS = ['beltMk2', 'beltMk3', 'beltMk4', 'beltMk5', 'beltMk6'], RUNGS = ['genTurbine', 'genPlant', 'genStation', 'genTitan'];

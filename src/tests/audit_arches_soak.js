@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // audit_arches.soak.*: seeded random edits around giant arches, frames, Portals, walls, pads, collapses, the hammer, E (park or start) and a real save and load,
 // with the invariants checked after every step (sixteen seeds were swept clean). `globalThis.__archSeeds = [..]` runs other seeds.
 // Run: `await __selftest('audit_arches.soak.')`
@@ -85,7 +86,7 @@ export default async function (ctx) {
   await T('audit_arches.soak.a-portal-with-random-things-in-its-path-is-never-silent', async () => {
     const bad = [];
     for (const seed of globalThis.__archSeeds || [5, 9, 14]) {
-      await world(); const rnd = rng0(seed), st = K.site({ span: 6 }), e = K.mouth(st, 'steel'); const specs = [BULK, PAD, 4097, 4096];
+      await world(); const rnd = rng0(seed), st = K.site({ span: 6 }), e = K.mouth(st, 'steel'); const specs = [BULK, PAD, PD.REMAINS, PD.CACHE];
       for (let q = 0; q < 6; q++) { const slab = Math.floor(rnd() * 14), cells = PORTAL.slabCells(e, PORTAL.slabA(e, slab)), [i, j, k] = cells[Math.floor(rnd() * cells.length)]; if (w().solid(i, j, k)) w().setCell(i, j, k, specs[q % 4], 0); }
       let lastAdv = -1, lastL = -1, still = 0;
       for (let t = 0; t < 400; t++) { K.run(0.5); if (e.adv === lastAdv && e.lined === lastL) still++; else still = 0; lastAdv = e.adv; lastL = e.lined; if (still > 60 && e.ps !== 'stuck' && e.ps !== 'done') { bad.push(`seed ${seed}: silent for 30 s in state "${e.ps}" at adv ${e.adv}`); break; } if (e.ps === 'stuck') break; }

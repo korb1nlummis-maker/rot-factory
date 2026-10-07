@@ -164,7 +164,7 @@ export default async function (ctx) {
   await T('upg.hands.scoop.effect', async () => {
     const S_ = [0, 1, 3, 6, 12];
     for (let l = 0; l <= 4; l++) {
-      fresh({ bag: 8, reach: 4, scoop: l });
+      fresh({ bag: 8, reach: 4, scoop: l }); S().scoopSet = 1e9;   // the dial turned all the way up
       if (g.T.scoop !== S_[l]) return 'T.scoop ' + g.T.scoop;
       // a block with a hollow centre: the target in front and plenty of exposed plush behind it
       block(2.0, 4, 1); S().carry = []; g.grabCd = 0; const tg = target(); if (!tg || tg.type !== 'cell') return 'no target';

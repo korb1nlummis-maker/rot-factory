@@ -7,6 +7,7 @@ import { C, cellX, cellZ } from './config.js';
 import { TIER_NAMES, PART_PRICE, PART_KW, K, tierOf, rateOf, partOf, lenOf } from './beltdata.js';
 import { DX, DZ, dirOfYaw } from './beltparts.js';
 import * as SR from './splitrules.js';
+import { NEEDLE } from './plushdata.js';
 
 const isInt = Number.isInteger;
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -143,7 +144,7 @@ export function conflict(g, e, tool) {
 // Each kind lists only its own keys, so a paste from another kind finds nothing to take ("Nothing to paste") and never reaches the host.
 export function cfgOf(t, V) {
   if (t.smart) {
-    const rule = V.obj({ k: V.enum(SR.KINDS), v: V.int(0, 4099), w: V.int(0, 6) });
+    const rule = V.obj({ k: V.enum(SR.KINDS), v: V.int(0, NEEDLE), w: V.int(0, 6) });
     return { rules: V.arr(3, V.arr(t.smart === 2 ? 8 : 1, rule)), mode: V.enum(['rr', 'prio']), prio: V.arr(3, V.int(0, 2)), def: V.int(-1, 2) };
   }
   if (t.merger === 'prio') return { lanes: V.arr(3, V.int(0, 2)) };

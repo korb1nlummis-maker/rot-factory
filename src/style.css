@@ -84,6 +84,7 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
   #belt > #hint { bottom: calc(var(--center-h, 80px) + 8px); }
 }
 @media (max-width: 700px) { :root { --dial: 46px; --sgap: 4px; --gutter: 8px; --slot: clamp(30px, calc((100vw - 2 * var(--gutter) - 8 * var(--sgap)) / 9), 62px); } .slot .l { display: none; } .slot .k { left: 3px; top: 1px; font-size: 9px; } .slot .c { right: 3px; top: 1px; font-size: 9px; } #hotbarHint { font-size: 10px; } }
+@media (max-width: 430px) { :root { --dial: 38px; } }   /* a phone shows a lot of dials (air, oxygen, suffocation, dust, depth ...): keep them to about three rows */
 @media (min-width: 2400px) { :root { --dial: 92px; --slot: 92px; --sgap: 12px; --gutter: 24px; } #hint { font-size: 19px; } #hotbarHint { font-size: 15px; } }
 #hotbar { display: flex; gap: var(--sgap); }
 .slot { width: var(--slot); height: var(--slot); border-radius: 14px; background: var(--bg); backdrop-filter: blur(8px); border: 1px solid var(--line); display: grid; place-items: center; position: relative; font-size: calc(var(--slot) * 0.355); }
@@ -357,6 +358,12 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
 .dial .dl { margin-top: 4px; max-width: 100%; font-size: calc(10px * var(--fs)); letter-spacing: 0.12em; font-weight: 800; color: var(--dim); text-shadow: 0 1px 4px #000, 0 0 3px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dial .dd { font-style: normal; margin-top: 1px; max-width: 100%; font-size: calc(9.5px * var(--fs)); line-height: 1.2; font-weight: 700; color: var(--c); white-space: pre-line; overflow-wrap: anywhere; text-shadow: 0 1px 4px #000, 0 0 3px #000; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .dial .dd.none { display: none; }
+.dial .stp { display: none; gap: 3px; width: 100%; margin-top: 4px; }
+.dial .sb { flex: 1 1 0; min-width: 0; height: 24px; padding: 0; border-radius: 8px; border: 1px solid var(--line); background: rgba(12,15,9,0.86); color: var(--c); font: 800 16px/1 ui-monospace, Menlo, monospace; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.dial .sb:hover:not(:disabled) { border-color: var(--c); background: rgba(36,43,28,0.95); }
+.dial .sb:active:not(:disabled) { transform: translateY(1px); }
+.dial .sb:disabled { opacity: 0.35; cursor: default; }
+.dial .sb:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
 .dial[data-s='warn'] .ring { box-shadow: 0 0 0 1px rgba(255,176,46,0.6), 0 6px 18px rgba(0,0,0,0.35); }
 .dial[data-s='hot'] .ring { box-shadow: 0 0 14px 1px rgba(255,243,160,0.45), 0 6px 18px rgba(0,0,0,0.35); }
 .dial[data-s='crit'] .ring { animation: dialPulse 0.7s ease-in-out infinite alternate; }
@@ -368,6 +375,7 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
   .dial .mid { padding: 5px; }
   .dial .u { display: none; }
   .dial .dl { letter-spacing: 0.04em; margin-top: 2px; }
+  .dial .sb { height: 28px; font-size: 18px; }   /* a thumb needs the room */
   .dial .dd { font-size: calc(9px * var(--fs)); -webkit-line-clamp: 2; }
 }
 
@@ -393,3 +401,21 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
 @media (max-width: 700px), (max-height: 700px) { #pwMeterHud canvas { display: none !important; } }
 @media (max-width: 1179px) { #pwMeterHud { bottom: calc(var(--belt-h, 0px) + 66px) !important; } }   /* the hint sits over the whole belt here */
 @media (max-width: 700px) { #pwMeterHud { bottom: calc(var(--belt-h, 0px) + 98px) !important; } }   /* and wraps to more lines */
+/* the Plushdex: a virtual grid (dexui.js draws only the cards in view; the padding stands in for the rest), with a toolbar of search, filters and region counts */
+#dexGrid { overflow-anchor: none; min-height: 0; }
+.dx { height: 160px; box-sizing: border-box; overflow: hidden; }
+.dx .n { overflow: hidden; height: 38px; min-height: 0; }
+.dx .g { color: var(--dim); font-size: 10px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dexBar { padding: 10px 20px 0; display: flex; flex-direction: column; gap: 8px; }
+#dexBar .dexRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#dexBar input, #dexBar select { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: rgba(10,12,8,0.6); color: var(--ink, #e8e3cf); font: inherit; font-size: 12.5px; }
+#dexBar input { flex: 1 1 220px; min-width: 160px; }
+#dexBar button { padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line); background: rgba(255,255,255,0.05); color: var(--dim); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+#dexBar button b { color: var(--accent); font-weight: 800; }
+#dexBar button.on { background: var(--accent); color: #1a2008; border-color: var(--accent); }
+#dexBar button.on b { color: #1a2008; }
+#dexBar .seg { display: inline-flex; gap: 0; }
+#dexBar .seg button { border-radius: 0; }
+#dexBar .seg button:first-child { border-radius: 9px 0 0 9px; }
+#dexBar .seg button:last-child { border-radius: 0 9px 9px 0; }
+#dexShown { font-size: 11.5px; color: var(--dim); }

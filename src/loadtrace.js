@@ -5,6 +5,7 @@
 // neighbours, which may buckle in turn.
 import { C, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { FRAME_TYPES, STRUT_DEPTH } from './upgrades.js';
+import { PAD } from './plushdata.js';
 
 export const BASE_LOAD = 2150;   // a frame (a 2.4 m cube, its reach centred on the cube) is rated for a standard 4 wide tunnel (about 32 roof cells under 60 cells of pile) at its rated depth
 export const PRESS = 150;        // metres of depth that add 100% to the weight of the pile
@@ -74,6 +75,7 @@ export function loadOn(w, s, others = []) {
     const x = cellX(i), z = cellZ(k); const pr = press(Math.hypot(x, z));
     for (let j = j0; j <= j1 && j < top; j++) {
       if (!w.solid(i, j, k) || w.solid(i, j - 1, k)) continue;      // only a roof: solid with a gap under it
+      if (w.get(i, j, k) === PAD && !w.solid(i, j + 1, k)) continue;   // a floor plate with air over it (the floor of an upper level in a stack) holds nothing up: it is a platform, not a roof
       const y = cellY(j);
       if (!inside(s, x, y, z)) continue;
       let n = 1; for (const o of near) if (inside(o, x, y, z)) n++;
@@ -84,3 +86,57 @@ export function loadOn(w, s, others = []) {
 }
 
 export function ratioOf(w, s, others) { const cap = s.cap === undefined ? capacityOf(s.kind) : s.cap; return isFinite(cap) ? loadOn(w, s, others) / cap : 0; }
+
+// ---------------------------------------------------------------- stacked cubes (wave 10)
+// A cube that stands directly on another cube (its bottom row is the row over the lower cube's top row, the 4 x 4 footprints overlapping) passes its whole load down
+// into it: the column is ONE path to the floor. A cube's load is what its own sphere weighs (loadOn) plus a share of every cube resting on it, each upper cube
+// splitting its total between what holds it up (the lower cubes under its footprint and the ground, by the cells each covers). Nothing else moves load:
+// a cube beside the column, or a cube that only has the same roof in reach, carries none of it, so a tall stack is never stronger than its weakest cube and
+// never relieves the cube at the top (the bottom of a column carries what the top carries). `s.blk` is the cube's cell block {i0,i1,k0,k1,j0,j1}.
+export const STACK_XFER = 1;
+const bkey = (i, j, k) => (j * 16384 + k) * 16384 + i;
+export function stackIndex(w) {
+  const last = w.supports[w.supports.length - 1];   // a stand-in pushed and popped again (supportHolds) leaves a list of the same length: the last support tells it apart
+  if (w._stkRef === w.supports && w._stkLen === w.supports.length && w._stkLast === last && w._stkVer === (w.stackVer || 0)) return w._stk;
+  const top = new Map(), bot = new Map();
+  for (const s of w.supports) {
+    const b = s.blk; if (!b) continue;
+    for (let k = b.k0; k <= b.k1; k++) for (let i = b.i0; i <= b.i1; i++) { top.set(bkey(i, b.j1, k), s); bot.set(bkey(i, b.j0, k), s); }
+  }
+  w._stk = { top, bot }; w._stkRef = w.supports; w._stkLen = w.supports.length; w._stkLast = last; w._stkVer = w.stackVer || 0;
+  return w._stk;
+}
+// what holds cube u up: { ground: cells of its footprint standing on solid ground, cubes: Map(support -> cells), void: cells over nothing }; `self` is a cube not in the list yet (a preview)
+export function restOf(w, u, self = null) {
+  const ix = stackIndex(w), b = u.blk, cubes = new Map(); let ground = 0, hang = 0;
+  for (let k = b.k0; k <= b.k1; k++) for (let i = b.i0; i <= b.i1; i++) {
+    let low = ix.top.get(bkey(i, b.j0 - 1, k));
+    if (!low && self && self !== u && self.blk && b.j0 - 1 === self.blk.j1 && i >= self.blk.i0 && i <= self.blk.i1 && k >= self.blk.k0 && k <= self.blk.k1) low = self;
+    if (low && low !== u) cubes.set(low, (cubes.get(low) || 0) + 1);
+    else if (w.solid(i, b.j0 - 1, k)) ground++;
+    else hang++;
+  }
+  return { ground, cubes, hang };
+}
+// the cubes standing right on s: Map(upper support -> cells of s's top it covers)
+export function restingOn(w, s) {
+  const out = new Map(); if (!s.blk) return out;
+  const ix = stackIndex(w), b = s.blk;
+  for (let k = b.k0; k <= b.k1; k++) for (let i = b.i0; i <= b.i1; i++) { const u = ix.bot.get(bkey(i, b.j1 + 1, k)); if (u && u !== s) out.set(u, (out.get(u) || 0) + 1); }
+  return out;
+}
+// the weight s carries: its own roof plus the share of every cube above it. `parts` (optional) receives { own, above }. `others` are unplaced supports (a preview), `memo` a Map of totals already known.
+export function totalLoad(w, s, others = [], parts = null, memo = new Map(), depth = 0) {
+  const own = loadOn(w, s, others);
+  let above = 0;
+  if (s.blk && depth < 24) {
+    for (const [u, n] of restingOn(w, s)) {
+      const r = restOf(w, u, s), held = r.ground + [...r.cubes.values()].reduce((a, b) => a + b, 0); if (held <= 0) continue;
+      let tu = memo.get(u); if (tu === undefined) { tu = totalLoad(w, u, others, null, memo, depth + 1); memo.set(u, tu); }
+      above += STACK_XFER * tu * n / held;
+    }
+  }
+  if (parts) { parts.own = own; parts.above = above; }
+  return own + above;
+}
+export function totalRatio(w, s, others = [], parts = null) { const cap = s.cap === undefined ? capacityOf(s.kind) : s.cap; return isFinite(cap) ? totalLoad(w, s, others, parts) / cap : 0; }

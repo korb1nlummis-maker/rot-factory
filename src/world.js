@@ -1,6 +1,6 @@
 import { C, NX, NY, NZ, CS, CX, CY, CZ, HALL_H, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { h32, mulberry32, smoothstep, fbm2, vnoise2, clamp } from './util.js';
-import { pickSpecies, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell } from './plushdata.js';
+import { pickSpecies, bandOfD2, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell } from './plushdata.js';
 import { workingsNear, workingPlugged } from './remains.js';
 
 const NCX = NX >> 4, NCZ = NZ >> 4;
@@ -107,13 +107,14 @@ export class World {
       for (let li = 0; li < 16; li++) {
         const i = cx * 16 + li;
         const x = cellX(i);
-        const hc = x * x + z * z > 85 * 85 ? NY : Math.min(NY, Math.floor(this.heightAt(x, z) / C));
+        const d2 = x * x + z * z, band = bandOfD2(d2);   // how far from the bay decides which species this plush can be (plushdata.js REGIONS)
+        const hc = d2 > 85 * 85 ? NY : Math.min(NY, Math.floor(this.heightAt(x, z) / C));
         col.top[lk * 16 + li] = hc;
         for (let j = 0; j < hc; j++) {
           const h1 = h32(i, j, k, sd);
           const h2 = Math.imul(h1, 0x9e3779b1) ^ (h1 >>> 15);
           const b = (j * 16 + lk) * 16 + li;
-          col.sp[b] = pickSpecies(h1 >>> 4, h2 >>> 0, this.veinAt(i, j, k) > VEIN_T);
+          col.sp[b] = pickSpecies(h1 >>> 4, h2 >>> 0, this.veinAt(i, j, k) > VEIN_T, band);
           col.vr[b] = ((h1 >>> 1) & 127) | ((h2 >>> 0) % 140 === 0 ? 128 : 0);
         }
       }
@@ -308,6 +309,7 @@ export class World {
     if (!d.has(b)) this.diffCount++;
     d.set(b, [sp, vr]);
     this.cols.delete(key); this._lk = -1;
+    this.markDirty(i, j, k);   // a restored edit (a loaded save, a late joiner's world list) marks its chunk as edited too: the remesh skips a chunk that holds no edit and lies under the surface, and a dug tunnel deep in the pile would not be drawn
   }
 
   // drop untouched columns far from the player

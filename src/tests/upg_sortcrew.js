@@ -69,7 +69,7 @@ export default async function (ctx) {
     const out = [];
     for (const n of [0, 10, 100]) {
       fresh({}); S().dex = {}; const a = g.valueOf(SP, 0, 0); fresh({ dex: 1 }); S().dex = {}; for (let q = 1; q <= n; q++) S().dex[q] = 1; const b = g.valueOf(SP, 0, 0);
-      if (!near(b / a, 1 + 0.004 * n, 0.003)) out.push(`${n} species: x${(b / a).toFixed(4)}`);
+      if (!near(b / a, 1 + (await import('../plushdata.js')).DEX_UNIT * n, 0.003)) out.push(`${n} species: x${(b / a).toFixed(4)}`);
     }
     S().dex = {}; fresh({}); return out.length ? out.join('; ') : true;
   });
@@ -167,11 +167,11 @@ export default async function (ctx) {
     try { for (let n = 0; n < secs / 0.05; n++) { g.time += 0.05; g.crew.update(0.05, g.time); g.logi.update(0.05); log.maxCarry = Math.max(log.maxCarry, b.carry.length); log.states.add(b.state); if (log.stop && log.stop(b, log)) break; } } finally { g.mechDug = orig; }
     return log;
   };
-  await T('upg.crew.crew-and-slots-grow-the-roster-at-once', async () => {
+  await T('upg.crew.crew-hatches-the-first-bot-and-slots-add-bunks-the-bench-fills', async () => {
     const out = [];
     fresh({ bag: 3 }); S().stats.plush = 150; const m0 = S().money; if (!g.buy('crew')) return 'Scrapper Bot refused'; if (S().crew.length !== 1 || g.T.crewMax !== 1) out.push('no bot after buying'); if (m0 - S().money !== U('crew').cost[0]) out.push('crew charge');
     S().stats.plush = 399; if (g.buy('crewSlots')) out.push('More Scrappers bought below 400 plush'); S().stats.plush = 400;
-    for (let l = 1; l <= 8; l++) { S().money = 1e12; if (!g.buy('crewSlots')) return 'More Scrappers refused at ' + l; if (g.T.crewMax !== 1 + l || S().crew.length !== 1 + l) out.push(`level ${l}: crewMax ${g.T.crewMax}, bots ${S().crew.length}`); }
+    for (let l = 1; l <= 8; l++) { S().money = 1e12; if (!g.buy('crewSlots')) return 'More Scrappers refused at ' + l; if (g.T.crewMax !== 1 + l || S().crew.length !== l) out.push(`level ${l}: bunks ${g.T.crewMax}, bots ${S().crew.length} (a bunk is not a bot: the bench crafts it)`); if (!g.craftItem('bot:scrapper', 1) || S().crew.length !== 1 + l) out.push(`level ${l}: the bench did not fill the new bunk (${S().crew.length} bots)`); }
     return out.length ? out.join('; ') : true;
   });
   await T('upg.crew.haul-bigger-buckets-per-level', async () => {

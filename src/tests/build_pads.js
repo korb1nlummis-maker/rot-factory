@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // build.*: floor pads, zoop, snapping, clearance, walls, catwalks, rails, hammer, save and load, readouts. Pieces are world cells, so every test cleans up after itself (setup / clean in build_lib.js).
 import { makeShell, UP } from './build_lib.js';
 const UP_ = UP;
@@ -58,7 +59,7 @@ export default async function (ctx) {
     K.plushAt(i, 4, k); pl = await tryPlan(); if (pl.ok) bad.push('plush at the 5th row (inside the 4 cell headroom) was allowed'); w().removeCell(i, 4, k, false);
     K.plushAt(i, 5, k); pl = await tryPlan(); if (!pl.ok) bad.push('plush at row 5 (above the headroom) refused: ' + pl.why); w().removeCell(i, 5, k, false);
     K.plushAt(i + 1, 0, k + 1, 3); pl = await tryPlan(); if (pl.ok || !/Dig out 3/.test(pl.why)) bad.push('plush in the floor cells gave: ' + (pl.ok ? 'ok' : pl.why)); for (let q = 0; q < 3; q++) w().removeCell(i + 1, q, k + 1, false);
-    w().setCell(i, 3, k, 4098, 0); pl = await tryPlan(); if (pl.ok || !/solid/.test(pl.why)) bad.push('a bulkhead in the headroom gave: ' + (pl.ok ? 'ok' : pl.why)); w().setCell(i, 3, k, 0, 0);
+    w().setCell(i, 3, k, PD.BULK, 0); pl = await tryPlan(); if (pl.ok || !/solid/.test(pl.why)) bad.push('a bulkhead in the headroom gave: ' + (pl.ok ? 'ok' : pl.why)); w().setCell(i, 3, k, 0, 0);
     // a refused plan places nothing and keeps the item
     K.plushAt(i, 2, k); const n0 = S().entities.length; await tryPlan(); g.placeCurrent(g.curTool()); if (S().entities.length !== n0 || S().items['pad:timber'] !== 5) bad.push('a refused plan placed or charged'); w().removeCell(i, 2, k, false);
     pl = await tryPlan(); if (!pl.ok) bad.push('clear again but refused: ' + pl.why);
@@ -239,12 +240,12 @@ export default async function (ctx) {
     K.setup(); const bad = [], i = I0(), k = K0();
     const a = await K.put('pad:timber', i, k); if (!a.ok) return a.why; const A = a.made[0];
     const [ci, cj, ck] = K.cellsOf(A)[5];
-    if (w().removeCell(ci, cj, ck, false) !== null || w().get(ci, cj, ck) !== 4095) bad.push('removeCell took a pad cell');
-    S().carry = []; g.grabCd = 0; const got = g.collect({ type: 'cell', i: ci, j: cj, k: ck, sp: 4095, vr: 0 }); if (got || w().get(ci, cj, ck) !== 4095 || S().carry.length) bad.push('the hand took a pad cell');
+    if (w().removeCell(ci, cj, ck, false) !== null || w().get(ci, cj, ck) !== PD.PAD) bad.push('removeCell took a pad cell');
+    S().carry = []; g.grabCd = 0; const got = g.collect({ type: 'cell', i: ci, j: cj, k: ck, sp: PD.PAD, vr: 0 }); if (got || w().get(ci, cj, ck) !== PD.PAD || S().carry.length) bad.push('the hand took a pad cell');
     // a blast right on it
     g.detonate({ x: cellX(ci), y: 0.3, z: cellZ(ck), tier: 3, dyn: false }); adv(0.5); if (!K.solidCells(A)) bad.push('a blast removed pad cells');
     // a roof cell of pad over a hole is not a roof: it never creaks
-    w().setCell(ci, 8, ck, 4095, 0); if (w().stress(ci, 8, ck) !== null) bad.push('a pad cell over a gap reads as a failing roof'); if (w().slipChance(ci, 8, ck, 1) !== null) bad.push('a pad cell slips'); w().setCell(ci, 8, ck, 0, 0);
+    w().setCell(ci, 8, ck, PD.PAD, 0); if (w().stress(ci, 8, ck) !== null) bad.push('a pad cell over a gap reads as a failing roof'); if (w().slipChance(ci, 8, ck, 1) !== null) bad.push('a pad cell slips'); w().setCell(ci, 8, ck, 0, 0);
     // loose plush piled against it and a collapse next to it: the pad stays
     for (let q = 0; q < 30; q++) w().setCell(A.i0 + 5, 1 + (q % 5), A.k0 + (q % 4), 3, 0); g.slide.trigger(A.i0 + 5, 1, A.k0, 3); ctx.stepSim(3); if (!K.solidCells(A)) bad.push('a slide moved pad cells');
     // the aim readout does not offer a pad as plush
@@ -263,7 +264,7 @@ export default async function (ctx) {
     if (!K.solidCells(W) || K.cellsOf(W).length !== 16) bad.push('a wall is not 16 bulkhead cells');
     // never falls, never taken by hand, never blasted
     const [ci, cj, ck] = K.cellsOf(W)[6];
-    S().carry = []; const got = g.collect({ type: 'cell', i: ci, j: cj, k: ck, sp: 4098, vr: 0 }); if (got || w().get(ci, cj, ck) !== 4098) bad.push('the hand took a wall panel'); if (S().items.bulk) bad.push('a loose bulkhead item appeared');
+    S().carry = []; const got = g.collect({ type: 'cell', i: ci, j: cj, k: ck, sp: PD.BULK, vr: 0 }); if (got || w().get(ci, cj, ck) !== PD.BULK) bad.push('the hand took a wall panel'); if (S().items.bulk) bad.push('a loose bulkhead item appeared');
     g.detonate({ x: cellX(ci), y: cj * 0.6 + 0.3, z: cellZ(ck), tier: 3, dyn: false }); adv(0.3); if (!K.solidCells(W)) bad.push('a blast removed wall cells');
     // the hammer takes the whole section and hands back one wall
     selectTool('hammer'); K.aim(ci, ck, { y: cj * 0.6 + 0.3, back: 2.6 }); g.updateBuild(g.curTool(), p().eyePos(new ctx.V3()), p().forward(new ctx.V3())); const ref = g.hammerTarget(); if (!ref || ref.id !== W.id) bad.push('hammer does not pick the wall: ' + JSON.stringify(ref)); else g.hammerHit();
@@ -271,7 +272,7 @@ export default async function (ctx) {
     // anchoring: a wall across a dug tunnel ends the unsupported stretch (bulkhead cells anchor the roof edge, as before)
     const sp = ctx.spot(20); ctx.dig(sp.i, sp.k - 2, 30, 4, 4, false); const mid = sp.i + 15, kk = sp.k;
     const before = w().cavityLen(mid, 1, kk, 40), farBefore = w().cavityLen(mid + 6, 1, kk, 40);
-    for (let dk = -2; dk <= 1; dk++) for (let j = 0; j < 4; j++) w().setCell(mid + 1, j, kk + dk, 4098, 0);
+    for (let dk = -2; dk <= 1; dk++) for (let j = 0; j < 4; j++) w().setCell(mid + 1, j, kk + dk, PD.BULK, 0);
     const wallLen = w().cavityLen(mid, 1, kk, 40);
     if (!(wallLen === 0 || wallLen < before)) bad.push(`a wall beside the cell does not anchor: ${before} -> ${wallLen}`);
     for (let dk = -2; dk <= 1; dk++) for (let j = 0; j < 4; j++) w().setCell(mid + 1, j, kk + dk, 0, 0);
@@ -282,12 +283,12 @@ export default async function (ctx) {
   await guard('build.pad-cell-beside-a-cavity-anchors-it-and-never-reads-as-a-failing-roof', async () => {
     K.setup(); const bad = [], sp = ctx.spot(20); ctx.dig(sp.i, sp.k - 2, 30, 4, 4, false); const mid = sp.i + 15, kk = sp.k;
     const base = w().cavityLen(mid, 1, kk, 40); if (!(base > 0)) return 'test setup: the dug cell is already anchored (' + base + ')';
-    for (let dk = -2; dk <= 1; dk++) for (let j = 0; j < 4; j++) w().setCell(mid + 1, j, kk + dk, 4095, 0);
+    for (let dk = -2; dk <= 1; dk++) for (let j = 0; j < 4; j++) w().setCell(mid + 1, j, kk + dk, PD.PAD, 0);
     const withPad = w().cavityLen(mid, 1, kk, 40); if (withPad !== 0) bad.push(`a pad cell at the same row beside the cell does not anchor it like a bulkhead: ${base} -> ${withPad}`);
     for (let dk = -2; dk <= 1; dk++) for (let j = 0; j < 4; j++) w().setCell(mid + 1, j, kk + dk, 0, 0);
     // a floor of pad cells in the tunnel (one row, under the whole stretch) changes no reading of the rows above
     const rd = () => { const o = []; for (let i = sp.i + 2; i < sp.i + 28; i += 5) for (let j = 1; j <= 3; j++) o.push(w().cavityLen(i, j, kk, 40)); return o.join(); };
-    const before = rd(); for (let i = sp.i; i < sp.i + 30; i++) for (let dk = -2; dk <= 1; dk++) w().setCell(i, 0, kk + dk, 4095, 0);
+    const before = rd(); for (let i = sp.i; i < sp.i + 30; i++) for (let dk = -2; dk <= 1; dk++) w().setCell(i, 0, kk + dk, PD.PAD, 0);
     const after = rd(); for (let i = sp.i; i < sp.i + 30; i++) for (let dk = -2; dk <= 1; dk++) w().setCell(i, 0, kk + dk, 0, 0);
     if (before !== after) bad.push('a pad floor changed the cavity readings: ' + before + ' vs ' + after);
     return bad.length === 0 || bad.join(' || ');
@@ -401,7 +402,7 @@ export default async function (ctx) {
     const raw = K.cloneJSON(S().entities.filter((e) => K.isShell(e))), cellsBefore = [];
     for (const e of raw) if (['pad', 'catwalk', 'wall'].includes(e.type)) for (const [i, j, k] of B.cellsOf(e)) cellsBefore.push([i, j, k, w().get(i, j, k), w().getVr(i, j, k)]);
     // what a save keeps: the plain ents and the cell edits. Forget the live objects, restore both, add the ents back the way loading does.
-    const diff = []; w().forEachDiff((id, sp, vr) => { if (sp === 4095 || sp === 4098) diff.push([id, sp, vr]); });
+    const diff = []; w().forEachDiff((id, sp, vr) => { if (sp === PD.PAD || sp === PD.BULK) diff.push([id, sp, vr]); });
     for (const e of made) { const it = g.machines.items.get(e.id); g.machines.disposeObj(it.obj); g.machines.root.remove(it.obj); g.machines.items.delete(e.id); }
     for (const [i, j, k] of cellsBefore) w().setCell(i, j, k, 0, 0); S().entities = S().entities.filter((e) => !K.isShell(e)); g.world.reserved.clear(); g._bld = null;
     const NX = ctx.cfg.NX, NZ = ctx.cfg.NZ; for (const [id, sp, vr] of diff) { const i = id % NX, k = Math.floor(id / NX) % NZ, j = Math.floor(id / (NX * NZ)); w().restoreDiff(i, j, k, sp, vr); }
@@ -444,7 +445,7 @@ export default async function (ctx) {
     const ids = ['pad:timber', 'pad:steel', 'pad:concrete', 'catwalk', 'wall', 'wramp', 'wramp:haul', 'stair'], base = I0(), kz = K0();
     const consistent = () => {
       const bx = K.box(); for (const e of K.ents()) if (['pad', 'catwalk', 'wall'].includes(e.type)) { if (!K.solidCells(e)) return `${e.type} ${e.id} lost cells`; }
-      for (let k = bx.k0; k <= bx.k1; k += 1) for (let i = bx.i0; i <= bx.i1; i += 1) for (let j = 0; j < 8; j++) { const s2 = w().get(i, j, k); if (s2 === 4095 || (s2 === 4098 && (w().getVr(i, j, k) & 128))) { const o = B.ownerAt(g, i, j, k); if (!o) return `orphan cell ${s2} at ${i},${j},${k}`; } }
+      for (let k = bx.k0; k <= bx.k1; k += 1) for (let i = bx.i0; i <= bx.i1; i += 1) for (let j = 0; j < 8; j++) { const s2 = w().get(i, j, k); if (s2 === PD.PAD || (s2 === PD.BULK && (w().getVr(i, j, k) & 128))) { const o = B.ownerAt(g, i, j, k); if (!o) return `orphan cell ${s2} at ${i},${j},${k}`; } }
       return null;
     };
     let placed = 0, removed = 0;

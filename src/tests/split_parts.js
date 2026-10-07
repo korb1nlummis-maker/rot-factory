@@ -1,3 +1,4 @@
+import * as PD from '../plushdata.js';
 // split.* (wave 2B): the four items at the bench and in the hand (unlocks, prices, placing, converting a belt, the hammer), their settings (cfg, copy and paste),
 // readouts, power, saves and the look. The behavior on belts is in split_belts.js.
 import { makeSplitKit, UP, UPB, RAR, NEEDLE } from './split_lib.js';
@@ -142,7 +143,7 @@ export default async function (ctx) {
     no(sm, { rules: [[ANY, NONE], [], []] }, /exactly one rule|Bad value/, 'two rules on a smart output');
     no(sm, { rules: [[R(4, 2)], [], []] }, /exactly one rule|Bad value/, 'a rarity range upside down');
     no(sm, { rules: [[{ k: 'species', v: 0 }], [], []] }, /exactly one rule|Bad value/, 'species 0');
-    no(sm, { rules: [[{ k: 'species', v: 4098 }], [], []] }, /exactly one rule|Bad value/, 'a bulkhead species');
+    no(sm, { rules: [[{ k: 'species', v: PD.BULK }], [], []] }, /exactly one rule|Bad value/, 'a bulkhead species');
     no(sm, { rules: [[{ k: 'bogus' }], [], []] }, /Bad value/, 'an unknown rule kind');
     no(sm, { rules: [[ANY], [ANY]] }, /exactly one rule|Bad/, 'two outputs');
     no(sm, { rules: 'any' }, /Bad value/, 'rules as text');
