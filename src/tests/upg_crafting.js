@@ -16,6 +16,10 @@ export default async function (ctx) {
     if (/^(lift|ug):[1-5]$/.test(id)) return ['beltMk' + (+id.slice(id.indexOf(':') + 1) + 1)];
     if (id === 'lift' || id === 'liftframe') return ['beltLift'];
     if (id === 'ug') return ['beltUg'];
+    if (id === 'merger') return ['beltMerge'];   // wave 2B (src/catalog_belts.js): mergers and ruled splitters
+    if (id === 'pmerger') return ['prioMerge'];
+    if (id === 'ssplit') return ['smartSplit'];
+    if (id === 'psplit') return ['progSplit'];
     if (id.startsWith('pad:') || id === 'catwalk' || id === 'wall') return ['shellPads'];   // wave 3 build shell (src/catalog_build.js)
     if (id === 'wramp' || id === 'wramp:haul' || id === 'stair') return ['shellRamps'];
     if (id === 'levelpad') return ['shellLevel'];
@@ -25,7 +29,20 @@ export default async function (ctx) {
     if (id === 'flood') return ['furnFlood'];
     if (id === 'silo' || id === 'ovault') return ['furnSilo'];
     if (id === 'dimdepot') return ['furnDepot'];
-    return ({ excavator: ['excavator'], dozer: ['dozer'], wheel: ['wheel'], truck: ['truck'], charger: ['crew'], rope: ['rope'], mfan: ['mfan'], marker: ['markers'], glow: ['markers'], flare: ['markers'], jack: ['jacks'], strut: ['struts'], medkit: ['firstaid'], canister: ['firstaid'], dynamite: ['dynamite'], charge: ['charges'], lantern: ['lantern'], bulk: ['bulkhead'], belt: ['belts'], ramp: ['belts'], hose: ['vac'], splitter: ['splitter'], gate: ['detector'], gen: ['power'], pole: ['power'], cable: ['power'], switch: ['power'], breaker: ['power'], meter: ['power'], 'battery:1': ['power'], 'battery:2': ['power'], 'battery:3': ['power'], pswitch: ['prioPower'], fan: ['fans'], sorter: ['sorter'], vault: ['vault'], mech: ['mech'], beacon: ['depots'], claw: ['claw'], borer: ['borer'], arch: ['archGate'], archBig: ['archGiant'] })[id];
+    if (id === 'door' || id === 'doorkey') return ['transitDoor'];   // wave 5 transit (src/transit.js): doors, platform lifts, jump pads
+    if (id === 'door:blast') return ['transitBlast'];
+    if (id === 'plift' || id === 'callbtn') return ['transitLift'];
+    if (id === 'jump' || id === 'cushion') return ['transitJump'];
+    if (id === 'gen:portable' || id === 'hlamp') return ['power'];   // the generator ladder and the hanging lantern (src/catalog_power.js)
+    if (id === 'gen:turbine') return ['genTurbine'];
+    if (id === 'gen:plant') return ['genPlant'];
+    if (id === 'gen:grid') return ['genStation'];
+    if (id === 'gen:titan') return ['genTitan'];
+    if (id === 'rail' || id === 'railstn' || id === 'railcar') return ['railShuttle'];   // the mine rail shuttle (src/catalog_rail.js)
+    if (id.startsWith('garch:')) return [id.split(':')[1] === '12' ? 'archHall' : 'archWide', id.split(':')[2]];   // wave 6 giant arches (src/arches.js): a span unlock AND a frame material, so no single upgrade unlocks one (arch.unlock-chain-prices-and-bench-rows tests the pair)
+    if (id === 'road') return ['haulRoad'];   // haul roads and docks (src/catalog_haul.js)
+    if (id === 'dock' || id === 'chargepack') return ['truckDock'];
+    return ({ excavator: ['excavator'], dozer: ['dozer'], wheel: ['wheel'], truck: ['truck'], charger: ['crew'], rope: ['rope'], mfan: ['mfan'], marker: ['markers'], glow: ['markers'], flare: ['markers'], jack: ['jacks'], strut: ['struts'], medkit: ['firstaid'], canister: ['firstaid'], dynamite: ['dynamite'], charge: ['charges'], lantern: ['lantern'], bulk: ['bulkhead'], belt: ['belts'], ramp: ['belts'], hose: ['vac'], splitter: ['splitter'], gate: ['detector'], gen: ['power'], pole: ['power'], cable: ['power'], switch: ['power'], breaker: ['power'], meter: ['power'], 'battery:1': ['power'], 'battery:2': ['power'], 'battery:3': ['power'], pswitch: ['prioPower'], fan: ['fans'], sorter: ['sorter'], vault: ['vault'], mech: ['mech'], beacon: ['depots'], claw: ['claw'], borer: ['borer'], arch: ['archGate'], archBig: ['archGiant'], vscan: ['vscan'] })[id];
   };
 
   // ---------------------------------------------------------------- recipes: price on the card is what is charged, output lands in the right place
@@ -127,13 +144,13 @@ export default async function (ctx) {
     for (const u of UPGRADES) {
       fresh({ [u.id]: u.max }); g.T = g.tune();
       const have = new Set(recipes(g).map((r) => r.id));
-      const want = all.filter((id) => (GATE(id) || []).includes(u.id));
+      const want = all.filter((id) => (GATE(id) || []).includes(u.id) && !id.startsWith('garch:'));   // an arch needs two unlocks at once
       for (const id of want) {
         if (id.startsWith('cart:')) { if (!(+id.split(':')[1] <= u.max)) continue; }
         if (id === 'gen' || id === 'pole') { if (!have.has(id)) bad.push(`${u.id} should unlock ${id}`); continue; }
         if (!have.has(id)) bad.push(`${u.id} should unlock ${id}`);
       }
-      for (const id of have) if (!(GATE(id) || []).includes(u.id)) bad.push(`${u.id} unexpectedly unlocks ${id}`);
+      for (const id of have) if (!(GATE(id) || []).includes(u.id)) bad.push(`${u.id} unexpectedly unlocks ${id}`);   // (an arch row appears only with its span upgrade and a frame material: neither alone)
     }
     // cart tiers follow the cart upgrade level one by one
     for (let l = 1; l <= 5; l++) { fresh({ cart: l }); g.T = g.tune(); const c = recipes(g).filter((r) => r.kind === 'cart').length; if (c !== l) bad.push(`cart level ${l} lists ${c} carts`); }

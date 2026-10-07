@@ -8,6 +8,10 @@ import { isEarth, earthInfo } from './earth.js';
 import { wireable } from './cables.js';
 import { infoReplace, infoExtra } from './ext.js';
 import { pickBuilt } from './build.js';
+import { pick as pickTransit } from './transit.js';
+import { pickRail } from './rail.js';
+import { pick as pickArch, holds as archHolds } from './arches.js';
+import { pickFlat } from './haul.js';
 import { C, cellX, cellZ } from './config.js';
 
 const pct = (v) => `${Math.round((v ?? 0) * 100)}%`;
@@ -22,10 +26,16 @@ export function findInfoRef(g) {
   const tile = g.logi.pick(eye, dir, 3.6); if (tile) return { kind: 'tile', id: tile.id };
   let best = null, bd = 3.4;
   for (const it of g.machines.items.values()) {
-    const e = it.ent; const em = isEarth(e.type); const x = em ? it.obj.position.x : (e.cx ?? e.px ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.pz ?? e.z); if (x === undefined) continue;
+    const e = it.ent; if (e.type === 'garch') continue; const em = isEarth(e.type); const x = em ? it.obj.position.x : (e.cx ?? e.px ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.pz ?? e.z); if (x === undefined) continue;
     const v = eye.clone().set(x - eye.x, y - eye.y, z - eye.z), d = v.length(); if (d > bd + (e.hr || 0) || v.normalize().dot(dir) < (e.hr ? 0.8 : 0.9)) continue; bd = d; best = it;
   }
-  { const pb = pickBuilt(g, eye, dir, 3.6); if (pb && (!best || pb.t < bd)) return { kind: 'mach', id: pb.ent.id }; }   // build shell: the pad, catwalk, wall, ramp or stair under the crosshair
+  { let pb = pickBuilt(g, eye, dir, 3.6), pt = pickTransit(g, eye, dir, 3.6);   // build shell: the pad, catwalk, wall, ramp or stair under the crosshair; transit: a door, the lift car, a call button, a jump or cushion pad
+    if (pb && pt) { if (pb.t <= pt.t) pt = null; else pb = null; }
+    if (pb && (!best || pb.t < bd)) return { kind: 'mach', id: pb.ent.id };
+    if (pt && (!best || pt.t < bd)) return { kind: 'mach', id: pt.ent.id }; }
+  { const rp = pickRail(g, eye, dir, 3.6); if (rp && (!best || rp.t < bd)) return { kind: 'mach', id: rp.ent.id }; }   // Mine Rail: the piece of track under the crosshair
+  { const fp = pickFlat(g, eye, dir, 3.6); if (fp && (!best || fp.t < bd)) return { kind: 'mach', id: fp.ent.id }; }   // a road plate or a dock
+  { const ap = pickArch(g, eye, dir, 3.6); if (ap && (!best || (ap.t < bd && !archHolds(ap.ent, best)))) return { kind: 'mach', id: ap.ent.id }; }   // a giant arch: a rib, a pillar or the hollow inside it
   return best ? { kind: 'mach', id: best.ent.id } : null;
 }
 
@@ -68,7 +78,7 @@ function infoBase(g, ref) {
     if (e.type === 'frame') {
       const f = FRAME_TYPES[e.kind], s = g.world.supports.find((q) => q.id === e.id), d = supportDepth(e.cx, e.cz); const load = s && s.load !== undefined ? s.load : null;
       const mount = [...g.logi.tiles.values()].some((q) => q.mounted && q.frameId === e.id);
-      return { title: f.name.toUpperCase() + (e.auto ? ' (crew)' : ''), lit: load === null || load < 0.85, lines: [`${isFinite(f.maxDepth) ? 'Rated to ' + f.maxDepth + ' m deep' : 'Rated for any depth'}; this one stands at ${Math.round(d)} m`, load !== null ? `Load ${pct(load)} (creaks at 85%, breaks at 100%)` : 'Load not measured yet', `Holds the roof within ${f.radius} m${e.turned ? `; turned ${Math.round(((e.yaw % 6.2832) + 6.2832) % 6.2832 * 180 / Math.PI)} degrees` : ''}`, mount ? 'Has a Support Fan clamped under it' : 'A Support Fan can clamp under its top beam'] };
+      return { title: f.name.toUpperCase() + (e.auto ? ' (crew)' : ''), lit: load === null || load < 0.85, lines: [`${isFinite(f.maxDepth) ? 'Rated to ' + f.maxDepth + ' m deep' : 'Rated for any depth'}; this one stands at ${Math.round(d)} m`, load !== null ? `Load ${pct(load)} (creaks at 85%, breaks at 100%)` : 'Load not measured yet', `${e.d !== undefined ? 'A hollow cube, 4x4x4 cells (2.4 m)' : 'An old one cell deep frame'}. Holds the roof within ${f.radius} m of its centre${e.turned ? `; turned ${Math.round(((e.yaw % 6.2832) + 6.2832) % 6.2832 * 180 / Math.PI)} degrees` : ''}`, mount ? 'Has a Support Fan clamped under it' : 'A Support Fan can clamp under its top beam'] };
     }
     if (e.type === 'strut') { const s = g.world.supports.find((q) => q.id === e.id), r = e.jack ? 2.7 : 1.9; const d = supportDepth(e.x, e.z); return { title: e.jack ? 'HYDRAULIC JACK' : 'STRUT', lit: !s || (s.load ?? 0) < 0.85, lines: [`Rated to ${e.jack ? STRUT_DEPTH.jack : STRUT_DEPTH.strut} m deep; this one stands at ${Math.round(d)} m`, s && s.load !== undefined ? `Load ${pct(s.load)}` : 'Load not measured yet', `Holds the roof within ${r} m`] }; }
     if (e.type === 'lantern') return { title: 'LANTERN', lit: true, lines: ['A steady light. No power needed.'] };

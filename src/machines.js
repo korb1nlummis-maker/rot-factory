@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { C, NX, NY, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { FRAME_TYPES, supportDepth } from './upgrades.js';
 import { capacityOf, loadOn } from './loadtrace.js';
+import { archTaken } from './arches.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { buildMountFan, MOUNT_FAN } from './mountfan.js';
@@ -35,29 +36,72 @@ const MATS = {
   glowG: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 3, 1.2) }),
 };
 
-export function buildFrameMesh(kind, axis, w, h, yaw) {
+// A frame is a hollow cube module: 4 cells wide, 4 high and 4 deep (2.4 m). Old saves and tests may carry a frame with no `d`: that is
+// the old one cell deep doorway (FRAME_D1), kept so such a frame still draws and holds up.
+export const FRAME_N = 4;                   // cells along each side of a frame module
+export const FRAME_W = FRAME_N * C - 0.04;  // 2.36 m wide (a 2 cm gap on each side so neighbours do not z-fight)
+export const FRAME_H = FRAME_N * C - 0.02;  // 2.38 m high
+export const FRAME_D = FRAME_N * C - 0.04;  // 2.36 m deep
+export const FRAME_D1 = C - 0.06;           // the old one cell deep frame
+export const frameDepth = (f) => (f && f.d !== undefined ? f.d : FRAME_D1);
+export const frameCells = (f) => (f && f.d !== undefined ? Math.max(1, Math.round((f.d + 0.05) / C)) : 1);
+
+// the beams and pillars of a frame in its own frame of reference (x across its width, z along its depth, y up from the floor): [size, centre, plate?]
+// The mesh is built from this list and the hammer aims at the same boxes.
+export function frameMembers(kind, w, h, d = FRAME_D1) {
+  const heavy = kind === 'concrete' || kind === 'rebar' || kind === 'carbon' || kind === 'plasma' || kind === 'voidl' || kind === 'neutron' || kind === 'horizon';
+  const cube = d > 1.2;
+  // pillars and beams: the same section all round, thick enough to read as a cube from across the tunnel
+  const t = heavy ? 0.28 : kind === 'steel' || kind === 'titan' ? 0.16 : 0.2;
+  const out = [];
+  // 4 vertical pillars at the corners, each on a small foot
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    out.push({ s: [t, h, t], p: [sx * (w / 2 - t / 2), h / 2, sz * (d / 2 - t / 2)] });
+    out.push({ s: [t * 1.5, 0.07, t * 1.5], p: [sx * (w / 2 - t * 0.75), 0.035, sz * (d / 2 - t * 0.75)] });   // a foot plate, flush with the outside of the pillar
+  }
+  // the beam ring round the top: two across the width (front and back) and two along the depth (left and right)
+  for (const sz of [-1, 1]) out.push({ s: [w, t, t], p: [0, h - t / 2, sz * (d / 2 - t / 2)] });
+  for (const sx of [-1, 1]) out.push({ s: [t, t, d - 2 * t], p: [sx * (w / 2 - t / 2), h - t / 2, 0] });
+  if (cube) {
+    // a ridge beam down the middle of the top (a Support Fan hangs under it), and a rail at mid height down each side wall
+    out.push({ s: [t * 0.8, t * 0.8, d - 2 * t], p: [0, h - t * 0.4, 0] });
+    out.push({ s: [w - 2 * t, t * 0.8, t * 0.8], p: [0, h - t * 0.4, 0] });   // and one across, so whatever hangs from the middle of the top (a fan, lanterns on four sides) has a beam over it
+    for (const sx of [-1, 1]) out.push({ s: [t * 0.6, t * 0.6, d - 2 * t], p: [sx * (w / 2 - t * 0.3), h * 0.5, 0] });
+  }
+  if (kind === 'steel' || kind === 'titan') {
+    // yellow bolt plates at the top corners, on the front and the back
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) out.push({ s: [t * 1.6, t * 1.6, 0.03], p: [sx * (w / 2 - t / 2), h - t / 2, sz * (d / 2 + 0.016)], plate: true });
+  }
+  return out;
+}
+
+export function buildFrameMesh(kind, axis, w, h, yaw, d = FRAME_D1) {
   const g = new THREE.Group();
   const m = MATS[kind];
-  const heavy = kind === 'concrete' || kind === 'rebar' || kind === 'carbon' || kind === 'plasma' || kind === 'voidl' || kind === 'neutron' || kind === 'horizon';
-  const t = heavy ? 0.26 : kind === 'steel' || kind === 'titan' ? 0.12 : 0.15;
-  const depth = C - 0.06;
-  // a hollow box, one cell deep: 4 vertical pillars at the corners and 4 beams around the top, open on every side
-  // (no sill, so you can walk through it and build off any face)
-  const d = depth;
-  const pillar = new THREE.BoxGeometry(t, h, t);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const pl = new THREE.Mesh(pillar, m); pl.position.set(sx * (w / 2 - t / 2), h / 2, sz * (d / 2 - t / 2)); g.add(pl);
-  }
-  const bw = new THREE.BoxGeometry(w, t, t), bd = new THREE.BoxGeometry(t, t, d - 2 * t);
-  for (const sz of [-1, 1]) { const b1 = new THREE.Mesh(bw, m); b1.position.set(0, h - t / 2, sz * (d / 2 - t / 2)); g.add(b1); }
-  for (const sx of [-1, 1]) { const b2 = new THREE.Mesh(bd, m); b2.position.set(sx * (w / 2 - t / 2), h - t / 2, 0); g.add(b2); }
-  if (kind === 'steel' || kind === 'titan') {
-    // yellow bolt plates at the top corners
-    const plate = new THREE.BoxGeometry(t * 1.6, t * 1.6, 0.03);
-    for (const sx of [-1, 1]) { const pl = new THREE.Mesh(plate, MATS.yellow); pl.position.set(sx * (w / 2 - t / 2), h - t / 2, d / 2 + 0.016); g.add(pl); }
+  for (const q of frameMembers(kind, w, h, d)) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(q.s[0], q.s[1], q.s[2]), q.plate ? MATS.yellow : m); b.position.set(q.p[0], q.p[1], q.p[2]); g.add(b);
   }
   g.rotation.y = yaw !== undefined ? yaw : axis === 'x' ? Math.PI / 2 : 0; // the box's open faces point along the tunnel
   return g;
+}
+
+// where does the ray (eye, dir) first meet a frame? { t, member } when it strikes a pillar or beam within maxT metres; { t, through: true } when it only
+// passes through the hollow inside (so you can still aim at a frame you stand in); null otherwise
+export function frameRay(f, eye, dir, maxT = 4) {
+  const yaw = f.yaw !== undefined ? f.yaw : f.axis === 'x' ? Math.PI / 2 : 0, cs = Math.cos(yaw), sn = Math.sin(yaw);
+  const ox = eye.x - f.cx, oz = eye.z - f.cz;
+  const o = [ox * cs - oz * sn, eye.y - f.y0, ox * sn + oz * cs], v = [dir.x * cs - dir.z * sn, dir.y, dir.x * sn + dir.z * cs];
+  const box = (lo, hi) => { let t0 = 0, t1 = maxT; for (let a = 0; a < 3; a++) { if (Math.abs(v[a]) < 1e-9) { if (o[a] < lo[a] || o[a] > hi[a]) return null; continue; } let a0 = (lo[a] - o[a]) / v[a], a1 = (hi[a] - o[a]) / v[a]; if (a0 > a1) { const q = a0; a0 = a1; a1 = q; } t0 = Math.max(t0, a0); t1 = Math.min(t1, a1); if (t0 > t1) return null; } return t0; };
+  const w = f.w || FRAME_W, h = f.h || FRAME_H, d = frameDepth(f);
+  let best = null;
+  for (const q of frameMembers(f.kind, w, h, d)) {
+    if (q.plate) continue;
+    const t = box([q.p[0] - q.s[0] / 2, q.p[1] - q.s[1] / 2, q.p[2] - q.s[2] / 2], [q.p[0] + q.s[0] / 2, q.p[1] + q.s[1] / 2, q.p[2] + q.s[2] / 2]);
+    if (t !== null && (best === null || t < best)) best = t;
+  }
+  if (best !== null) return { t: best };
+  const t = box([-w / 2, 0, -d / 2], [w / 2, h, d / 2]);
+  return t === null ? null : { t, through: true };
 }
 
 export function ghostify(group, ok) {
@@ -126,27 +170,62 @@ export class Machines {
     return last ? { last } : null;
   }
 
-  // ---- 4x4 frame modules. Every frame is a square 4 cells wide and 4 cells high (2.4 m) and one cell deep. They snap to each
-  // other on ANY side: next in line (flush), left or right (a wider room), above or below (stacked levels), so a run of
-  // frames builds a tunnel, a junction or a chamber. Placing one carves out its 4x4 section.
+  // ---- 4x4x4 frame modules. Every frame is a hollow cube 4 cells wide, 4 high and 4 deep (2.4 m). Cubes snap to each other on
+  // ANY side in steps of a whole module: next in line (4 cells along the tunnel), left or right (4 sideways, a wider room), above or
+  // below (4 up, stacked levels), so a run of cubes builds a tunnel, a junction or a chamber. A frame never digs: the 4x4x4 section
+  // must already be dug out before it goes down.
   frameBlock(f) {
-    // block origin of an existing frame: along index m, lateral origin lo, vertical origin j0
-    if (f.gm !== undefined) return { axis: f.axis, m: f.gm, lo: f.glo, j0: f.gj };
+    // block origin of an existing frame: along index m (its first cell), lateral origin lo, vertical origin j0, and its depth n in cells
+    const n = frameCells(f);
+    if (f.gm !== undefined) return { axis: f.axis, m: f.gm, lo: f.glo, j0: f.gj, n };
     const lat = f.axis === 'x' ? f.cz : f.cx, along = f.axis === 'x' ? f.cx : f.cz;
     const base = f.axis === 'x' ? cellZ(0) : cellX(0), abase = f.axis === 'x' ? cellX(0) : cellZ(0);
-    return { axis: f.axis, m: Math.round((along - abase) / C) + (f.axis === 'x' ? toI(0) : toK(0)), lo: Math.round((lat - base) / C - 1.5) + (f.axis === 'x' ? toK(0) : toI(0)), j0: Math.round(f.y0 / C) };
+    return { axis: f.axis, n, m: Math.round((along - abase) / C - (n - 1) / 2) + (f.axis === 'x' ? toI(0) : toK(0)), lo: Math.round((lat - base) / C - 1.5) + (f.axis === 'x' ? toK(0) : toI(0)), j0: Math.round(f.y0 / C) };
+  }
+  // the cells a block covers, as index ranges
+  blockBox(b) {
+    return b.axis === 'x' ? { i0: b.m, i1: b.m + b.n - 1, k0: b.lo, k1: b.lo + FRAME_N - 1, j0: b.j0, j1: b.j0 + FRAME_N - 1 }
+      : { i0: b.lo, i1: b.lo + FRAME_N - 1, k0: b.m, k1: b.m + b.n - 1, j0: b.j0, j1: b.j0 + FRAME_N - 1 };
+  }
+  // the grid frame (not a turned one) whose cells intersect the 4x4x4 block at (axis, m, lo, j0), or null
+  frameBoxes() {
+    const out = [];
+    for (const it of this.items.values()) { const f = it.ent; if (f.type === 'frame' && !f.turned) out.push({ f, box: this.blockBox(this.frameBlock(f)) }); }
+    return out;
+  }
+  blockTaken(axis, m, lo, j0, skipId, boxes = this.frameBoxes()) {
+    const a = this.blockBox({ axis, m, lo, j0, n: FRAME_N });
+    { const ar = archTaken(this.game, a, skipId); if (ar) return ar; }   // a giant arch (arches.js) fills its section: a cube cannot stand in it
+    for (const { f, box: c } of boxes) {
+      if (f.id === skipId) continue;
+      if (a.i0 <= c.i1 && c.i0 <= a.i1 && a.k0 <= c.k1 && c.k0 <= a.k1 && a.j0 <= c.j1 && c.j0 <= a.j1) return f;
+    }
+    return null;
+  }
+  // the plush still standing in the 4x4x4 section at (axis, m, lo, j0)
+  sectionSolid(axis, m, lo, j0) {
+    const out = [], w = this.game.world;
+    for (let c = 0; c < FRAME_N; c++) for (let a = 0; a < FRAME_N; a++) for (let b = 0; b < FRAME_N; b++) {
+      const i = axis === 'x' ? m + c : lo + a, k = axis === 'x' ? lo + a : m + c, j = j0 + b;
+      if (j >= 0 && w.inside(i, j, k) && w.get(i, j, k)) out.push([i, j, k]);
+    }
+    return out;
   }
   frameEnt(axis, kind, m, lo, j0) {
-    const cx = axis === 'x' ? cellX(m) : cellX(lo) + 1.5 * C, cz = axis === 'x' ? cellZ(lo) + 1.5 * C : cellZ(m);
-    const e = { axis, kind, cx, cz, y0: j0 * C, w: 4 * C - 0.04, h: 4 * C - 0.02, gm: m, glo: lo, gj: j0, yaw: axis === 'x' ? Math.PI / 2 : 0 };
-    // cells this section occupies (the 4x4 square at index m)
-    e.clear = [];
-    const w = this.game.world;
-    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
-      const i = axis === 'x' ? m : lo + a, k = axis === 'x' ? lo + a : m, j = j0 + b;
-      if (j >= 0 && w.inside(i, j, k) && w.get(i, j, k)) e.clear.push([i, j, k]);
-    }
+    // the cube spans cells m .. m+3 along the tunnel and lo .. lo+3 across it: its centre is 1.5 cells past the first cell centre
+    const cx = axis === 'x' ? cellX(m) + 1.5 * C : cellX(lo) + 1.5 * C, cz = axis === 'x' ? cellZ(lo) + 1.5 * C : cellZ(m) + 1.5 * C;
+    const e = { axis, kind, cx, cz, y0: j0 * C, w: FRAME_W, h: FRAME_H, d: FRAME_D, gm: m, glo: lo, gj: j0, yaw: axis === 'x' ? Math.PI / 2 : 0 };
+    e.clear = this.sectionSolid(axis, m, lo, j0);   // 64 cells: whatever of them is still plush
     return e;
+  }
+  // does this planned frame cut through a turned frame (footprints width x depth on the floor plan)? Returns the frame or null.
+  turnedCut(e) {
+    for (const it of this.items.values()) {
+      const f = it.ent; if (f.type !== 'frame' || !f.turned || Math.abs(f.y0 - e.y0) > Math.min(e.h, f.h || e.h) - 0.15) continue;
+      if (Math.hypot(f.cx - e.cx, f.cz - e.cz) > Math.hypot(e.w, e.d) + 0.6) continue;
+      if (footprintOverlap(e.cx, e.cz, e.yaw, e.w / 2, e.d / 2, f.cx, f.cz, f.yaw, (f.w || e.w) / 2, frameDepth(f) / 2) > FRAME_CUT) return f;
+    }
+    return null;
   }
   planFrame(eye, dir, yaw, kind, freeYaw = null) {
     if (freeYaw !== null) return this.planFreeFrame(eye, dir, kind, freeYaw);
@@ -156,29 +235,28 @@ export class Machines {
     let { i, j, k } = r.last;
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     let axis = Math.abs(fx) > Math.abs(fz) ? 'x' : 'z';
+    const sgn = (axis === 'x' ? fx : fz) >= 0 ? 1 : -1;
     let m, lo, j0;
     // aiming into a frame that is already built: nothing to place
-    if (!r.hitSolid) for (const it of this.items.values()) {
-      const f = it.ent; if (f.type !== 'frame' || f.turned) continue;
-      const b = this.frameBlock(f);
-      const am = b.axis === 'x' ? i : k, al = b.axis === 'x' ? k : i;
-      if (am === b.m && al >= b.lo && al <= b.lo + 3 && j >= b.j0 && j <= b.j0 + 3) return { ok: false, why: 'Frame already here. Aim at its side, top or bottom to add another.' };
+    const boxes = this.frameBoxes();
+    if (!r.hitSolid) for (const { box: q } of boxes) {
+      if (i >= q.i0 && i <= q.i1 && k >= q.k0 && k <= q.k1 && j >= q.j0 && j <= q.j1) return { ok: false, why: 'Frame already here. Aim at its side, top or bottom to add another.' };
     }
-    // ---- snap to a neighbouring frame on any of its six sides. What you point at decides which side: if the aim ray ends in
+    // ---- snap to a neighbouring cube on any of its six sides. What you point at decides which side: if the aim ray ends in
     // (or against) a spot that belongs to one of the sections around a frame, that section is chosen; otherwise the nearest one.
     const Q = r.hitSolid ? r.hitSolid : { i, j, k };
     const P = { x: cellX(Q.i), y: cellY(Q.j) + 0.6, z: cellZ(Q.k) };
-    let best = null, bd = C * 7, inside = false;
-    for (const it of this.items.values()) {
-      const f = it.ent;
-      if (f.type !== 'frame' || f.turned) continue;
+    let best = null, bd = C * 8, inside = false;
+    for (const { f, box: fb } of boxes) {
+      if (Math.abs((fb.i0 + fb.i1) / 2 - Q.i) > 14 || Math.abs((fb.k0 + fb.k1) / 2 - Q.k) > 14) continue;   // only the frames around your aim can be the neighbour
       const b = this.frameBlock(f);
-      const cand = [[1, 0, 0], [-1, 0, 0], [0, 4, 0], [0, -4, 0], [0, 0, 4], [0, 0, -4]];
+      const cand = [[b.n, 0, 0], [-FRAME_N, 0, 0], [0, FRAME_N, 0], [0, -FRAME_N, 0], [0, 0, FRAME_N], [0, 0, -FRAME_N]];
       for (const [dm, dl, dj] of cand) {
         const cm = b.m + dm, cl = b.lo + dl, cj = b.j0 + dj;
-        const cx = b.axis === 'x' ? cellX(cm) : cellX(cl) + 1.5 * C, cz = b.axis === 'x' ? cellZ(cl) + 1.5 * C : cellZ(cm), cy = cj * C + 2 * C;
+        if (cj < 0 || this.blockTaken(b.axis, cm, cl, cj, undefined, boxes)) continue;   // that side is already filled by another cube
+        const cx = b.axis === 'x' ? cellX(cm) + 1.5 * C : cellX(cl) + 1.5 * C, cz = b.axis === 'x' ? cellZ(cl) + 1.5 * C : cellZ(cm) + 1.5 * C, cy = cj * C + 2 * C;
         const along = b.axis === 'x' ? Q.i : Q.k, lat = b.axis === 'x' ? Q.k : Q.i;
-        const has = along === cm && lat >= cl && lat <= cl + 3 && Q.j >= cj && Q.j <= cj + 3;
+        const has = along >= cm && along <= cm + FRAME_N - 1 && lat >= cl && lat <= cl + FRAME_N - 1 && Q.j >= cj && Q.j <= cj + FRAME_N - 1;
         const d = Math.hypot(cx - P.x, cy - P.y, cz - P.z);
         if ((has && !inside) || (has === inside && d < bd)) { inside = inside || has; bd = d; best = { b, cm, cl, cj, side: dm ? 'next in line' : dl ? 'beside it' : dj > 0 ? 'above it' : 'below it' }; }
       }
@@ -188,30 +266,29 @@ export class Machines {
       let guard = 0;
       while (j > 0 && !w.solid(i, j - 1, k) && guard++ < 8) j--;
       if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'No floor here: aim at the floor, or next to another frame' };
-      // fit the 4x4 section to the tunnel you dug: try the few windows around the aimed spot and take the one with the fewest
-      // plush still in the way (a clear window wins, and the one centred on your aim wins a tie)
-      m = axis === 'x' ? i : k; const lat0 = axis === 'x' ? k : i;
+      // the cube starts at the cell you aim at and runs away from you along the tunnel. Fit it to what you dug: try the few windows
+      // around the aimed spot (back along the tunnel, sideways, up and down) and take the one with the fewest plush still in the way
+      // (a clear window wins, and the one nearest your aim wins a tie)
+      const a = axis === 'x' ? i : k, lat0 = axis === 'x' ? k : i;
+      const starts = sgn > 0 ? [a, a - 1, a - 2, a - 3] : [a - 3, a - 2, a - 1, a];
       let bestC = 1e9;
-      for (const dl of [-2, -1, -3, 0]) for (const dj of [0, -1, 1]) {
+      for (const ms of starts) for (const dl of [-2, -1, -3, 0]) for (const dj of [0, -1, 1]) {
         const jj = j + dj; if (jj < 0) continue;
         if (dj !== 0 && !w.solid(i, jj - 1, k) && jj > 0) continue; // a frame stands on the floor
-        const trial = this.frameEnt(axis, kind, m, lat0 + dl, jj); const n = trial.clear.length;
-        if (n < bestC) { bestC = n; lo = lat0 + dl; j0 = jj; }
-        if (n === 0) break;
+        if (this.blockTaken(axis, ms, lat0 + dl, jj, undefined, boxes)) continue;
+        const n = this.sectionSolid(axis, ms, lat0 + dl, jj).length;
+        if (n < bestC) { bestC = n; m = ms; lo = lat0 + dl; j0 = jj; }
       }
-      if (lo === undefined) { lo = lat0 - 1; j0 = j; }
+      if (m === undefined) { m = starts[0]; lo = lat0 - 2; j0 = j; }
     }
     if (j0 < 0) return { ok: false, why: 'Below the floor' };
     const e = this.frameEnt(axis, kind, m, lo, j0);
-    for (const it of this.items.values()) {
-      const f = it.ent; if (f.type !== 'frame' || f.turned) continue;
-      const b = this.frameBlock(f);
-      if (b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0) return { ok: false, why: 'Frame already here' };
-    }
+    const hit = this.blockTaken(axis, m, lo, j0, undefined, boxes);
+    if (hit) { const b = this.frameBlock(hit); return { ok: false, why: b.axis === axis && b.m === m && b.lo === lo && b.j0 === j0 ? 'Frame already here' : 'A frame is already here: this cube would overlap it', ent: e }; }
     // a turned (free) frame already standing here must not be cut through by a grid frame either
-    for (const it of this.items.values()) { const f = it.ent; if (f.type !== 'frame' || !f.turned || Math.abs(f.y0 - e.y0) > e.h - 0.15) continue; if (footprintOverlap(e.cx, e.cz, e.yaw, e.w / 2, (C - 0.06) / 2, f.cx, f.cz, f.yaw, (f.w || e.w) / 2, (C - 0.06) / 2) > FRAME_CUT) return { ok: false, why: 'A turned frame is in the way: this would cut through it', ent: e }; }
+    if (this.turnedCut(e)) return { ok: false, why: 'A turned frame is in the way: this would cut through it', ent: e };
     // a frame holds up a section that is already dug: it never digs for you
-    if (e.clear.length) return { ok: false, why: `This tunnel is too tight for a 4x4 frame: dig out ${e.clear.length} more plush (a frame needs 4 wide and 4 high)`, ent: e };
+    if (e.clear.length) return { ok: false, why: `This tunnel is too tight for a 4x4x4 frame: dig out ${e.clear.length} more plush (a frame needs a cube 4 wide, 4 high and 4 long)`, ent: e };
     if (best) e.snap = best.side;
     return { ok: true, ent: e };
   }
@@ -230,6 +307,48 @@ export class Machines {
     }
     return out;
   }
+  // why a turned frame cannot stand where `e` puts it, or null (also fills e.clear with the plush still in its section)
+  freeFrameWhy(e) {
+    const { cx, cz, y0, yaw: fy, w: wd, h, d } = e;
+    e.clear = this.orientedClear(cx, cz, fy, y0, wd, d, h);
+    for (const it of this.items.values()) { const f = it.ent; if (f.type === 'frame' && f.id !== e.id && Math.hypot(f.cx - cx, f.cz - cz) < 0.45 && Math.abs(f.y0 - y0) < 0.3) return 'A frame is already here'; }
+    // two frames may touch, but not cut through each other: compare the two footprints (width x depth, turned) on the floor plan
+    for (const it of this.items.values()) {
+      const f = it.ent; if (f.type !== 'frame' || f.id === e.id || Math.abs(f.y0 - y0) > Math.min(h, f.h || h) - 0.15) continue;
+      if (Math.hypot(f.cx - cx, f.cz - cz) > Math.hypot(wd, d) + 0.6) continue;
+      const fy2 = f.yaw !== undefined ? f.yaw : f.axis === 'x' ? Math.PI / 2 : 0;
+      if (footprintOverlap(cx, cz, fy, wd / 2, d / 2, f.cx, f.cz, fy2, (f.w || wd) / 2, frameDepth(f) / 2) > FRAME_CUT) return 'This would cut through the frame beside it: move along the tunnel or turn it less';
+    }
+    if (e.clear.length) return `The tunnel is too tight for a 4x4x4 frame at this angle: dig out ${e.clear.length} more plush, or turn it with Left / Right`;
+    return null;
+  }
+  // the host's check of a frame a guest wants to set: the guest's numbers are not believed. The cube is rebuilt from its grid origin (or
+  // from its centre and angle when turned), and the 4x4x4 section is looked at again. Returns a reason, or null (and e is made canonical).
+  frameConflict(kind, e) {
+    const num = (v) => typeof v === 'number' && Number.isFinite(v);
+    if (!e || typeof e !== 'object' || !FRAME_TYPES[kind] || e.kind !== kind) return 'Bad frame';
+    if (!num(e.cx) || !num(e.cz) || !num(e.y0) || Math.abs(e.y0 / C - Math.round(e.y0 / C)) > 0.02 || e.y0 < 0) return 'Bad frame';
+    if (e.w !== undefined && Math.abs(e.w - FRAME_W) > 0.02) return 'Bad frame';
+    if (e.h !== undefined && Math.abs(e.h - FRAME_H) > 0.02) return 'Bad frame';
+    if (e.d === undefined || Math.abs(e.d - FRAME_D) > 0.02) return 'Bad frame';
+    let canon;
+    if (e.turned) {
+      if (!num(e.yaw)) return 'Bad frame';
+      canon = { axis: Math.abs(Math.sin(e.yaw)) > 0.7071 ? 'x' : 'z', yaw: e.yaw, turned: true, kind, cx: e.cx, cz: e.cz, y0: e.y0, w: FRAME_W, h: FRAME_H, d: FRAME_D };
+      const why = this.freeFrameWhy(canon); if (why) return why;
+    } else {
+      if ((e.axis !== 'x' && e.axis !== 'z') || !Number.isInteger(e.gm) || !Number.isInteger(e.glo) || !Number.isInteger(e.gj) || e.gj < 0) return 'Bad frame';
+      canon = this.frameEnt(e.axis, kind, e.gm, e.glo, e.gj);
+      if (Math.abs(canon.cx - e.cx) > 0.02 || Math.abs(canon.cz - e.cz) > 0.02 || Math.abs(canon.y0 - e.y0) > 0.02) return 'Bad frame';
+      const hit = this.blockTaken(canon.axis, canon.gm, canon.glo, canon.gj);
+      if (hit) return 'A frame is already here';
+      if (this.turnedCut(canon)) return 'A turned frame is in the way: this would cut through it';
+      if (canon.clear.length) return `This tunnel is too tight for a 4x4x4 frame: dig out ${canon.clear.length} more plush`;
+    }
+    Object.assign(e, canon); e.clear = [];   // placeCurrent never digs, and never trusts a list of cells that came over the wire
+    return null;
+  }
+
   planFreeFrame(eye, dir, kind, fy) {
     const w = this.game.world;
     const r = this.rayEmpty(eye, dir, 5);
@@ -239,27 +358,70 @@ export class Machines {
     if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'No floor here: aim at the floor' };
     const y0 = j * C; let cx = cellX(i), cz = cellZ(k);
     if (dir.y < -0.02) { const t = (y0 + 0.02 - eye.y) / dir.y; if (t > 0 && t < 6) { cx = eye.x + dir.x * t; cz = eye.z + dir.z * t; } }
-    const wd = 4 * C - 0.04, h = 4 * C - 0.02, d = C - 0.06;
-    const e = { axis: Math.abs(Math.sin(fy)) > 0.7071 ? 'x' : 'z', yaw: fy, turned: true, kind, cx, cz, y0, w: wd, h };
-    e.clear = this.orientedClear(cx, cz, fy, y0, wd, d, h);
-    for (const it of this.items.values()) { const f = it.ent; if (f.type === 'frame' && Math.hypot(f.cx - cx, f.cz - cz) < 0.45 && Math.abs(f.y0 - y0) < 0.3) return { ok: false, why: 'A frame is already here', ent: e }; }
-    // two frames may touch, but not cut through each other: compare the two footprints (width x depth, turned) on the floor plan
-    for (const it of this.items.values()) {
-      const f = it.ent; if (f.type !== 'frame' || Math.abs(f.y0 - y0) > Math.min(h, f.h || h) - 0.15) continue;
-      if (Math.hypot(f.cx - cx, f.cz - cz) > wd + 0.6) continue;
-      const fy2 = f.yaw !== undefined ? f.yaw : f.axis === 'x' ? Math.PI / 2 : 0;
-      if (footprintOverlap(cx, cz, fy, wd / 2, d / 2, f.cx, f.cz, fy2, (f.w || wd) / 2, d / 2) > FRAME_CUT) return { ok: false, why: 'This would cut through the frame beside it: move along the tunnel or turn it less', ent: e };
-    }
-    if (e.clear.length) return { ok: false, why: `The tunnel is too tight for a frame at this angle: dig out ${e.clear.length} more plush, or turn it with Left / Right`, ent: e };
+    const wd = FRAME_W, h = FRAME_H, d = FRAME_D;
+    const e = { axis: Math.abs(Math.sin(fy)) > 0.7071 ? 'x' : 'z', yaw: fy, turned: true, kind, cx, cz, y0, w: wd, h, d };
+    const why = this.freeFrameWhy(e); if (why) return { ok: false, why, ent: e };
     e.snap = 'free, turned ' + Math.round(((fy % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * 180 / Math.PI) + '°';
     return { ok: true, ent: e };
+  }
+
+  // ---- old saves. A frame saved before the cube had no `d`: one cell deep. On load each becomes a 4 deep cube whose section is already dug
+  // (the cube starts at the old frame and runs on along the tunnel, or backwards if that is where the dug ground is). One that cannot
+  // grow safely (plush or another frame in the way) stays as the old thin frame and still holds up. A frame that now stands inside the
+  // cube of its neighbour is absorbed by that cube (its item goes back to your bag, a crew lining just goes) so a lined tunnel loads as a clean run of cubes.
+  upgradeOldFrames(S) {
+    const res = { converted: 0, absorbed: 0, kept: 0 };
+    const old = S.entities.filter((e) => e.type === 'frame' && e.d === undefined);
+    if (!old.length) return res;
+    const hit = (a, c) => a.i0 <= c.i1 && c.i0 <= a.i1 && a.k0 <= c.k1 && c.k0 <= a.k1 && a.j0 <= c.j1 && c.j0 <= a.j1;
+    const inBox = (a, c) => a.i0 >= c.i0 && a.i1 <= c.i1 && a.k0 >= c.k0 && a.k1 <= c.k1 && a.j0 >= c.j0 && a.j1 <= c.j1;
+    const boxes = [], placedT = [];
+    for (const e of S.entities) {
+      if (e.type !== 'frame' || e.d === undefined) continue;
+      if (e.turned) placedT.push(e); else boxes.push({ id: e.id, box: this.blockBox(this.frameBlock(e)), ent: e });
+    }
+    const fanOf = (id) => S.entities.find((x) => x.type === 'fan' && x.mounted && x.frameId === id);
+    const gone = new Set();
+    const absorb = (f, into) => {
+      const fan = fanOf(f.id);
+      if (fan) { if (!into || fanOf(into.id)) return false; fan.frameId = into.id; fan.px = into.cx; fan.pz = into.cz; fan.py = into.y0 + into.h - MOUNT_FAN.drop; fan.i = toI(fan.px); fan.j = toJ(fan.py); fan.k = toK(fan.pz); }
+      gone.add(f.id); res.absorbed++;
+      if (!f.auto) { const key = 'frame:' + f.kind; S.items[key] = (S.items[key] || 0) + 1; }
+      return true;
+    };
+    const key = (f) => { const b = this.frameBlock(f); return [f.axis === 'x' ? 0 : 1, b.j0, b.lo, b.m]; };
+    const grid = old.filter((f) => !f.turned).sort((p, q) => { const a = key(p), b = key(q); for (let n = 0; n < 4; n++) if (a[n] !== b[n]) return a[n] - b[n]; return 0; });   // run by run, low end first
+    for (const f of grid) {
+      const b = this.frameBlock(f), slab = this.blockBox(b);
+      const holder = boxes.find((q) => q.ent && q.ent.axis === f.axis && inBox(slab, q.box));
+      if (holder && absorb(f, holder.ent)) continue;
+      let done = false;
+      for (const dm of [0, -1, -2, -3]) { for (const dl of [0, -1, 1]) {
+        const m = b.m + dm, lo = b.lo + dl, j0 = b.j0, box = this.blockBox({ axis: f.axis, m, lo, j0, n: FRAME_N });
+        if (boxes.some((q) => hit(box, q.box)) || this.sectionSolid(f.axis, m, lo, j0).length) continue;
+        const ne = this.frameEnt(f.axis, f.kind, m, lo, j0); delete ne.clear; delete ne.kind;
+        Object.assign(f, ne); boxes.push({ id: f.id, box, ent: f }); res.converted++; done = true; break;
+      } if (done) break; }
+      if (!done) { boxes.push({ id: f.id, box: slab, ent: null }); res.kept++; }
+    }
+    for (const f of old.filter((q) => q.turned)) {
+      const probe = { cx: f.cx, cz: f.cz, yaw: f.yaw !== undefined ? f.yaw : f.axis === 'x' ? Math.PI / 2 : 0, y0: f.y0, w: FRAME_W, h: FRAME_H, d: FRAME_D };
+      const near = placedT.find((q) => Math.hypot(q.cx - f.cx, q.cz - f.cz) < 1.3 && Math.abs(q.y0 - f.y0) < 0.3);
+      if (near && absorb(f, near)) continue;
+      const cut = placedT.some((q) => Math.abs(q.y0 - f.y0) < FRAME_H - 0.15 && footprintOverlap(probe.cx, probe.cz, probe.yaw, probe.w / 2, probe.d / 2, q.cx, q.cz, q.yaw, (q.w || probe.w) / 2, frameDepth(q) / 2) > FRAME_CUT);
+      const wallBox = boxes.some((q) => q.ent && Math.abs(q.ent.y0 - f.y0) < FRAME_H - 0.15 && footprintOverlap(probe.cx, probe.cz, probe.yaw, probe.w / 2, probe.d / 2, q.ent.cx, q.ent.cz, q.ent.yaw, q.ent.w / 2, frameDepth(q.ent) / 2) > FRAME_CUT);
+      if (cut || wallBox || this.orientedClear(probe.cx, probe.cz, probe.yaw, probe.y0, probe.w, probe.d, probe.h).length) { res.kept++; placedT.push(f); continue; }
+      f.w = FRAME_W; f.h = FRAME_H; f.d = FRAME_D; res.converted++; placedT.push(f);
+    }
+    if (gone.size) S.entities = S.entities.filter((e) => !gone.has(e.id));
+    return res;
   }
 
   // ---- support fan: clamps under the top beam of the frame you aim at and blows the way you are facing
   planMountFan(eye, dir, yaw) {
     const g = this.game; let best = null, bd = 1.6;
     for (const it of this.items.values()) {
-      const f = it.ent; if (f.type !== 'frame') continue;
+      const f = it.ent; if (f.type !== 'frame' && f.type !== 'garch') continue;   // a giant arch carries a fan like a frame cube
       const px = f.cx, py = f.y0 + f.h - MOUNT_FAN.drop, pz = f.cz;
       const vx = px - eye.x, vy = py - eye.y, vz = pz - eye.z, t = vx * dir.x + vy * dir.y + vz * dir.z; if (t < 0.2 || t > 6.5) continue;
       const d = Math.hypot(vx - dir.x * t, vy - dir.y * t, vz - dir.z * t); if (d < bd) { bd = d; best = f; }
@@ -274,59 +436,65 @@ export class Machines {
     return { ok: true, ent: e };
   }
 
-  // measure the tunnel cross-section at floor cell (i,j,k) and describe a frame that fits it
-  frameFromCell(i, j, k, axis, kind) {
+  // the cube a machine sets behind itself: the 4 cells it has just dug, as one 4x4x4 module on the frame grid. (i,j,k) is the last cell it
+  // left and `sgn` the way it was going along `axis`. A mech, a bot or a borer cuts a bore narrower than a frame, so whatever of the section is still
+  // plush will be trimmed when the cube goes in (listed in ent.clear); The One and other special cells are never touched: no cube then.
+  frameFromCell(i, j, k, axis, kind, sgn = 1, needRoof = true) {
     const w = this.game.world;
-    const dx = axis === 'x' ? 0 : 1, dz = axis === 'x' ? 1 : 0; // perpendicular step
-    let L = 0, R = 0;
-    while (L < 5 && !w.solid(i - dx * (L + 1), j, k - dz * (L + 1))) L++;
-    while (R < 5 && !w.solid(i + dx * (R + 1), j, k + dz * (R + 1))) R++;
-    if (L >= 5 || R >= 5 || L + R + 1 > 5) return { ok: false, why: 'Too wide to frame' };
-    let H = 0;
-    while (H < 7 && !w.solid(i, j + H, k)) H++;
-    if (H >= 7) return { ok: false, why: 'No roof to prop' };
-    if (H < 2) return { ok: false, why: 'Too low for a frame' };
-    const wc = L + R + 1;
-    const pi = i + dx * ((R - L) / 2), pk = k + dz * ((R - L) / 2);
-    const cx = cellX(0) + pi * C, cz = cellZ(0) + pk * C;
-    const e = { axis, kind, cx, cz, y0: j * C, w: wc * C - 0.04, h: H * C - 0.02 };
-    // snapping: a frame placed within a few cells of another one along the tunnel takes its profile (same centre line, width
-    // and height) so a run of frames lines up into one tunnel. Right next to it (one cell) it sits flush, forming a lining.
-    let near = null, nd = 1e9;
-    for (const it of this.items.values()) {
-      const f = it.ent;
-      if (f.type !== 'frame' || f.turned || f.axis !== axis || Math.abs(f.y0 - e.y0) > 0.3) continue;
-      const along = axis === 'x' ? Math.abs(f.cx - cx) : Math.abs(f.cz - cz);
-      const lat = axis === 'x' ? Math.abs(f.cz - cz) : Math.abs(f.cx - cx);
-      if (along < 0.3 && lat < 0.35) return { ok: false, why: 'Frame already here' };
-      if (along <= C * 4.2 && lat <= f.w * 0.6 + 0.4 && along < nd) { nd = along; near = f; }
+    const a = axis === 'x' ? i : k, lat0 = axis === 'x' ? k : i;
+    const m = sgn > 0 ? a - (FRAME_N - 1) : a;
+    let lo = lat0 - 1, bestC = 1e9;
+    for (const dl of [-1, -2, 0, -3]) { const n = this.sectionSolid(axis, m, lat0 + dl, j).length; if (n < bestC) { bestC = n; lo = lat0 + dl; } }
+    const e = this.frameEnt(axis, kind, m, lo, j); e.auto = true;
+    if (this.blockTaken(axis, m, lo, j)) return { ok: false, why: 'Frame already here' };
+    if (this.turnedCut(e)) return { ok: false, why: 'A turned frame is in the way' };
+    for (const [ci, cj, ck] of e.clear) if (isSpecialCell(w.get(ci, cj, ck))) return { ok: false, why: 'Something special is in the section' };
+    // a frame props a roof: some plush must stand over the cube (open ground gets none)
+    let roof = !needRoof;
+    for (let a2 = 0; a2 < FRAME_N && !roof; a2++) for (let c = 0; c < FRAME_N && !roof; c++) {
+      const ii = axis === 'x' ? m + c : lo + a2, kk = axis === 'x' ? lo + a2 : m + c;
+      for (let jj = j + FRAME_N; jj < j + FRAME_N + 3; jj++) if (w.solid(ii, jj, kk)) { roof = true; break; }
     }
-    if (near) {
-      const fits = e.w <= near.w + C * 0.6 && e.w >= near.w - C * 0.6 && Math.abs(e.h - near.h) <= C * 1.2;
-      if (fits) {
-        if (axis === 'x') e.cz = near.cz; else e.cx = near.cx;
-        e.w = near.w; e.h = near.h;
-        e.snap = nd < C * 1.5 ? 'flush' : 'aligned';
-      }
-    }
+    if (needRoof && !roof) return { ok: false, why: 'No roof to prop' };
     return { ok: true, ent: e };
   }
+  // would a cube of this kind at plan ent e hold? 'lone': by itself (a bot or a mech that sets one cube at a time: the conservative reading, nobody shares its roof).
+  // 'kind': with the new one in place, it and every cube of the same kind around it must hold (a dense run only stands if all of it does; where concrete
+  // would buckle, the borer moves up a tier).
+  supportHolds(e, kind, mode = 'lone') {
+    const w = this.game.world, ft = FRAME_TYPES[kind], cap = capacityOf(kind); if (!isFinite(cap)) return true;
+    const hyp = { x: e.cx, y: e.y0 + e.h / 2, z: e.cz, r: ft.radius, kind, cap, id: 'hyp' };
+    if (mode === 'lone') return loadOn(w, hyp) / cap <= 1;
+    w.supports.push(hyp); let worst = 0;
+    for (const q of w.supports) if (q.kind === kind && q.cap !== undefined && Math.hypot(q.x - hyp.x, q.z - hyp.z) < ft.radius * 2) worst = Math.max(worst, loadOn(w, q) / q.cap);
+    w.supports.pop();
+    return worst <= 1;
+  }
+  // trim the plush out of a section (a machine's cube goes in where its bore was too narrow). Returns what it took so it can be put back.
+  reamSection(e, queue = false) {
+    const w = this.game.world, taken = [];
+    for (const [ci, cj, ck] of e.clear || []) { const it = w.removeCell(ci, cj, ck, queue); if (it) taken.push([ci, cj, ck, it.sp, it.vr]); }
+    return taken;
+  }
+  unreamSection(taken) { const w = this.game.world; for (const [ci, cj, ck, sp, vr] of taken) w.setCell(ci, cj, ck, sp, vr); }
 
-  // used by mechs with the Roof Bolter: brace the tunnel behind them with the best frame they can pay for
+  // used by mechs with the Roof Bolter and crew bots with the Bot Bolter: one cube per 4 cells of advance, the best frame they can pay for
   autoFrame(i, j, k, dir) {
     const g = this.game, T = g.T;
-    const axis = (dir === 0 || dir === 2) ? 'x' : 'z';
+    const axis = (dir === 0 || dir === 2) ? 'x' : 'z', sgn = (dir === 0 || dir === 1) ? 1 : -1;
     const kinds = [...T.frames].reverse();
     for (const kind of kinds) {
       const cost = FRAME_TYPES[kind].cost;
       if (g.S.money < cost) continue;
       if (supportDepth(cellX(i), cellZ(k)) > FRAME_TYPES[kind].maxDepth) continue; // too weak for this depth: the crew will not set it
-      const plan = this.frameFromCell(i, j, k, axis, kind);
+      const plan = this.frameFromCell(i, j, k, axis, kind, sgn);
       if (!plan.ok) return false;
       const e = plan.ent;
-      { const cap = capacityOf(kind); if (isFinite(cap)) { const hyp = { x: e.cx, y: e.y0 + e.h / 2, z: e.cz, r: FRAME_TYPES[kind].radius, kind, cap }; if (loadOn(g.world, hyp) > cap) continue; } } // the crew will not set a frame that would buckle
+      const taken = this.reamSection(e);   // weigh the roof with the section trimmed out, as it will stand
+      if (!this.supportHolds(e, kind)) { this.unreamSection(taken); continue; } // the crew will not set a frame that would buckle, or that would tip a neighbour over
+      for (const [ci, cj, ck] of taken) g.world.stabQueue.push({ i: ci, j: cj, k: ck });
       g.S.money -= cost; g.ui.setMoney(g.S.money);
-      const ent = { id: g.nextId(), type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, paid: cost, auto: true };
+      const ent = { id: g.nextId(), type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, d: e.d, gm: e.gm, glo: e.glo, gj: e.gj, yaw: e.yaw, paid: cost, auto: true };
       g.S.entities.push(ent);
       this.add(ent);
       g.S.stats.props++;
@@ -405,7 +573,7 @@ export class Machines {
     let make = null;
     if (plan.ent) {
       const e = plan.ent;
-      if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h, 0), plan.ok); }
+      if (tool.kind === 'frame') { key = `f${e.kind}${e.axis}${e.w.toFixed(2)}${e.h.toFixed(2)}${frameDepth(e).toFixed(2)}${plan.ok}`; make = () => ghostify(buildFrameMesh(e.kind, e.axis, e.w, e.h, 0, frameDepth(e)), plan.ok); }
       else if (tool.kind === 'mfan') { key = `mf${plan.ok}`; make = () => ghostify(buildMountFan(), plan.ok); }
       else if (tool.kind === 'lantern') { key = `l${plan.ok}`; make = () => ghostify(this.makeLantern(), plan.ok); }
       else if (tool.kind === 'beacon') { key = `bc${plan.ok}`; make = () => ghostify(this.makeBeacon(), plan.ok); }
@@ -531,6 +699,7 @@ export class Machines {
     while (j > 0 && !w.solid(i, j - 1, k) && g++ < 6) j--;
     if (j > 0 && !w.solid(i, j - 1, k)) return { ok: false, why: 'Needs ground' };
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let h = 0; h < 4; h++) if (w.solid(i + a, j + h, k + b)) return { ok: false, why: 'Needs a clear 3x3 area, 2.4 m high' };
+    { const why = this.game.logi.cellTaken(i, j, k); if (why) return { ok: false, why: why === 'In the way' ? 'Something is in the way' : why }; }   // a belt, a rail piece or a shaft already stands in that cell
     return { ok: true, ent: { x: cellX(i), y: j * C, z: cellZ(k), i, j, k } };
   }
 
@@ -586,7 +755,7 @@ export class Machines {
     const w = game.world;
     const it = { ent, obj: null, t: 0 };
     if (ent.type === 'frame') {
-      it.obj = buildFrameMesh(ent.kind, ent.axis, ent.w, ent.h, ent.yaw);
+      it.obj = buildFrameMesh(ent.kind, ent.axis, ent.w, ent.h, ent.yaw, frameDepth(ent));
       it.obj.position.set(ent.cx, ent.y0, ent.cz);
       const ft = FRAME_TYPES[ent.kind];
       ent.supportId = ent.supportId || ent.id;
@@ -794,6 +963,7 @@ export class Machines {
     for (let o = -half; o < e.w - half; o++) {
       for (let h = 0; h < e.h; h++) {
         const i = nx + px * o, k = nk + pz * o, j = e.j + h;
+        if (w.get(i, j, k) === NEEDLE) continue;   // the cutter never eats The One: that cell stays in the pile (heavy equipment never leaves with it)
         const taken = w.removeCell(i, j, k);
         if (taken) { eaten++; game.borerEat(taken, cellX(i), cellY(j), cellZ(k)); }
       }
@@ -802,26 +972,28 @@ export class Machines {
     e.x = cellX(e.i); e.z = cellZ(e.k);
     e.steps = (e.steps || 0) + 1;
     game.fx.dust(cellX(nx) + e.dx * 0.8, e.j * C + 0.8, cellZ(nk) + e.dz * 0.8, 6, 0.8, 1);
-    if (e.steps % 2 === 0) {
-      // lining behind the cutter: concrete where it holds, a stronger (paid) tier where the mountain presses too hard, and the borer
-      // stops when nothing it can use would hold, exactly as a player's supports would buckle
-      const mk = (kind) => { const ent = { id: game.nextId(), type: 'frame', kind, axis: e.dx !== 0 ? 'x' : 'z', cx: cellX(e.i - e.dx), cz: cellZ(e.k - e.dz), y0: e.j * C, w: e.w * C - 0.04, h: e.h * C - 0.02, auto: true }; if (e.w % 2 === 0) { if (e.dx !== 0) ent.cz += C / 2; else ent.cx += C / 2; } return ent; };
+    if (e.steps % FRAME_N === 0) {
+      // lining behind the cutter: one 4x4x4 cube per 4 cells bored. Concrete where it holds, a stronger (paid) tier where the mountain presses too hard,
+      // and the borer stops when nothing it can use would hold, exactly as a player's supports would buckle. A bore narrower than a cube is trimmed out.
+      const axis = e.dx !== 0 ? 'x' : 'z', sgn = e.dx + e.dz > 0 ? 1 : -1;
       const order = Object.keys(FRAME_TYPES); const usable = order.filter((k) => k === 'concrete' || (T.frames.includes(k) && order.indexOf(k) > order.indexOf('concrete')));
       let chosen = null, why = '';
       for (const kind of usable) {
         const ft = FRAME_TYPES[kind], cost = kind === 'concrete' ? 0 : ft.cost; if (game.S.money < cost) { why = `it needs ${ft.name} here and cannot afford it`; continue; }
-        const ent = mk(kind); const cap = capacityOf(kind);
-        if (isFinite(cap)) {
-          // weigh the new lining and the linings of the same kind around it with the new one in place: a dense line only holds if all of it holds
-          const hyp = { x: ent.cx, y: ent.y0 + ent.h / 2, z: ent.cz, r: ft.radius, kind, cap, id: ent.id };
-          w.supports.push(hyp); let worst = 0;
-          for (const q of w.supports) if (q.kind === kind && q.cap !== undefined && Math.hypot(q.x - hyp.x, q.z - hyp.z) < ft.radius * 2) worst = Math.max(worst, loadOn(w, q) / q.cap);
-          w.supports.pop();
-          if (worst > 1) { why = `${ft.name} would buckle under the mountain here`; continue; }
-        }
-        chosen = { ent, cost }; break;
+        const plan = this.frameFromCell(e.i - e.dx, e.j, e.k - e.dz, axis, kind, sgn, false);   // a borer always lines its bore, roof or not
+        if (!plan.ok) { chosen = { skip: true }; break; }   // a cube already stands there, no roof to prop, something special in the way: no lining this time, the borer carries on
+        const ent = { id: game.nextId(), type: 'frame', kind, axis: plan.ent.axis, cx: plan.ent.cx, cz: plan.ent.cz, y0: plan.ent.y0, w: plan.ent.w, h: plan.ent.h, d: plan.ent.d, gm: plan.ent.gm, glo: plan.ent.glo, gj: plan.ent.gj, yaw: plan.ent.yaw, auto: true };
+        const taken = this.reamSection(plan.ent);
+        // the cutter keeps boring: weigh the cube with the next 4 slabs of the bore cut as well, so it still holds before the next cube is set
+        const half = Math.floor((e.w - 1) / 2), px = e.dz !== 0 ? 1 : 0, pz = e.dx !== 0 ? 1 : 0, ahead = [], onRm = w.onRemove; w.onRemove = null;   // a trial cut: no dust
+        for (let sl = 1; sl <= FRAME_N; sl++) for (let o = -half; o < e.w - half; o++) for (let hh = 0; hh < e.h; hh++) { const it = w.removeCell(e.i + e.dx * sl + px * o, e.j + hh, e.k + e.dz * sl + pz * o, false); if (it) ahead.push([e.i + e.dx * sl + px * o, e.j + hh, e.k + e.dz * sl + pz * o, it.sp, it.vr]); }
+        let holds = false; try { holds = this.supportHolds(plan.ent, kind, 'kind'); } finally { this.unreamSection(ahead); w.onRemove = onRm; }
+        if (!holds) { this.unreamSection(taken); why = `${ft.name} would buckle under the mountain here`; continue; }
+        chosen = { ent, cost, taken }; break;
       }
+      if (chosen && chosen.skip) return;
       if (!chosen) { e.done = true; game.ui.toast({ icon: '🚇', title: 'Borer stopped', text: `The mountain presses too hard: ${why || 'no lining it has would hold'}. Better supports, or a narrower bore.` }); return; }
+      for (const [ci, cj, ck] of chosen.taken) w.stabQueue.push({ i: ci, j: cj, k: ck });
       if (chosen.cost) { game.S.money -= chosen.cost; game.ui.setMoney(game.S.money); }
       game.S.entities.push(chosen.ent);
       this.add(chosen.ent);

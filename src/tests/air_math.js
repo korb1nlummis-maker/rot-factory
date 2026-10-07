@@ -49,7 +49,7 @@ export default async function (ctx) {
     return (low >= 1.8 && wide <= 0.4 && high <= 0.5) || `lowest point ${low.toFixed(2)} m, width ${wide.toFixed(2)} m, height ${high.toFixed(2)} m (a standing head is about 1.7 m)`;
   });
   await T('dust.survey-and-air-monitor-state-the-fan-spacing-for-the-depth', async () => {
-    fresh({ timber: 1, survey: 1, airmon: 1 }); S().up.survey = 1; g.T = g.tune(); p().pos.set(500, 0, 0); p().vel.set(0, 0, 0); g._svNext = 0; g.updateSurvey(); const t = document.getElementById('svAir').textContent; const want = Math.floor(fanSpacing(500));
+    fresh({ timber: 1, survey: 1, airmon: 1 }); S().up.survey = 1; g.T = g.tune(); p().pos.set(500, 0, 0); p().vel.set(0, 0, 0); g._svNext = 0; g.updateSurvey(); const t = g.ui.dials.read('stale').info.air; const want = Math.floor(fanSpacing(500));
     return (t.includes(`Support Fan every ${want} m`) && /stale air 39%/.test(t)) || `survey says "${t}", rule says ${want} m`;
   });
 }

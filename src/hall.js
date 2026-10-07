@@ -6,6 +6,9 @@ import { mulberry32 } from './util.js';
 import { FRAME_TYPES, STRUT_DEPTH, defaultTuning } from './upgrades.js';
 import { earthTune, EARTH_KW, STALE_CHOKE } from './earth.js';
 import { fanSpacing, staleAt, STALE_START, STALE_SPAN, STALE_OK, FAN_R, VENT_R } from './dust.js';
+import { ARCH_SPANS } from './loadtrace.js';
+import { VEHICLES, CUBE_CLEAR, ROAD, DOCK } from './haul.js';
+import { KW as PORTAL_KW } from './portal.js';
 
 function canvasTex(w, h, draw, repeat = null, srgb = true) {
   const c = document.createElement('canvas');
@@ -360,8 +363,30 @@ export function buildHall(scene) {
     const glow = new THREE.PointLight(0x40ff90, 7, 10, 1.6); glow.position.set(0, -0.5, 0.0); grp.add(glow);
     scene.add(grp); return grp;
   };
-  mkEmerg(6.2, 3.3, 1.6, Math.PI / 2);
-  mkEmerg(2.4, 3.3, -9.4, Math.PI / 2);
+  // the way out: one octagonal post sign, like a road sign, with a big arrow pointing the way (ahead, east) and the distance
+  const exitPostTex = canvasTex(512, 512, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    const oct = (r) => { g.beginPath(); for (let k = 0; k < 8; k++) { const a = Math.PI / 8 + k * Math.PI / 4; g.lineTo(w / 2 + Math.cos(a) * r, h / 2 + Math.sin(a) * r); } g.closePath(); };
+    g.fillStyle = '#f4f4f0'; oct(250); g.fill(); g.fillStyle = '#0a7d3c'; oct(232); g.fill();
+    g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.lineWidth = 44; g.beginPath(); g.moveTo(256, 360); g.lineTo(256, 160); g.stroke();
+    g.beginPath(); g.moveTo(256, 70); g.lineTo(340, 180); g.lineTo(172, 180); g.closePath(); g.fill(); g.lineWidth = 16; g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `900 104px ${signFont}`; g.fillText('EXIT', 256, 300 + 30);
+    g.font = `700 36px ${signFont}`; g.fillText('4.9 km EAST', 256, 420);
+  });
+  const mkExitPost = (x, z) => {
+    const grp = new THREE.Group(); grp.name = 'exitSign'; grp.position.set(x, 0, z); grp.rotation.y = Math.atan2(-x, -(z + 1.4));
+    const metal = new THREE.MeshStandardMaterial({ color: 0x4c5258, metalness: 0.85, roughness: 0.4 });
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 10), metal); post.position.y = 1.15;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.06, 20), new THREE.MeshStandardMaterial({ color: 0x23272b, metalness: 0.7, roughness: 0.5 })); base.position.y = 0.03;
+    const oct = new THREE.CylinderGeometry(0.62, 0.62, 0.04, 8); oct.rotateX(Math.PI / 2); oct.rotateZ(Math.PI / 8);
+    const back = new THREE.Mesh(oct, new THREE.MeshStandardMaterial({ color: 0x1a1d1f, metalness: 0.6, roughness: 0.5 })); back.position.set(0, 2.1, 0);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.64, 8, Math.PI / 8), new THREE.MeshBasicMaterial({ map: exitPostTex, transparent: true, toneMapped: false, color: new THREE.Color(0.95, 1.0, 0.95) })); face.position.set(0, 2.1, 0.026);
+    grp.add(post, base, back, face);
+    const glow = new THREE.PointLight(0x40ff90, 2.2, 6, 1.6); glow.position.set(0, 2.1, 0.9); grp.add(glow);
+    scene.add(grp); hall.colliders.push({ x, z, r: 0.2, h: 2.3 }); return grp;
+  };
+  mkExitPost(4.2, 1.0);
   // ANSI-style DO NOT CLIMB: white plate, red ring and bar over a climbing figure, black text, on a bolted post
   const climbTex = canvasTex(512, 768, (g, w, h) => {
     g.fillStyle = '#f4f4f0'; g.fillRect(0, 0, w, h);
@@ -388,7 +413,7 @@ export function buildHall(scene) {
     grp.add(post, base, rim, plate, face);
     scene.add(grp); hall.colliders.push({ x, z, r: 0.2, h: 2.1 }); return grp;
   };
-  mkClimb(8.0, -2.6, -Math.PI / 2); mkClimb(8.0, 3.4, -Math.PI / 2); mkClimb(5.4, 7.0, Math.PI + 0.7); mkClimb(-5.4, 6.4, Math.PI - 0.7);
+  mkClimb(8.0, -0.4, -Math.PI / 2); mkClimb(8.0, 3.4, -Math.PI / 2); mkClimb(5.4, 7.0, Math.PI + 0.7); mkClimb(-5.4, 6.4, Math.PI - 0.7);
   mkClimb(-7.4, 0.8, Math.PI / 2);
 
   // ---- chalkboard on an easel: the rules of the game, in chalk ----
@@ -476,6 +501,23 @@ export function buildHall(scene) {
     `A Support Fan blows ${FAN_R} m the way you face.`,
     `Rule: spacing = ${STALE_OK} x ${FAN_R} / stale. Needs power.`,
   ], 'Vent Fan: ' + VENT_R + ' m all around. Respirator: 20% less dust per level.\nCough = walk out. Pass out = you wake at a depot.');
+  // 2b. how fans work: direction, spacing, power
+  hall.fanBoardPos = [-8.6, -1.8];
+  makeBoard(hall.fanBoardPos[0], hall.fanBoardPos[1], 'HOW FANS WORK', [
+    '#Support Fan',
+    'Aim at a frame, press B: it clamps under the top beam.',
+    'It blows the way YOU face when you set it down:',
+    '    face deeper, toward the work face, so fresh air',
+    '    runs INTO the tunnel and pushes stale air back out.',
+    `Reach ${FAN_R} m. A wall, plush or a shut door stops it.`,
+    '#How close',
+    ...[300, 500, 800, 1200].map((d) => [`at ${d} m deep`, fsp(d)]),
+    `Rule: spacing = ${STALE_OK} x ${FAN_R} / stale. Overlap beats gaps.`,
+    '#Power',
+    'No power, no air. Wire it to a pole or a generator.',
+    'A brownout makes every fan on the grid weaker.',
+  ], `Vent Fan: ${VENT_R} m all around, for rooms and junctions.\nCough or a dim screen edge = fans too far apart.`, Math.PI / 2);
+
   // 3. what to carry, by depth
   makeBoard(0.0, GAL_Z, 'SURVIVING THE DEPTH', [
     ['0 to 150 m', 'timber, struts, lantern, flares'],
@@ -492,24 +534,24 @@ export function buildHall(scene) {
   ], 'The Survey shows depth, load and the fan spacing you need.');
   // 4. how to dig
   makeBoard(4.0, GAL_Z, 'TUNNEL CRAFT', [
-    '1. Dig the 4 x 4 section out first.',
-    '2. Set a frame. It never digs for you.',
+    '1. Dig a 4 x 4 x 4 room out first.',
+    '2. Set a frame: a 2.4 m cube. No digging.',
     '3. Left and Right turn a frame: curves.',
-    '4. Down arrow: back to the grid.',
+    '4. Cubes snap on any side. Down: grid.',
     `5. Unsupported roof: about 7 m near the top,`,
     '    less the deeper and heavier it gets.',
     '6. Frames, struts and jacks share the load.',
     '7. Hammer a support to read its load.',
     '8. Tamping adds 1.2 m of safe roof a level.',
     '9. A creaking roof is about to fall. Leave.',
-  ], 'Remove supports and the tunnel comes down.');
+  ], 'Remove supports and the tunnel comes down.\nMine Rail: hold B to lay track, Backspace rushes you home.');
 
   // 6 and 7. the controls: short versions of the pause menu's Controls tab (a test checks every key named here is a real control)
   hall.controlBoards = [
     ['CONTROLS: MOVING AND HANDS', [
       '#Moving', ['W A S D', 'walk'], ['Shift', 'sprint'], ['Space', 'jump (hold: punch up)'], ['C or Ctrl', 'crouch'],
       '#Hands', ['Left click', 'grab (hold) / throw'], ['Z', 'throw one'], ['Right click or P', 'punch'], ['E', 'use what you aim at'],
-      ['F', 'flashlight'], ['K', 'medkit'], ['U', 'cart out / stow'], ['H (hold)', 'recall to depot'],
+      ['F', 'flashlight'], ['K', 'medkit'], ['U', 'cart out / park'], ['H (hold)', 'recall to depot'],
     ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH']],
     ['CONTROLS: TOOLS AND SCREENS', [
       '#Tools and building', ['1 to 9, [ ]', 'pick a hotbar tool'], ['Q', 'tool away / out'], ['B (hold)', 'set down / lay belts'], ['Left Right', 'turn a frame'],
@@ -521,7 +563,7 @@ export function buildHall(scene) {
 
   // 5. the earth movers: what they dig, what they need, what stops them. Every number comes from the game data.
   { const T0 = defaultTuning(), ex = earthTune(T0, 'excavator'), dz = earthTune(T0, 'dozer'), wh = earthTune(T0, 'wheel'), tk = earthTune(T0, 'truck'); const choke = Math.round(STALE_START + STALE_CHOKE * STALE_SPAN);
-    makeBoard(8.8, -2.2, 'EARTH MOVERS', [
+    makeBoard(8.8, -2.3, 'EARTH MOVERS', [
       ['Excavator', `${2 * ex.latHalf + 1} x ${ex.vert} face, ${ex.hopper} hopper`],
       ['Bulldozer', `${dz.blade} wide blade, ${dz.vert} high`],
       ['Bucket-Wheel', `${2 * wh.latHalf + 1} x ${wh.vert} face, ${wh.hopper} hopper`],
@@ -531,8 +573,26 @@ export function buildHall(scene) {
       'The canopy is rated like your best frame:',
       '    too heavy for it and the machine halts.',
       `Past ${choke} m stale air stops it: hang a fan.`,
-      'They leave The One where it is.',
-    ], `Power: Excavator ${EARTH_KW.excavator} kW, Dozer ${EARTH_KW.dozer}, Wheel ${EARTH_KW.wheel}, Truck ${EARTH_KW.truck}.\nTrucks sell at the bin or a Depot Beacon.`); }
+      'A Vehicle Scanner catches The One.',
+    ], `Power: Excavator ${EARTH_KW.excavator} kW, Dozer ${EARTH_KW.dozer}, Wheel ${EARTH_KW.wheel}, Truck ${EARTH_KW.truck}.\nTrucks sell at the bin or a Depot Beacon.`, -Math.PI / 2); }
+
+  // 6. the two tunnel classes, the arches and the Portal (wave 6). Every number comes from the game data.
+  { const A6 = ARCH_SPANS[6], A8 = ARCH_SPANS[8], A12 = ARCH_SPANS[12], pct = (s) => Math.round(s.derate * 100), clear = (v) => `${v.w} x ${v.h}`;
+    makeBoard(8.8, 0.9, 'TUNNELS AND PORTALS', [
+      '#Normal tunnel: frame cubes',
+      [`4 x 4 x 4 cube`, `${clear(CUBE_CLEAR)} cells clear`],
+      'Minecart, belt, lift, fan, walker.',
+      '#Giant tunnel: arches (4 deep)',
+      [`Haul Arch ${A6.span} wide`, `${A6.cw} x ${A6.ch} clear, ${pct(A6)}% depth`],
+      [`Wide Arch ${A8.span} wide`, `${A8.cw} x ${A8.ch} clear, ${pct(A8)}% depth`],
+      [`Cathedral ${A12.span} wide`, `${A12.cw} x ${A12.ch} clear, ${pct(A12)}% depth`],
+      [`Haul Truck needs`, `${clear(VEHICLES.truck)} clear`],
+      [`Bucket-Wheel needs`, `${clear(VEHICLES.wheel)} clear`],
+      '#Portal',
+      'A giant arch at the pile mouth bores and lines.',
+      'Halts when the mountain presses. Needs fans.',
+      'Never takes The One without a Scanner.',
+    ], `Portal ${PORTAL_KW[6]} / ${PORTAL_KW[8]} / ${PORTAL_KW[12]} kW. Roads ${ROAD.speed}x speed. Docks ${DOCK.charge} kW.`, -Math.PI / 2); }
 
   // EXIT door in +X wall
   const door = new THREE.Group();

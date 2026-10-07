@@ -8,10 +8,13 @@
 // placement code in beltparts.js (lift, underground, frame) and beltplan.js (planner, upgrade in place); logistics.js simulates them.
 import * as THREE from 'three';
 import { C, idx, cellX, cellZ } from './config.js';
+import { V } from './catalog.js';
 import {
   TIER_NAMES, TIER_MUL, TIER_KW, TIER_COST, SPACING, UG_SPAN, LIFT_FREE, FRAME_REACH, LIFT_FRAME_PRICE, K, CRANK,
-  tierOf, rateOf, markOn, liftPriceOf, ugPriceOf, spanOf, framesNeeded, beltId, liftId, ugId,
+  tierOf, rateOf, markOn, liftPriceOf, ugPriceOf, spanOf, framesNeeded, beltId, liftId, ugId, PART_PRICE, PART_KW, partOf,
 } from './beltdata.js';
+import * as SP from './splitparts.js';
+import { openPanel as openSplitPanel } from './splitpanel.js';
 import { planLift, previewLift, buildLift, liftConflict, planUg, buildUg, ugConflict, planFrame, buildFrame, frameConflict, makeFrameMesh, frameRating } from './beltparts.js';
 
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -38,6 +41,19 @@ export const UPGRADES = [
   mk(3, 6000000, { id: 'overdrive', lvl: 1 }, `${(UG_SPAN[3])} cell undergrounds`),
   mk(4, 30000000, { id: 'overdrive', lvl: 2 }, `${(UG_SPAN[4])} cell undergrounds`),
   mk(5, 150000000, { id: 'overdrive', lvl: 3 }, `${(UG_SPAN[5])} cell undergrounds`),
+  // wave 2B: mergers and splitters with rules. Absolute prices, like every catalog upgrade.
+  { id: 'beltMerge', cat: 'machine', name: 'Belt Mergers', max: 1, cost: [450000], req: { id: 'splitter', lvl: 1 },
+    desc: 'Unlocks Belt Mergers: a belt piece that takes plush from up to three lines (its back and both sides) and lets each waiting lane push in turn, so a busy lane can never starve the others. Set one over a belt (it keeps its mark) or on the floor.',
+    effect: (t) => { t.mergeOn = true; } },
+  { id: 'prioMerge', cat: 'machine', name: 'Priority Mergers', max: 1, cost: [2500000], req: { id: 'beltMerge', lvl: 1 },
+    desc: 'Unlocks Priority Mergers: a merger whose three inputs are ranked (E sets the order). The best lane goes first and a lane below it only gets the gaps the better lanes leave, so a rare lane keeps flowing ahead of bulk.',
+    effect: (t) => { t.pmergeOn = true; } },
+  { id: 'smartSplit', cat: 'machine', name: 'Smart Splitters', max: 1, cost: [2000000], req: { id: 'beltSpeed', lvl: 4 },
+    desc: 'Unlocks Smart Splitters: a splitter with one rule on each output (E opens the rules): a rarity range, one species, shiny, The One, Any, None, Anything else, or Overflow, which only gets what the other outputs refuse because they are full. Set one over a belt or a plain splitter.',
+    effect: (t) => { t.smartOn = true; } },
+  { id: 'progSplit', cat: 'machine', name: 'Programmable Splitters', max: 1, cost: [40000000], req: { id: 'smartSplit', lvl: 1 },
+    desc: 'Unlocks Programmable Splitters: up to eight rules on each output, a default output for what nothing claims, and a best-output-first order. Needs Smart Splitters. Set one over a belt, a splitter or a Smart Splitter (its rules carry over).',
+    effect: (t) => { t.progOn = true; } },
 ];
 
 // ---------------------------------------------------------------- bench rows
@@ -74,6 +90,19 @@ export const RECIPES = (g) => {
     use: 'Aim at the floor right beside a tall lift and press B. The lift stops swaying and runs as soon as it has all its frames.',
     statusFn: (gg) => `${[...gg.machines.items.values()].filter((it) => it.ent.type === 'liftframe').length} placed`,
   });
+  // mergers and splitters with rules (wave 2B): each is a belt tile, so it runs at the mark of the belt under it
+  const partUse = 'Aim at a belt and press B to turn it into this (the belt keeps its mark, its plush ride on and the piece it replaces comes back), or aim at the floor. Build the lines into it, then E.';
+  const rows = {
+    merger: { desc: 'Takes plush from up to three lines at once: its back and both sides. Each lane that has plush waiting gets a turn in order, so one busy line cannot starve the others (a plain belt side-merge favors whoever arrives first).', use: partUse + ' It has nothing to set.', status: () => `Fair round robin between three lines, ${PART_KW.merger} kW` },
+    pmerger: { desc: 'A merger whose inputs are ranked. The best lane goes first, and a lane below it only gets the gaps the better ones leave. Put a rare lane ahead of bulk.', use: partUse + ' E sets the order of the lanes, Shift+E copies it.', status: () => `Ranked lanes, ${PART_KW.pmerger} kW` },
+    ssplit: { desc: 'A splitter with one rule on each output: a rarity range, one species, shiny, The One, Any, None, Anything else or Overflow. A plush goes to an output that names it, else to Any, else to Anything else. Overflow only gets what the others refuse because they are full. A plush nothing takes waits.', use: partUse + ' E opens the rules, Shift+E copies them. Unpowered it deals out in turn like a plain splitter.', status: () => `One rule per output, ${PART_KW.ssplit} kW` },
+    psplit: { desc: 'A splitter with up to eight rules on each output, a default output for what nothing claims, and a best-output-first order. A Smart Splitter turns into one with its rules kept.', use: partUse + ' E opens the rules, Shift+E copies them. Unpowered it deals out in turn like a plain splitter.', status: () => `Eight rules per output, ${PART_KW.psplit} kW` },
+  };
+  for (const id of SP.PART_IDS) {
+    if (!SP.unlocked(T, id)) continue;
+    const spec = SP.PARTS[id], r = rows[id];
+    out.push({ id, kind: id, icon: spec.icon, name: spec.name, short: spec.short, price: PART_PRICE[id], batch: id === 'psplit' ? [1, 2, 3] : [1, 3, 5], desc: r.desc, use: r.use, statusFn: r.status });
+  }
   return out;
 };
 
@@ -115,8 +144,8 @@ function crossing(g, ent, span) {
     const i = ent.i + DX[ent.dir] * m, k = ent.k + DZ[ent.dir] * m, x = cellX(i), z = cellZ(k), y = (ent.j + 0.5) * C;
     const t = L.tiles.get(idx(i, ent.j, k)) || L.cols.get(idx(i, ent.j, k));
     if (t) { if (t.type === 'belt') cnt.belts++; else cnt.other++; } else if (w.solid(i, ent.j, k)) cnt.plush++;
-    // a frame is a hollow square one cell deep: its depth is along its axis, its width across it
-    if (frames.some((f) => (f.axis === 'z' ? Math.abs(f.cz - z) <= 0.35 && Math.abs(f.cx - x) <= (f.w || 2.4) / 2 + 0.05 : Math.abs(f.cx - x) <= 0.35 && Math.abs(f.cz - z) <= (f.w || 2.4) / 2 + 0.05) && y >= f.y0 - 0.1 && y <= f.y0 + f.h + 0.1)) cnt.frames++;
+    // a frame is a hollow cube (an old save may still hold the one cell deep kind): its depth is along its axis, its width across it
+    if (frames.some((f) => { const hd = (f.d !== undefined ? f.d : C - 0.06) / 2 + 0.05; return (f.axis === 'z' ? Math.abs(f.cz - z) <= hd && Math.abs(f.cx - x) <= (f.w || 2.4) / 2 + 0.05 : Math.abs(f.cx - x) <= hd && Math.abs(f.cz - z) <= (f.w || 2.4) / 2 + 0.05) && y >= f.y0 - 0.1 && y <= f.y0 + f.h + 0.1; })) cnt.frames++;
   }
   const parts = []; if (cnt.belts) parts.push(`${cnt.belts} belt${cnt.belts > 1 ? 's' : ''}`); if (cnt.other) parts.push(`${cnt.other} machine${cnt.other > 1 ? 's' : ''}`); if (cnt.frames) parts.push(`${cnt.frames} frame cell${cnt.frames > 1 ? 's' : ''}`); if (cnt.plush) parts.push(`${cnt.plush} plush cell${cnt.plush > 1 ? 's' : ''}`);
   return parts.length ? parts.join(', ') : 'open floor';
@@ -158,15 +187,26 @@ const plainInfo = (g, t) => {
 export const TYPES = {
   // the belt tile itself (tier, lift and ug are plain fields on it). No `plan` here: tool kind 'belt' keeps the old placement path.
   belt: {
-    item: (t) => (t.lift ? liftId(tierOf(t)) : t.ug ? ugId(tierOf(t)) : (t.detector || t.splitter || t.hose || t.rise) ? undefined : tierOf(t) > 0 ? beltId(tierOf(t)) : undefined),
+    item: (t) => (t.merger || t.smart ? partOf(t) : t.lift ? liftId(tierOf(t)) : t.ug ? ugId(tierOf(t)) : (t.detector || t.splitter || t.hose || t.rise) ? undefined : tierOf(t) > 0 ? beltId(tierOf(t)) : undefined),
     onRemove: (g, t) => {
       if (t.lift) g.giveItem(liftId(tierOf(t)), t.lift.h - 1);   // the hammer hands back every piece of the lift (the first one comes through `item`)
     },
-    info: (g, t) => (t.lift ? liftInfo(g, t) : t.ug ? ugInfo(g, t) : (tierOf(t) > 0 && !t.detector && !t.splitter && !t.hose && !t.rise ? plainInfo(g, t) : null)),
+    info: (g, t) => (t.merger || t.smart ? SP.info(g, t) : t.lift ? liftInfo(g, t) : t.ug ? ugInfo(g, t) : (tierOf(t) > 0 && !t.detector && !t.splitter && !t.hose && !t.rise ? plainInfo(g, t) : null)),
     infoExtra: (g, t) => (t.detector ? [] : rateLines(g, t)),   // a gate keeps its own readout first (the alarm line)
+    // settings of a Smart or Programmable Splitter (rules, order, default) and a Priority Merger (lane order): cfg and copy/paste (Shift+E, E), the panel on E
+    cfg: (t) => SP.cfgOf(t, V),
+    check: (g, t, c) => SP.check(g, t, c),
+    onCfg: (g, t, c) => SP.onCfg(g, t, c),
+    use: (g, t) => {
+      if (t.smart || t.merger === 'prio') { openSplitPanel(g, t.id); return true; }
+      if (t.merger) { g.ui.hint('Belt Merger: it takes plush from its back and both sides in turn. It has nothing to set.', 3); return true; }
+      return false;
+    },
   },
-  lift: { plan: planLift, preview: previewLift, build: buildLift, conflict: liftConflict },
-  ug: { plan: planUg, build: buildUg, conflict: ugConflict },
+  // the four parts as tools (merger, pmerger, ssplit, psplit): aim at a belt to convert it, or at the floor
+  splitpart: { kinds: SP.PART_IDS, plan: SP.plan, preview: SP.preview, build: SP.build, conflict: SP.conflict },
+  lift: { stat: 'beltLifts', plan: planLift, preview: previewLift, build: buildLift, conflict: liftConflict },
+  ug: { stat: 'beltUgs', plan: planUg, build: buildUg, conflict: ugConflict },
   liftframe: {
     plan: planFrame, build: buildFrame, conflict: frameConflict,
     add: (machines, ent) => ({ obj: makeFrameMesh(ent) }),

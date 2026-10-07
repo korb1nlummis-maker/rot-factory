@@ -156,6 +156,14 @@ export class RemotePlayer {
     this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
     this.tag.scale.set(1.2, 0.3, 1); this.tag.position.y = 2.05; this.tag.renderOrder = 20;
     this.group.add(this.tag);
+    // a soft pulsing light above their head, seen through the pile from any distance so you always know where your partner is
+    const bc = document.createElement('canvas'); bc.width = bc.height = 64; const bg = bc.getContext('2d');
+    const grad = bg.createRadialGradient(32, 32, 0, 32, 32, 32); grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.25, 'rgba(120,255,235,0.85)'); grad.addColorStop(1, 'rgba(60,200,255,0)');
+    bg.fillStyle = grad; bg.fillRect(0, 0, 64, 64);
+    const btex = new THREE.CanvasTexture(bc); btex.colorSpace = THREE.SRGBColorSpace;
+    this.beacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: btex, depthTest: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, sizeAttenuation: false }));
+    this.beacon.name = 'partnerBeacon'; this.beacon.position.y = 2.45; this.beacon.renderOrder = 21; this.beacon.scale.set(0.05, 0.05, 1);
+    this.group.add(this.beacon);
     this.pos = new THREE.Vector3(0, -50, 0);
     this.target = new THREE.Vector3(0, -50, 0);
     this.vel = new THREE.Vector3();
@@ -181,6 +189,9 @@ export class RemotePlayer {
     this.t += dt * (moving ? 9 : 0);
     this.group.children.forEach((c) => { if (c.name === 'leg') c.rotation.x = Math.sin(this.t + c.position.x * 20) * 0.6; });
     const lamp = this.group.getObjectByName('lamp'); if (lamp) lamp.visible = this.lampOn;
+    // the beacon breathes about once every 1.6 s
+    this.bt = (this.bt || 0) + dt; const pu = 0.5 + 0.5 * Math.sin(this.bt * 3.9);
+    if (this.beacon) { const sz = 0.034 + 0.03 * pu; this.beacon.scale.set(sz, sz, 1); this.beacon.material.opacity = 0.45 + 0.55 * pu; }
   }
 
   spheres() { const p = this.pos, v = this.vel, r = true; return [{ x: p.x, y: p.y + 0.3, z: p.z, r: 0.3, vel: v, remote: r }, { x: p.x, y: p.y + 0.8, z: p.z, r: 0.3, vel: v, remote: r }, { x: p.x, y: p.y + 1.3, z: p.z, r: 0.3, vel: v, remote: r }]; }

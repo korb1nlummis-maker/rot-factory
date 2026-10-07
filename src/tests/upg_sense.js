@@ -60,15 +60,15 @@ export default async function (ctx) {
   await T('upg.sense.airmon.effect', async () => {
     fresh({}); const rec = spy();
     try {
-      place(0, -1.4); g.dust.t = 99; g.dust.hostLevel = 0.5; g.dust.level = 0.5; g.dust.lung = 0.4; hud(rec, 0.15); const a0 = document.getElementById('air').classList.contains('hidden');
+      place(0, -1.4); g.dust.t = 99; g.dust.hostLevel = 0.5; g.dust.level = 0.5; g.dust.lung = 0.4; hud(rec, 0.15); const a0 = !g.ui.dials.read('dust').on;
       if (!a0) return 'gauge shown without the upgrade';
       S().money = 1e12; if (!g.buy('airmon')) return 'could not buy';
       g.dust.t = 99; g.dust.hostLevel = 0.5; g.dust.level = 0.5; g.dust.lung = 0.4; hud(rec, 0.15);
-      if (document.getElementById('air').classList.contains('hidden')) return 'gauge not shown with dust in the air';
-      const dust = parseFloat(document.getElementById('airFill').style.width), lung = parseFloat(document.getElementById('lungFill').style.width);
+      if (!g.ui.dials.read('dust').on) return 'gauge not shown with dust in the air';
+      const dust = g.ui.dials.read('dust').frac * 100, lung = g.ui.dials.read('dust').frac2 * 100;
       if (!near(dust, 50, 3) || !near(lung, 40, 3)) return `gauge shows dust ${dust}% lung ${lung}%`;
       g.dust.t = 99; g.dust.hostLevel = 0.9; g.dust.level = 0.9; g.dust.lung = 0.9; hud(rec, 0.15);
-      if (document.getElementById('airTxt').textContent !== 'COUGHING') return 'no coughing warning at lung 0.9';
+      if (g.ui.dials.read('dust').sub !== 'COUGHING') return 'no coughing warning at lung 0.9';
       g.dust.t = 99; g.dust.hostLevel = 0; g.dust.level = 0; g.dust.lung = 0; hud(rec, 0.15); // clean air: the gauge rests
     } finally { rec.off(); g.dust.t = 0; g.dust.hostLevel = 0; g.dust.level = 0; g.dust.lung = 0; }
     return true;
@@ -154,13 +154,13 @@ export default async function (ctx) {
   await T('upg.sense.locator.effect', async () => { let r; for (let n = 0; n < 4; n++) { if (n) await newWorld(); r = await locatorOnce(); if (r === true) return true; if (!/not marked|could not stage|no dig site/.test(String(r))) return r; } return r; });
 
   await T('upg.sense.assay.effect', async () => {
-    fresh({}); const rec = spy(); const bar = () => parseFloat(/scaleX\(([\d.]+)\)/.exec(document.getElementById('assayBar').style.transform)[1]);
+    fresh({}); const rec = spy(); const bar = () => g.ui.dials.read('vein').frac;
     let vv = 0.2; w().veinAt = () => vv; const read = (v) => { vv = v; place(0, -1.4); hud(rec, 0.15); return bar(); };
     try {
-      vv = 0.9; place(0, -1.4); hud(rec, 0.15); if (!document.getElementById('assay').classList.contains('hidden')) return 'meter shown without the upgrade';
+      vv = 0.9; place(0, -1.4); hud(rec, 0.15); if (g.ui.dials.read('vein').on) return 'meter shown without the upgrade';
       S().money = 1e12; if (!g.buy('assay')) return 'could not buy';
       const vals = [0.2, 0.55, 0.7, 0.8, 0.9, 0.95].map(read);
-      if (document.getElementById('assay').classList.contains('hidden')) return 'meter not shown';
+      if (!g.ui.dials.read('vein').on) return 'meter not shown';
       for (let q = 2; q < vals.length; q++) if (!(vals[q] > vals[q - 1]) && vals[q - 1] < 0.999) return 'meter does not climb with the vein: ' + vals.map((x) => x.toFixed(2));
       if (!(vals[0] < 0.1 && near(vals[3], 0.625, 0.03) && vals[5] > 0.97)) return 'meter scale: ' + vals.map((x) => x.toFixed(2));
     } finally { delete w().veinAt; rec.off(); }

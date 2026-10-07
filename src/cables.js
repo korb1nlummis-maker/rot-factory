@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { cellX, cellZ, toI, toJ, toK } from './config.js';
 import { isEarth, EARTH } from './earth.js';
-import { maxPorts, wireCheck, isPart, partName } from './powerparts.js';
+import { partOf as beltPartOf } from './beltdata.js';
+import { PARTS as BELT_PARTS } from './splitparts.js';
+import { maxPorts, wireCheck, isPart, partName, genKindOf } from './powerparts.js';
+import { drawsPower, catalogType } from './catalog.js';
 
 // ---------------------------------------------------------------------------------------------------
 // Hand-wired power cables. Equip a Power Cable, click a node or a machine, then click a second one: the cable
@@ -13,16 +16,18 @@ import { maxPorts, wireCheck, isPart, partName } from './powerparts.js';
 export const CABLE_BASE_LEN = 25;     // metres; Grid Range (and anything else that raises the pole link) lengthens it by the same amount
 export const cableMax = (T) => CABLE_BASE_LEN + Math.max(0, ((T && T.poleLink) || 14) - 14);
 const NODE = new Set(['gen', 'pole', 'switch', 'battery', 'breaker']);   // switch, battery and breaker: the power parts of powerparts.js
-const CONSUMER = new Set(['belt', 'sorter', 'mech', 'fan', 'charger', 'claw', 'borer', 'beacon', 'meter']);
+const CONSUMER = new Set(['belt', 'sorter', 'mech', 'fan', 'charger', 'claw', 'borer', 'beacon', 'meter', 'hlamp', 'vscan']);
 export const isNodeType = (type) => NODE.has(type);
-export const wireable = (e) => !!e && (NODE.has(e.type) || CONSUMER.has(e.type) || isEarth(e.type));
+export const wireable = (e) => !!e && (NODE.has(e.type) || CONSUMER.has(e.type) || isEarth(e.type) || drawsPower(e.type));   // any catalog machine that declares a demand (rail station, Leveling Pad, doors, lights, arches ...) takes a cable too
 export function wireName(e) {
   if (!e) return 'something';
-  if (e.type === 'belt') return e.detector ? 'Detector Gate' : e.splitter ? 'Belt Splitter' : 'Belt';
+  if (e.type === 'belt') return e.detector ? 'Detector Gate' : BELT_PARTS[beltPartOf(e)] ? BELT_PARTS[beltPartOf(e)].name : e.splitter ? 'Belt Splitter' : 'Belt';
   if (e.type === 'fan') return e.mounted ? 'Support Fan' : 'Vent Fan';
   if (isEarth(e.type)) return EARTH[e.type].name;
   if (isPart(e.type)) return partName(e);
-  return ({ gen: 'Generator', pole: 'Power Pole', sorter: 'Sorting Box', mech: 'Mech Scooper', charger: 'Charging Station', claw: 'Claw Rig', borer: 'Tunnel Borer', beacon: 'Depot Beacon' })[e.type] || e.type;
+  { const h = catalogType(e.type); if (h && typeof h.wireName === 'function') { const n = h.wireName(e); if (n) return n; } }
+  if (e.type === 'gen') return genKindOf(e).name;   // the generator ladder (Portable ... Titan Plant)
+  return ({ hlamp: 'Hanging Lantern', gen: 'Generator', pole: 'Power Pole', sorter: 'Sorting Box', mech: 'Mech Scooper', charger: 'Charging Station', claw: 'Claw Rig', borer: 'Tunnel Borer', beacon: 'Depot Beacon' })[e.type] || e.type;
 }
 
 const SEGS = 12;
@@ -101,6 +106,9 @@ export class Cables {
     return true;
   }
 
+  // a tile was replaced by another (a belt turned into a merger): its cables now end on the new one
+  rewire(oldId, newId) { const l = this.of(oldId); for (const c of l) { if (c.a === oldId) c.a = newId; if (c.b === oldId) c.b = newId; } if (l.length) this.changed(); }
+
   // an object went away: its cables go with it (and come back as items when you took it down yourself)
   detach(entId, refund) { for (const c of this.of(entId)) this.remove(c.id, refund); }
 
@@ -172,6 +180,13 @@ export class Cables {
     for (const it of g.machines.items.values()) {
       const e = it.ent; if (!wireable(e)) continue;
       const em = isEarth(e.type);
+      const ch = catalogType(e.type);
+      if (ch && typeof ch.pos === 'function') {   // a catalog machine that says where its cable clips on (a Leveling Pad has no x y z, a door keeps px pz)
+        const pp = ch.pos(g, e); if (!pp) continue;
+        const vx = pp[0] - eye.x, vy = pp[1] - eye.y, vz = pp[2] - eye.z, d = Math.hypot(vx, vy, vz), hr = e.hr || 0;
+        if (d > bd + hr || (vx * dir.x + vy * dir.y + vz * dir.z) / (d || 1) < (hr ? 0.8 : 0.9)) continue;
+        bd = d; best = e; continue;
+      }
       const x = em ? it.obj.position.x : (e.cx ?? e.px ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.pz ?? e.z);
       if (x === undefined) continue;
       const vx = x - eye.x, vy = y - eye.y, vz = z - eye.z, d = Math.hypot(vx, vy, vz);

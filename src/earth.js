@@ -5,13 +5,17 @@
 //   Haul Truck carries plush from a digger's hopper to the bin (or a Depot Beacon) along a path and comes back.
 // Diggers respect the mountain: each carries a canopy that must hold the roof under it (the same load tracing the frames use,
 // rated like the best frame you own), and each chokes on deep stale air unless a Support Fan is blowing near it.
-// They never take The One: a cell holding it is left in the pile. The host simulates; a guest only draws what the host reports.
+// The diggers scoop up The One like any plush, but it never leaves a machine on its own: it stays in the hopper (no belt, no chute, no sale), E takes it, and a Haul Truck
+// carries it only through a powered Vehicle Scanner (vehiclescan.js), which dumps the load at the arch and sounds the alarm. A truck with The One aboard and no scanner on its road
+// refuses to leave and says so. The host simulates; a guest only draws what the host reports.
 import * as THREE from 'three';
 import { C, NX, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config.js';
 import { NEEDLE, species, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { FRAME_TYPES } from './upgrades.js';
 import { BASE_LOAD, PRESS, loadOn } from './loadtrace.js';
+import * as VS from './vehiclescan.js';
+import * as HAUL from './haul.js';   // wave 6: tunnel routes, haul roads, docks and the truck battery
 const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];   // the same direction table the belts use
 
 export const EARTH = {
@@ -28,7 +32,7 @@ export const HOPPER_BASE = { excavator: 240, wheel: 1500 };
 export const DOZER_CHUTE = 0.85;      // a blade that pushes plush to the chute with no belt behind it mashes some of the value
 export const DOZER_BUFFER = 60;       // with a belt behind it the blade queues what it pushes (and waits when the belt is backed up)
 export const STALE_CHOKE = 0.8;
-export const STATES = ['off', 'nopower', 'idle', 'dig', 'advance', 'full', 'choke', 'press', 'stuck', 'go', 'load', 'unload', 'back', 'wait'];
+export const STATES = ['off', 'nopower', 'idle', 'dig', 'advance', 'full', 'choke', 'press', 'stuck', 'go', 'load', 'unload', 'back', 'wait', 'scan', 'dump', 'hold', 'refuse', 'dead', 'blocked'];   // new states only ever go on the end: a row carries the index
 
 export const earthCost = (kind, count) => Math.round(EARTH[kind].cost * Math.pow(EARTH_GROWTH, count));
 
@@ -180,7 +184,7 @@ export function workCells(game, e, tu) {
   const w = game.world, spec = EARTH[e.type], out = [];
   for (let f = spec.half + 1; f <= spec.half + tu.reach; f++) for (let l = -tu.latHalf; l <= tu.latHalf; l++) for (let v = 0; v < tu.vert; v++) {
     const [i, j, k] = cellAt(e, f, l, v); const s = w.get(i, j, k);
-    if (!s || isSpecialCell(s) || s === NEEDLE || w.reserved.has(idx(i, j, k))) continue;
+    if (!s || isSpecialCell(s) || w.reserved.has(idx(i, j, k))) continue;   // The One is scooped like any plush (it stays in the hopper, see scoopedOne)
     out.push([f * 10 + Math.abs(l) * 1.5 + v * 0.7, i, j, k]);
   }
   out.sort((a, b) => a[0] - b[0]);
@@ -200,9 +204,20 @@ function countDug(game, taken) {
   game.registerDex(taken.sp, true);
 }
 
+// a digger scooped The One: it stays in the hopper (never belted, chuted or sold) until a truck takes it through a Vehicle Scanner or you take it with E
+function scoopedOne(game, e, spec) {
+  game.registerDex(NEEDLE); if (game.sound && game.sound.found) game.sound.found();
+  game.S.stats.oneScooped = (game.S.stats.oneScooped || 0) + 1;
+  VS.announce(game, '🚨', 'THE ONE IS ABOARD', `The ${spec.name} scooped THE ONE into its hopper. It stays there: a Haul Truck carries it through a Vehicle Scanner, or press E on the ${spec.name} to take it.`, { cls: 'ach', ms: 12000 });
+}
+
 // sell a batch of plush at once: one money update, one coin sound, the same value rules as any machine sale
 export function sellBatch(game, flat, mult = 1) {
   const S = game.S; let total = 0, n = 0; const memo = new Map();
+  if (VS.hasOne(flat)) {   // a machine never sells The One: whatever got this far is set down loose at the bin, not lost
+    flat = flat.slice(); const one = VS.takeOne(flat), bp = game.hall.binPos;
+    if (one) game.sim.spawn(one.sp, one.vr, bp.x + 1.5, 1.6, bp.z + 1.5, 0, 2, 0, 0);
+  }
   for (let q = 0; q < flat.length; q += 2) {
     const sp = flat[q], vr = flat[q + 1], key = sp * 256 + vr;
     let v = memo.get(key); if (v === undefined) { v = Math.max(1, Math.round(game.valueOf(sp, vr, 0) * mult * (game.golden > 0 ? 2 : 1))); memo.set(key, v); }
@@ -234,8 +249,10 @@ function flushHopper(game, it, spec) {
   const outs = outletTiles(game, e, spec); if (!outs.length) return;
   let moved = 0;
   for (let n = 0; n < 8 && e.hop.length; n++) {
+    let q = 0; while (q < e.hop.length && e.hop[q] === NEEDLE) q += 2;   // The One never goes onto a belt: it stays in the hopper
+    if (q >= e.hop.length) break;
     let ok = false;
-    for (const t of outs) if (game.logi.accept(t, { sp: e.hop[0], vr: e.hop[1] }, null)) { e.hop.splice(0, 2); ok = true; moved++; break; }
+    for (const t of outs) if (game.logi.accept(t, { sp: e.hop[q], vr: e.hop[q + 1] }, null)) { e.hop.splice(q, 2); ok = true; moved++; break; }
     if (!ok) break;
   }
   if (moved) e.hn = e.hop.length / 2;
@@ -243,7 +260,7 @@ function flushHopper(game, it, spec) {
 
 function lampFor(it, state) {
   const p = it.earth; if (!p || !p.lamp) return;
-  p.lamp.material = state === 'dig' || state === 'advance' || state === 'go' || state === 'back' || state === 'load' || state === 'unload' ? M.glowG : state === 'idle' || state === 'wait' || state === 'full' ? M.glowO : M.glowR;
+  p.lamp.material = state === 'scan' ? M.glowO : state === 'dig' || state === 'advance' || state === 'go' || state === 'back' || state === 'load' || state === 'unload' ? M.glowG : state === 'idle' || state === 'wait' || state === 'full' ? M.glowO : M.glowR;
 }
 
 export function addEarth(m, ent) {
@@ -257,7 +274,7 @@ export function addEarth(m, ent) {
     if (!ent.hop) { ent.hop = []; ent.hn = 0; }
   } else {
     if (ent.px === undefined) { ent.px = ent.x; ent.pz = ent.z; }
-    ent.cargo = ent.cargo || []; ent.route = ent.route || []; ent.cn = ent.cargo.length / 2; it.obj.position.set(ent.px, groundY(game, ent.px, ent.pz), ent.pz); it.obj.rotation.y = ent.yaw || 0;
+    ent.cargo = ent.cargo || []; ent.route = ent.route || []; ent.cn = ent.cargo.length / 2; if (!Number.isFinite(ent.batt)) ent.batt = HAUL.battCap(game.T); it.obj.position.set(ent.px, groundY(game, ent.px, ent.pz), ent.pz); it.obj.rotation.y = ent.yaw || 0;
   }
   return it;
 }
@@ -275,7 +292,7 @@ function animate(it, dt, time) {
     p.boom.rotation.x = -0.28 + 0.05 * Math.sin(it.ph * 0.6);
   } else if (e.type === 'dozer') {
     const bw = (e.bw || 5) * C + 0.5; p.blade.scale.x += (bw - p.blade.scale.x) * Math.min(1, dt * 4); p.blade.position.z = 1.45 + (active ? 0.08 * Math.sin(time * 6) : 0);
-  } else if (e.type === 'truck') { const mv = e.state === 'go' || e.state === 'back'; for (const wl of p.wheels) wl.rotation.x += mv ? dt * 7 : 0; }
+  } else if (e.type === 'truck') { const mv = e.state === 'go' || e.state === 'back'; for (const wl of p.wheels) wl.rotation.x += mv ? dt * 7 : 0; if (p.bed) p.bed.rotation.x += ((e.state === 'dump' ? 0.45 : 0) - p.bed.rotation.x) * Math.min(1, dt * 3); }
   if (p.fill) { const cap = e.type === 'truck' ? (e.bed || 240) : (e.cap || 240); const n = e.type === 'truck' ? (e.cn || 0) : (e.hn || 0); const fr = Math.min(1, n / Math.max(1, cap)); p.fill.scale.y += (Math.max(0.01, fr * p.fillMax) - p.fill.scale.y) * Math.min(1, dt * 5); p.fill.position.y = (p.fill.scale.y) / 2 + 0.04; }
   lampFor(it, e.state);
 }
@@ -291,7 +308,7 @@ export function updateEarth(m, it, dt, time) {
   it.obj.position.x += (tx - it.obj.position.x) * Math.min(1, dt * 5); it.obj.position.z += (tz - it.obj.position.z) * Math.min(1, dt * 5); it.obj.position.y += (ty - it.obj.position.y) * Math.min(1, dt * 5);
   it.shield.x = it.obj.position.x; it.shield.z = it.obj.position.z; it.shield.y = ty + 0.9;
   if (e.off) { e.state = 'off'; return; }
-  it.flushT -= dt; if (it.flushT <= 0) { it.flushT = 0.5; flushHopper(game, it, spec); if (spec.direct && e.hop.length && !outletTiles(game, e, spec).length) { sellBatch(game, e.hop, DOZER_CHUTE); e.hop = []; e.hn = 0; } }
+  it.flushT -= dt; if (it.flushT <= 0) { it.flushT = 0.5; flushHopper(game, it, spec); if (spec.direct && e.hop.length && !(e.hop.length === 2 && e.hop[0] === NEEDLE) && !outletTiles(game, e, spec).length) { const one = VS.takeOne(e.hop); sellBatch(game, e.hop, DOZER_CHUTE); e.hop = one ? [one.sp, one.vr] : []; e.hn = e.hop.length / 2; } }
   const pw = e.pw ?? 0;
   if (pw < 0.05) { e.state = 'nopower'; return; }
   it.timer -= dt * pw;
@@ -313,7 +330,7 @@ export function updateEarth(m, it, dt, time) {
       const taken = w.removeCell(i, j, k); if (!taken) continue;
       n++; cx += cellX(i); cy += cellY(j); cz += cellZ(k);
       countDug(game, taken); e.dug = (e.dug || 0) + 1;
-      if (spec.direct && !outletTiles(game, e, spec).length) sellBatch(game, [taken.sp, taken.vr], DOZER_CHUTE); else e.hop.push(taken.sp, taken.vr);
+      if (spec.direct && taken.sp !== NEEDLE && !outletTiles(game, e, spec).length) sellBatch(game, [taken.sp, taken.vr], DOZER_CHUTE); else { e.hop.push(taken.sp, taken.vr); if (taken.sp === NEEDLE) scoopedOne(game, e, spec); }
     }
     e.hn = e.hop.length / 2;
     if (n) { game.noteDist(cellX(e.i), cellZ(e.k)); game.fx.dust(cx / n, cy / n, cz / n, 5, 1.0, 1.0); }
@@ -334,9 +351,10 @@ export function updateEarth(m, it, dt, time) {
 }
 
 // ---------------------------------------------------------------- hauling
-function sinkNear(game, x, z) {
+export function sinkNear(game, x, z) {
   const bp = game.hall.binPos; let best = { x: bp.x, z: bp.z, name: 'the bin' }, bd = Math.hypot(x - bp.x, z - bp.z);
   for (const it of game.machines.items.values()) if (it.ent.type === 'beacon') { const d = Math.hypot(x - it.ent.x, z - it.ent.z); if (d < bd) { bd = d; best = { x: it.ent.x, z: it.ent.z, name: 'a depot' }; } }
+  for (const dk of HAUL.docksOf(game)) { if (!HAUL.isSink(game, dk)) continue; const c = HAUL.dockCentre(dk), d = Math.hypot(x - c.x, z - c.z); if (d < bd) { bd = d; best = { x: c.x, z: c.z, name: 'a dock', dock: dk.id }; } }   // a dock with a belt at its end is a place a truck unloads
   return best;
 }
 // stop short of a target so the truck parks beside it
@@ -347,6 +365,7 @@ export function findJob(game, tk) {
   const taken = new Set(); for (const it of game.machines.items.values()) if (it.ent.type === 'truck' && it.ent !== tk && it.ent.job && ['go', 'load'].includes(it.ent.state)) taken.add(it.ent.job);
   for (const it of game.machines.items.values()) {
     const d = it.ent; if (!EARTH[d.type] || !EARTH[d.type].dig || EARTH[d.type].direct || taken.has(d.id) || !d.hop || !d.hop.length) continue;
+    if (tk.cache && tk.cache.skip && tk.cache.skip[d.id] > game.time) continue;   // no route to that digger for a while (a frame too narrow for a truck on the way)
     const dist = Math.hypot(d.x - tk.x, d.z - tk.z); if (dist > tu.range) continue;
     const n = d.hop.length / 2, cap = d.cap || 240;
     const ready = n >= Math.min(tu.bed, cap) * 0.5 || ['full', 'idle', 'stuck', 'off', 'nopower', 'press', 'choke'].includes(d.state);
@@ -357,13 +376,58 @@ export function findJob(game, tk) {
   return best;
 }
 
+// a truck on a searched route (a tunnel) drives on the floor under it, not over the top of the pile: the floor row near the row it was on
+const onTunnelRoute = (e) => !!e.tun;   // set when either end of the trip is inside a tunnel (haul.jobRoute), cleared at the yard
+function truckY(game, e, it) {
+  let row = Math.round(it.obj.position.y / C), tun = onTunnelRoute(e) && e.state !== 'idle';
+  // parked at its yard inside a tunnel: the floor of the yard, not the top of the pile (the model starts out on top of the column)
+  if (!tun && Math.hypot(e.px - e.x, e.pz - e.z) < 3) { const home = Math.round((e.y || 0) / C); if (HAUL.enclosed(game, e.px, e.pz, home)) { tun = true; row = home; } }
+  if (!tun && HAUL.enclosed(game, e.px, e.pz, row)) tun = true;
+  if (tun) { const j = HAUL.floorNear(game, e.px, e.pz, row); if (j !== null) return j * C; }
+  return groundY(game, e.px, e.pz);
+}
 function updateTruck(m, it, dt, time) {
   truckLogic(m, it, dt);
   // keep the model where the truck is
-  const e = it.ent, game = m.game, y = groundY(game, e.px, e.pz);
+  const e = it.ent, game = m.game, y = truckY(game, e, it); e.py = +y.toFixed(2);
   it.obj.position.x = e.px; it.obj.position.z = e.pz; it.obj.position.y += (y - it.obj.position.y) * Math.min(1, dt * 6);
   it.obj.rotation.y = e.yaw || 0;
   animate(it, dt, time);
+}
+
+// a route waypoint is [x, z, tag]: dig (the digger's back point), scanA / scan / scanC (line up, stop under, leave a Vehicle Scanner), sink, home.
+// Routes saved before the scanner have no tags: waypoint 0 is the digger, 1 the sink, 2 home.
+const tagOf = VS.tagOf;
+
+// the straight route for the rest of a trip from where the truck stands: a powered Vehicle Scanner on the way when there is one, the sink, home
+function buildRoute(game, e, d) {
+  const from = d ? [d.x, d.z] : [e.px, e.pz], sink = sinkNear(game, from[0], from[1]);
+  const [sx, sz] = sink.dock ? [sink.x, sink.z] : stopBefore(from[0], from[1], sink.x, sink.z, 3.0);   // a dock: the truck drives into the pad
+  const sc = VS.pickScanner(game, from[0], from[1], sx, sz, earthTune(game.T, 'truck').range);
+  const route = [[e.px, e.pz, 'dig']];
+  const via = sc ? VS.routeVia(sc, e.px, e.pz) : [];
+  // out of a tunnel: a searched route (vias) from where the truck stands to the first stop on the way to the bin
+  const first = via.length ? via[0] : [sx, sz], rt = HAUL.jobRoute(game, { x: e.px, z: e.pz, y: e.py ?? groundY(game, e.px, e.pz) }, { x: first[0], z: first[1], y: groundY(game, first[0], first[1]) });
+  if (!rt.ok) return { route, sc: sc ? sc.id : 0, why: rt.why, dockId: 0 };
+  route.push(...rt.vias);
+  if (sc) route.push(...via);
+  route.push([sx, sz, 'sink'], [e.x, e.z, 'home']);
+  return { route, sc: sc ? sc.id : 0, dockId: sink.dock || 0, tun: !!rt.tun };
+}
+// no way through for a truck: it stays where it is and says why (the router names what is too narrow)
+function blockRoute(game, e, it, why) {
+  e.state = 'blocked'; e.why = why; it.timer = 2;
+  if (e.warnedWhy === why) return; e.warnedWhy = why;
+  game.S.stats.truckBlocked = (game.S.stats.truckBlocked || 0) + 1;
+  VS.announce(game, '🚛', 'Haul Truck cannot get through', why, { ms: 12000 });
+}
+
+// a load with The One aboard and no powered scanner on the road: the truck stays put and says so
+function refuse(game, e, it) {
+  e.state = 'refuse'; it.timer = 1.5;
+  if (e.warned) return; e.warned = true;
+  game.S.stats.truckRefusals = (game.S.stats.truckRefusals || 0) + 1;
+  VS.announce(game, '🚛', 'Haul Truck will not leave', 'Its load holds THE ONE and no powered Vehicle Scanner is on the road to the bin. Build and power one near the route, or press E on the truck to take The One.', { cls: 'ach', ms: 12000 });
 }
 
 function truckLogic(m, it, dt) {
@@ -373,33 +437,108 @@ function truckLogic(m, it, dt) {
   if (e.off) { e.state = 'off'; return; }
   if (pw < 0.05) { if (e.state === 'idle' || e.state === 'wait' || e.state === 'nopower') e.state = 'nopower'; return; }
   if (e.state === 'nopower' || e.state === 'off') e.state = e.route && e.route.length && e.seg < e.route.length ? 'go' : 'idle';
+  const cap = HAUL.battCap(T);
+  if (e.state === 'dead') {   // out of battery: E with a Charge Pack in your pack gets it going, and so does a powered Truck Dock it stands in (it drives on once it holds 15%)
+    if (e.batt < cap && Math.hypot((e.px ?? e.x) - e.x, (e.pz ?? e.z) - e.z) < 3) e.batt = Math.min(cap, e.batt + HAUL.BATT.charge * pw * dt);   // at its own yard the yard charges it, like an idle truck
+    if (!(e.batt >= HAUL.BATT.low * cap)) { e.bp = Math.round(100 * Math.min(1, e.batt / cap)); return; }
+    e.state = e.resume && e.resume !== 'dead' ? e.resume : 'go'; e.why = '';
+  }
+  e.bp = Math.round(100 * Math.min(1, e.batt / cap));
   if (e.state === 'idle') {
+    if (e.batt < cap && Math.hypot((e.px ?? e.x) - e.x, (e.pz ?? e.z) - e.z) < 3) e.batt = Math.min(cap, e.batt + HAUL.BATT.charge * pw * dt);   // the yard charges it, the way it always had its power
     it.timer -= dt; if (it.timer > 0) return; it.timer = 1.0;
     const d = findJob(game, e); if (!d) return;
-    const sink = sinkNear(game, d.x, d.z);
     const back = outletBackPoint(d);
-    const [sx, sz] = stopBefore(d.x, d.z, sink.x, sink.z, 3.0), [hx, hz] = [e.x, e.z];
-    e.job = d.id; e.route = [[back[0], back[1]], [sx, sz], [hx, hz]]; e.seg = 0; e.state = 'go';
+    e.px = e.px ?? e.x; e.pz = e.pz ?? e.z;
+    const [hx, hz] = [e.x, e.z], sink = sinkNear(game, d.x, d.z), [sx, sz] = sink.dock ? [sink.x, sink.z] : stopBefore(d.x, d.z, sink.x, sink.z, 3.0);
+    const sc = VS.pickScanner(game, d.x, d.z, sx, sz, tu.range);
+    const rt = HAUL.jobRoute(game, { x: e.px, z: e.pz, y: e.y ?? 0 }, { x: back[0], z: back[1], y: d.y ?? d.j * C });
+    if (!rt.ok) { const c = e.cache || (e.cache = {}); (c.skip || (c.skip = {}))[d.id] = game.time + 8; e.why = rt.why; blockRoute(game, e, it, rt.why); e.state = 'idle'; it.timer = 1.0; return; }
+    const need = HAUL.tripNeed(T, Math.max(Math.hypot(back[0] - e.px, back[1] - e.pz), rt.len || 0) + Math.hypot(sx - back[0], sz - back[1]));   // (the length of the searched route, not the straight line to the digger: a tunnel can wind)
+    if (e.batt < need && need <= cap) { e.why = `Charging for the trip (${Math.round(100 * e.batt / cap)}%)`; return; }
+    e.why = ''; e.warnedWhy = '';
+    e.job = d.id; e.sc = sc ? sc.id : 0; e.dockId = sink.dock || 0; e.tun = !!rt.tun; e.route = [...rt.vias, [back[0], back[1], 'dig'], ...(sc ? VS.routeVia(sc, back[0], back[1]) : []), [sx, sz, 'sink'], [hx, hz, 'home']]; e.seg = 0; e.state = 'go';
     return;
+  }
+  if (e.state === 'blocked') {   // the road after loading was cut (or a frame is too narrow for a truck): look again every couple of seconds
+    it.timer -= dt; if (it.timer > 0) return; it.timer = 2;
+    const d = game.machines.items.get(e.job), built = buildRoute(game, e, d && d.ent);
+    if (built.why) { blockRoute(game, e, it, built.why); return; }
+    e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.tun = e.tun || built.tun; e.warnedWhy = ''; e.why = ''; e.state = 'go'; e.seg = 1; return;
   }
   if (e.state === 'go' || e.state === 'back') {
     const tg = e.route[e.seg]; if (!tg) { e.state = 'idle'; e.job = 0; return; }
-    const dx = tg[0] - e.px, dz = tg[1] - e.pz, dist = Math.hypot(dx, dz), step = tu.speed * dt * pw;
+    const dx = tg[0] - e.px, dz = tg[1] - e.pz, dist = Math.hypot(dx, dz), step = tu.speed * (HAUL.onRoad(game, e.px, e.pz) ? HAUL.ROAD.speed : 1) * dt * pw;   // a haul road plate: 1.4 times as fast
     if (dist > 0.05) e.yaw = Math.atan2(dx, dz);
+    e.batt = Math.max(0, e.batt - HAUL.BATT.drive * dt * pw);   // driving draws 40 kW from the battery
+    if (e.batt <= 0) { e.resume = e.state; e.state = 'dead'; e.why = 'Out of battery'; return; }
     if (dist <= step) {
       e.px = tg[0]; e.pz = tg[1];
-      if (e.seg === 0 && e.state === 'go') { arriveDigger(game, e, it); }
-      else if (e.seg === 1) { e.state = 'unload'; it.timer = 1.2; }
-      else { e.state = 'idle'; e.job = 0; e.route = []; e.seg = 0; it.timer = 1.0; e.px = e.x; e.pz = e.z; }
+      const tag = tagOf(e, e.seg);
+      if (tag === 'dig' && e.state === 'go') { arriveDigger(game, e, it); }
+      else if (tag === 'sink') { e.state = 'unload'; it.timer = 1.2; }
+      else if (tag === 'scanA') { const sc = e.sc ? VS.byId(game, e.sc) : null; if (!sc || VS.enterLane(game, sc, e.id)) e.seg++; else { e.state = 'hold'; it.timer = 0.5; } }
+      else if (tag === 'scan') {
+        const sc = e.sc ? VS.byId(game, e.sc) : null;
+        if (sc && VS.powered(game, sc)) { e.state = 'scan'; it.timer = VS.SCAN_TIME; }
+        else { VS.leaveLane(sc, e.id); if (VS.hasOne(e.cargo)) refuse(game, e, it); else e.seg++; }   // the scanner was taken down or lost its power: do not drive off with The One
+      }
+      else if (tag === 'scanC') { VS.leaveLane(e.sc ? VS.byId(game, e.sc) : null, e.id); e.seg++; }
+      else if (tag === 'via') e.seg++;   // a corner of the searched route through a tunnel
+      else { e.state = 'idle'; e.job = 0; e.route = []; e.seg = 0; e.sc = 0; e.tun = false; it.timer = 1.0; e.px = e.x; e.pz = e.z; }
     } else { e.px += (dx / dist) * step; e.pz += (dz / dist) * step; }
+    return;
+  }
+  if (e.state === 'hold') {   // an alarm is up at the scanner on the road, or another truck is in its lane: wait in line at the line-up point until it is free
+    it.timer -= dt; if (it.timer > 0) return; it.timer = 0.5;
+    const sc = e.sc ? VS.byId(game, e.sc) : null;
+    if (!sc || VS.enterLane(game, sc, e.id)) { e.seg++; e.state = 'go'; }
+    return;
+  }
+  if (e.state === 'scan') {
+    it.timer -= dt * pw; if (it.timer > 0) return;
+    const sc = e.sc ? VS.byId(game, e.sc) : null;
+    if (!sc) { if (VS.hasOne(e.cargo)) refuse(game, e, it); else { e.state = 'go'; e.seg++; } return; }   // taken down mid scan: a load with The One never drives off unscanned
+    if (VS.scanLoad(game, e, sc) === 'alarm') e.state = 'dump'; else { e.state = 'go'; e.seg++; }   // (the lane stays ours until scanC)
+    return;
+  }
+  if (e.state === 'dump') {   // the load pours out on the ground at the arch, then the empty truck drives home
+    const sc = e.sc ? VS.byId(game, e.sc) : null;
+    const done = !sc ? 'gone' : VS.dumpStep(game, e, sc, dt, groundY(game, e.px, e.pz));
+    if (done) {
+      if (done !== true && e.cargo.length) sellBatch(game, e.cargo, 1);   // the scanner is gone or the floor is full: the rest of the load is sold like any haul, never erased
+      VS.leaveLane(sc, e.id); e.cargo = []; e.cn = 0; e.dumpN = 0; e.dumpWait = 0; e.state = 'back'; e.seg = e.route.length - 1;
+    }
+    return;
+  }
+  if (e.state === 'refuse') {
+    it.timer -= dt; if (it.timer > 0) return; it.timer = 1.5;
+    const d = game.machines.items.get(e.job), built = buildRoute(game, e, d && d.ent);
+    if (!VS.hasOne(e.cargo) || built.sc) { if (built.why) { blockRoute(game, e, it, built.why); return; } e.warned = false; e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.tun = e.tun || built.tun; e.state = 'go'; e.seg = 1; }   // someone took The One, or a scanner is up now
     return;
   }
   if (e.state === 'load' || e.state === 'unload') {
     it.timer -= dt * pw; if (it.timer > 0) return;
-    if (e.state === 'load') { e.state = 'go'; e.seg = 1; return; }
+    if (e.state === 'load') {
+      const d = game.machines.items.get(e.job), built = buildRoute(game, e, d && d.ent);   // the scanners may have changed since the truck left its yard
+      if (built.why) { blockRoute(game, e, it, built.why); return; }
+      e.route = built.route; e.sc = built.sc; e.dockId = built.dockId; e.tun = e.tun || built.tun;
+      if (VS.hasOne(e.cargo) && !built.sc) { refuse(game, e, it); return; }
+      e.state = 'go'; e.seg = 1; return;
+    }
+    if (e.dockId) {   // a dock with a belt at its end: the load goes onto the belt at the belt's speed (The One never does, and a dock that lost its belt sells like the bin)
+      const dk = HAUL.dockById(game, e.dockId);
+      if (dk && !VS.hasOne(e.cargo)) {
+        e.un0 = e.un0 || e.cargo.length / 2;
+        const r = HAUL.unloadTo(game, dk, e, dt);
+        if (r === true) { game.S.stats.hauled = (game.S.stats.hauled || 0) + e.un0; game.S.stats.hauls = (game.S.stats.hauls || 0) + 1; e.trips = (e.trips || 0) + 1; e.un0 = 0; e.dockId = 0; e.cargo = []; e.cn = 0; e.state = 'back'; e.seg = e.route.length - 1; return; }
+        if (r !== 'gone' && r !== 'one') return;
+      }
+      e.dockId = 0; e.un0 = 0;
+    }
     const n = e.cargo.length / 2;
     if (n) { sellBatch(game, e.cargo, 1); game.S.stats.hauled = (game.S.stats.hauled || 0) + n; game.S.stats.hauls = (game.S.stats.hauls || 0) + 1; e.trips = (e.trips || 0) + 1; game.fx.coin && game.fx.coin(e.px, 1.4, e.pz, 3); }
-    e.cargo = []; e.cn = 0; e.state = 'back'; e.seg = 2;
+    e.cargo = []; e.cn = 0; e.state = 'back'; e.seg = e.route.length - 1;
   }
 }
 
@@ -407,7 +546,7 @@ const outletBackPoint = (d) => [d.x - d.dx * (EARTH[d.type].half + 2) * C, d.z -
 
 function arriveDigger(game, e, it) {
   const d = game.machines.items.get(e.job); const tu = earthTune(game.T, 'truck');
-  if (!d || !d.ent.hop || !d.ent.hop.length) { e.state = 'back'; e.seg = 2; e.job = 0; return; }
+  if (!d || !d.ent.hop || !d.ent.hop.length) { e.state = 'back'; e.seg = e.route.length - 1; e.job = 0; return; }
   const take = Math.min(tu.bed, d.ent.hop.length / 2);
   e.cargo = d.ent.hop.splice(0, take * 2); d.ent.hn = d.ent.hop.length / 2; e.cn = take;
   e.state = 'load'; it.timer = 0.8 + take * 0.004;
@@ -417,7 +556,16 @@ function arriveDigger(game, e, it) {
 // E on a machine: empty a digger's hopper into your hands, otherwise park it or send it back to work. Returns what happened.
 export function useEarth(game, it, room) {
   const e = it.ent, spec = EARTH[e.type];
+  // The One comes out first, whatever the room in your hands: a hopper or a truck bed is not a place to leave it (the caller treats taking it as the win, like a gate)
+  { const flat = spec.dig ? e.hop : e.cargo, one = flat && VS.takeOne(flat); if (one) { if (spec.dig) e.hn = e.hop.length / 2; else e.cn = e.cargo.length / 2; return { took: [one.sp, one.vr] }; } }
   if (spec.dig && !spec.direct && e.hop.length && room > 0) { const n = Math.min(room, e.hop.length / 2); const items = e.hop.splice(0, n * 2); e.hn = e.hop.length / 2; return { took: items }; }
+  if (e.type === 'truck' && e.state === 'dead') {   // a Charge Pack gets a dead truck rolling again (30% of its battery)
+    const S = game.S;
+    if ((S.items.chargepack || 0) <= 0) return { off: false, msg: 'Out of battery. It needs a Charge Pack (Truck Docks, at the bench): press E again with one in your pack.' };
+    S.items.chargepack--; if (S.items.chargepack <= 0) delete S.items.chargepack; game.rebuildTools();
+    e.batt = Math.max(e.batt || 0, HAUL.BATT.pack * HAUL.battCap(game.T)); e.state = e.resume && e.resume !== 'dead' ? e.resume : 'go'; e.why = ''; game.S.stats.truckRescues = (game.S.stats.truckRescues || 0) + 1;
+    return { off: false, msg: 'Charge Pack spent: the Haul Truck is back on the road at 30% battery.' };
+  }
   e.off = !e.off; if (!e.off) e.state = 'idle'; return { off: e.off };
 }
 
@@ -425,6 +573,7 @@ export function useEarth(game, it, room) {
 export function spillEarth(game, ent, x, y, z) {
   const flat = (ent.hop || []).concat(ent.cargo || []); let loose = 0; const rest = [];
   for (let q = 0; q < flat.length; q += 2) {
+    if (flat[q] === NEEDLE && game.S.carry.length >= game.T.carry) { game.sim.spawn(flat[q], flat[q + 1], x + Math.random() - 0.5, y + 0.6, z + Math.random() - 0.5, 0, 1, 0, 0); continue; }   // never sold, never lost
     if (game.S.carry.length < game.T.carry) game.S.carry.push({ sp: flat[q], vr: flat[q + 1] });
     else if (loose < 40) { loose++; game.sim.spawn(flat[q], flat[q + 1], x + Math.random() - 0.5, y + 0.6, z + Math.random() - 0.5, 0, 1, 0, 0); }
     else rest.push(flat[q], flat[q + 1]);
@@ -435,20 +584,21 @@ export function spillEarth(game, ent, x, y, z) {
 // ---------------------------------------------------------------- guests
 export function earthRow(it) {
   const e = it.ent; const st = Math.max(0, STATES.indexOf(e.state));
-  const row = [e.id, e.i, e.k, Math.round((e.pw ?? 0) * 100), st, e.type === 'truck' ? (e.cn || 0) : (e.hn || 0), +(e.px || 0).toFixed(2), +(e.pz || 0).toFixed(2), +(e.yaw || 0).toFixed(2), e.off ? 1 : 0, Math.round((e.load || 0) * 100), e.steps || 0, e.dug || 0];
+  const row = [e.id, e.i, e.k, Math.round((e.pw ?? 0) * 100), st, e.type === 'truck' ? (e.cn || 0) : (e.hn || 0), +(e.px || 0).toFixed(2), +(e.pz || 0).toFixed(2), +(e.yaw || 0).toFixed(2), e.off ? 1 : 0, Math.round((e.load || 0) * 100), e.steps || 0, e.dug || 0, VS.hasOne(e.type === 'truck' ? e.cargo : e.hop) ? 1 : 0, e.type === 'truck' ? (e.bp ?? 100) : 100, e.type === 'truck' ? +(e.py || 0).toFixed(2) : 0];
   return row;
 }
 export function applyEarthRow(it, a) {
   const e = it.ent; e.state = STATES[a[4]] || 'idle';
   if (e.type === 'truck') { e.cn = a[5]; e.px = a[6]; e.pz = a[7]; e.yaw = a[8]; } else e.hn = a[5];
-  e.off = !!a[9]; e.load = a[10] / 100; e.steps = a[11]; e.dug = a[12];
+  e.off = !!a[9]; e.load = a[10] / 100; e.steps = a[11]; e.dug = a[12]; e.one = a[13] === 1;   // a[13] only exists in rows from this version on
+  if (a.length > 15) { e.bp = a[14]; e.py = a[15]; }   // the truck's battery (percent) and the height it drives at (a tunnel floor): older rows have neither
 }
 export function guestEarth(m, it, dt, time) {
   const game = m.game, e = it.ent, T = game.T;
   const tu = earthTune(T, e.type); e.cap = tu.hopper; e.bw = tu.blade; e.bed = tu.bed;
   if (e.type === 'truck') {
     const k = Math.min(1, dt * 6); it.obj.position.x += (e.px - it.obj.position.x) * k; it.obj.position.z += (e.pz - it.obj.position.z) * k;
-    it.obj.position.y += (groundY(game, e.px, e.pz) - it.obj.position.y) * k;
+    it.obj.position.y += ((Number.isFinite(e.py) ? e.py : groundY(game, e.px, e.pz)) - it.obj.position.y) * k;
     let dy = (e.yaw || 0) - it.obj.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); it.obj.rotation.y += dy * k;
   } else {
     const k = Math.min(1, dt * 5); e.x = cellX(e.i); e.z = cellZ(e.k);
@@ -463,14 +613,28 @@ const pct = (v) => `${Math.round((v ?? 0) * 100)}%`;
 const STATE_TEXT = {
   off: 'Parked (E to run)', nopower: 'No power: link it to a pole or a generator', idle: 'Waiting', dig: 'Digging', advance: 'Moving up', stuck: 'Blocked ahead',
   full: 'Full: needs a belt that is moving behind it, a Haul Truck, or E to empty it', go: 'On the road', back: 'Heading home', load: 'Loading', unload: 'Unloading', wait: 'Waiting',
+  scan: 'Stopped under the Vehicle Scanner while the load is scanned', dump: 'Dumping the whole load on the ground: the scanner found The One',
+  hold: 'Held in line at the Vehicle Scanner: another load is in its lane, or an alarm is up (take The One with E on the scanner to let trucks through)',
+  refuse: 'Will not leave: the load holds The One and no powered Vehicle Scanner is on the road to the bin. Build and power one, or press E to take The One',
+  dead: 'Out of battery: it stopped on the road. Press E with a Charge Pack in your pack (30% back), or set a powered Truck Dock under it: it charges at 25 kW and drives on at 15%',
+  blocked: 'No way through: a support on its route is too narrow for a truck (a truck needs 5 x 4 cells clear: a giant arch, not a frame cube)',
 };
+// is The One aboard? The host reads the hopper or the bed; a guest only has the flag the row carried
+const aboardOne = (g, e) => (g.isGuest() ? !!e.one : VS.hasOne(e.type === 'truck' ? e.cargo : e.hop));
 export function earthInfo(g, e) {
   const T = g.T, spec = EARTH[e.type], tu = earthTune(T, e.type), pw = (e.pw ?? 0) > 0.05 && !e.off;
   const power = (e.pw ?? 0) > 0.05 ? `Powered ${pct(e.pw)}` : 'No power: link it to a pole or a generator';
   const count = `${g.machines.count(e.type)} of ${tu.max} placed`;
   if (e.type === 'truck') {
     const where = e.state === 'idle' ? `Waiting for a hopper to fill (${Math.round(tu.range)} m range)` : STATE_TEXT[e.state] || e.state;
-    return { title: 'HAUL TRUCK', lit: pw, lines: [e.off ? STATE_TEXT.off : where, `Carrying ${e.cn || 0} of ${tu.bed} plush, ${e.trips || 0} trips so far`, power, `${tu.speed.toFixed(1)} m/s. Drives from a digger's hopper to the bin or a depot and back. ${count}`] };
+    const lines = [e.off ? STATE_TEXT.off : where, `Carrying ${e.cn || 0} of ${tu.bed} plush, ${e.trips || 0} trips so far`];
+    if (e.why && !['go', 'back', 'load', 'unload', 'scan', 'dump', 'hold', 'dead'].includes(e.state)) lines.splice(1, 0, e.why);
+    { const bp = g.isGuest() ? (e.bp ?? 100) : Math.round(100 * Math.min(1, (e.batt ?? 0) / HAUL.battCap(T))); lines.push(`Battery ${bp}%${bp <= 15 ? ' (low: it waits at its yard or a dock until it can make the trip)' : ''}. Driving draws ${HAUL.BATT.drive} kW from it, the yard or a Truck Dock charges it at ${HAUL.BATT.charge} kW.`);
+      if (e.state === 'go' || e.state === 'back') lines.push(HAUL.onRoad(g, e.px, e.pz) ? `On a haul road: ${HAUL.ROAD.speed}x speed.` : (onTunnelRoute(e) ? 'Driving a searched route through a tunnel (5 x 4 cells clear needed).' : '')); }
+    if (aboardOne(g, e)) lines.push('THE ONE is aboard: it only leaves through a powered Vehicle Scanner. E takes it out.');
+    const via = e.sc ? VS.routeNote(g, e) : ''; if (via && ['go', 'scan', 'hold', 'dump', 'load'].includes(e.state)) lines.push(via);
+    lines.push(power, `${tu.speed.toFixed(1)} m/s. Drives from a digger's hopper through a Vehicle Scanner (when you have one) to the bin or a depot and back. ${count}`);
+    return { title: 'HAUL TRUCK', lit: pw && !['refuse', 'hold'].includes(e.state), lines };
   }
   let state = STATE_TEXT[e.state] || e.state;
   if (e.state === 'press') state = `Halted: the mountain presses ${pct(e.load)} of what its canopy can bear here`;
@@ -481,6 +645,7 @@ export function earthInfo(g, e) {
   else lines.push(`${e.dug || 0} plush pushed so far${e.hn ? `, ${Math.floor(e.hn)} queued for the belt` : ''}`);
   lines.push(power);
   lines.push(spec.direct ? `Blade ${tu.blade} wide, ${tu.swing} plush a pass, ${tu.rate.toFixed(1)} s a pass. Pushes onto a belt behind it, or down its chute at ${Math.round(DOZER_CHUTE * 100)}%` : `${2 * tu.latHalf + 1} wide, ${tu.vert} high, ${tu.swing} plush a swing, ${tu.rate.toFixed(1)} s a swing. Empties onto a belt within 3 m behind it, into a Haul Truck, or by hand (E)`);
-  lines.push(`${count}. Leaves The One alone`);
+  if (aboardOne(g, e)) lines.splice(1, 0, 'THE ONE is in the hopper: press E to take it, or a Haul Truck carries it through a Vehicle Scanner.');
+  lines.push(`${count}. Scoops The One like any plush and keeps it in the hopper (it never goes on a belt or down the chute)`);
   return { title: spec.name.toUpperCase(), lit: pw && !['press', 'choke', 'full', 'stuck'].includes(e.state), lines };
 }

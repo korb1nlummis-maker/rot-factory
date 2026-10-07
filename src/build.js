@@ -168,7 +168,7 @@ export function checkPiece(g, p, o = {}) {
       if (fy0 >= yt - 0.05 || fy1 <= yb + 0.05) continue;
       const fyaw = e.yaw !== undefined ? e.yaw : e.axis === 'x' ? Math.PI / 2 : 0;
       if (Math.hypot(e.cx - cx, e.cz - cz) > Math.max(v.nx, v.nz) * C + (e.w || 2.4) + 0.5) continue;
-      if (overlapRect(cx, cz, 0, (x1 - x0) / 2, (z1 - z0) / 2, e.cx, e.cz, fyaw, (e.w || 2.4) / 2, (C - 0.06) / 2) > 0.05) return 'A frame stands here: build the floor first, then the frame';
+      if (overlapRect(cx, cz, 0, (x1 - x0) / 2, (z1 - z0) / 2, e.cx, e.cz, fyaw, (e.w || 2.4) / 2, (e.d !== undefined ? e.d : C - 0.06) / 2) > 0.05) return 'A frame stands here: build the floor first, then the frame';
       continue;
     }
     const ex = e.cx ?? e.px ?? e.x, ez = e.cz ?? e.pz ?? e.z, ey = e.y0 ?? e.y; if (ex === undefined || ez === undefined || ey === undefined) continue;
@@ -249,15 +249,16 @@ function gridOrigin(g, i, k, j, ctrl) {
   let best = null, bd = 1e9;
   for (const e of allPads(g)) { const d = Math.max(Math.abs(e.i0 + 1.5 - i), Math.abs(e.k0 + 1.5 - k)); if (d < 16 && d < bd && Math.abs(e.j - j) <= 8) { bd = d; best = e; } }
   if (best) return { ox: mod4(best.i0), oz: mod4(best.k0), src: 'pad grid' };
-  // a frame is one cell deep and exactly one pad wide: a pad lines up with its width, and starts right after (or ends right before) its depth, on the side you aim at
+  // a frame is a 4x4x4 cube, exactly one pad wide and one pad deep: a pad lines up with it edge to edge. (An old one cell deep frame: a pad starts right after, or ends right before, its depth.)
   bd = 1e9;
   for (const it of g.machines.items.values()) {
     const f = it.ent; if (f.type !== 'frame' || f.turned || f.gm === undefined) continue;
-    const fi = f.axis === 'x' ? f.gm : f.glo, fk = f.axis === 'x' ? f.glo : f.gm;
-    const d = Math.max(Math.abs((f.axis === 'x' ? fi : fi + 1.5) - i), Math.abs((f.axis === 'x' ? fk + 1.5 : fk) - k));
+    const cube = f.d !== undefined, gc = f.gm + (cube ? 1.5 : 0), lc = f.glo + 1.5;
+    const d = f.axis === 'x' ? Math.max(Math.abs(gc - i), Math.abs(lc - k)) : Math.max(Math.abs(lc - i), Math.abs(gc - k));
     if (d < 9 && d < bd) {
       bd = d;
-      best = f.axis === 'x' ? { ox: mod4(i > f.gm ? f.gm + 1 : f.gm), oz: mod4(f.glo) } : { ox: mod4(f.glo), oz: mod4(k > f.gm ? f.gm + 1 : f.gm) };
+      if (cube) best = f.axis === 'x' ? { ox: mod4(f.gm), oz: mod4(f.glo) } : { ox: mod4(f.glo), oz: mod4(f.gm) };
+      else best = f.axis === 'x' ? { ox: mod4(i > f.gm ? f.gm + 1 : f.gm), oz: mod4(f.glo) } : { ox: mod4(f.glo), oz: mod4(k > f.gm ? f.gm + 1 : f.gm) };
     }
   }
   return best ? { ox: best.ox, oz: best.oz, src: 'frame grid' } : null;
@@ -323,9 +324,11 @@ export function planPad(g, tool, eye, dir, yaw) {
   if (hold) {
     // hold B and drag: the press anchored the first pad, the line runs from it toward the pad under the crosshair along the longer axis (Shift: a block, up to 5 x 5)
     const dI = sp.i0 - hold.i0, dK = sp.k0 - hold.k0, alongX = Math.abs(dI) >= Math.abs(dK);
-    zd = alongX ? (dI >= 0 ? 0 : 2) : (dK >= 0 ? 1 : 3); rd = alongX ? (dK >= 0 ? 1 : 3) : (dI >= 0 ? 0 : 2);
-    want = Math.min(ZOOP_LINE, Math.round(Math.abs(alongX ? dI : dK) / 4) + 1);
-    wd = shiftDown(g) ? Math.min(ZOOP_SIDE, Math.round(Math.abs(alongX ? dK : dI) / 4) + 1) : 1;
+    if (dI || dK) {   // dragged: the count comes from how far you drag. Not dragged (a plain tap of B): the - and = count and the way you face still rule
+      zd = alongX ? (dI >= 0 ? 0 : 2) : (dK >= 0 ? 1 : 3); rd = alongX ? (dK >= 0 ? 1 : 3) : (dI >= 0 ? 0 : 2);
+      want = Math.min(ZOOP_LINE, Math.round(Math.abs(alongX ? dI : dK) / 4) + 1);
+      wd = shiftDown(g) ? Math.min(ZOOP_SIDE, Math.round(Math.abs(alongX ? dK : dI) / 4) + 1) : 1;
+    }
     base = { i0: hold.i0, k0: hold.k0, j: hold.j, snap: 'anchored where you pressed' };
   }
   const len = wd > 1 ? Math.min(want, ZOOP_SIDE) : want;
@@ -374,7 +377,7 @@ export function planCatwalk(g, tool, eye, dir, yaw) {
   if (!a) return bad('Aim at the floor, a pad or a catwalk end');
   const sa = sideAttach(g, a); let d, start;
   if (sa) { d = sa.d; start = { i: sa.last.i, j: sa.row, k: sa.last.k }; }
-  else { const f = floorOf(g.world, a.last); if (!f) return bad('No floor here'); d = faceDir(g, yaw); start = f; }
+  else { const f = floorOf(g.world, a.last); if (!f) return bad('No floor here'); d = faceDir(g, yaw); const nd = (g._bn || 0) & 3; start = nd ? { i: f.i + nd * DX[d], j: f.j, k: f.k + nd * DZ[d] } : f; }   // Shift+R nudges a free catwalk one to three cells along your facing
   const z = zoopOf(g), n = Math.min(ZOOP_LINE, z.n), have = Math.max(1, g.S.items[tool.id] || 0);
   const ax = (d & 1) ? 'z' : 'x', pieces = [];
   let why = null;
@@ -408,8 +411,9 @@ export function planWall(g, tool, eye, dir, yaw) {
   if (!start) {
     const f = floorOf(g.world, a.last); if (!f) return bad('No floor here');
     const fd = faceDir(g, yaw); ax = (fd & 1) ? 'x' : 'z';   // across your view
-    const go = gridOrigin(g, f.i, f.k, f.j, ctrlDown(g));
+    const nd = (g._bn || 0) & 3, go = nd ? null : gridOrigin(g, f.i, f.k, f.j, ctrlDown(g));   // Shift+R: off the grid, nudged along your facing
     start = { i: ax === 'x' ? (go ? fl4(f.i, go.ox) : f.i - 1) : f.i, k: ax === 'z' ? (go ? fl4(f.k, go.oz) : f.k - 1) : f.k }; j = f.j;
+    if (nd) { start.i += nd * DX[fd]; start.k += nd * DZ[fd]; snap = 'nudged'; }
     if (go) snap = 'on the ' + go.src;
   }
   const pieces = []; let why = null;
@@ -558,6 +562,7 @@ export function buildPieces(g, tool, e) {
   const fields = ok.map((p) => ({ ...p, rid, grp, ...(type === 'catwalk' ? { rail: railBits(p.ax) } : {}), ...(type === 'stair' ? {} : {}) }));
   for (let q = 1; q < fields.length; q++) { const { type: t, ...rest } = fields[q]; g.placeEntity(t, rest, { quiet: true, rebuild: false }); }
   if (extra) g.S.stats.built = (g.S.stats.built || 0) + extra;
+  S.stats.shellPieces = (S.stats.shellPieces || 0) + ok.length;   // achievement counter: every pad, catwalk, wall, ramp and stair set down by hand
   const { type: _t, ...first } = fields[0];
   return { type, ...first };
 }
@@ -759,6 +764,7 @@ export const isShellTool = (kind) => kind === 'pad' || kind === 'catwalk' || kin
 // R: turn the placement (4 steps); Shift+R: nudge the free spot one cell along your facing (0..3). Returns true when handled.
 export function rotateKey(g, tool, shift) {
   if (!tool || !isShellTool(tool.kind)) return false;
+  if (shift && !(tool.kind === 'pad' || tool.kind === 'catwalk' || tool.kind === 'wall')) { g.ui.hint('Shift+R nudges floor pads, catwalks and walls off the grid. <kbd>R</kbd> turns this one.', 2.5); return true; }   // nothing to nudge: say so instead of claiming it moved
   if (shift) { g._bn = (((g._bn || 0) + 1) & 3); g.ui.hint(g._bn ? `Nudged ${g._bn} cell${g._bn > 1 ? 's' : ''} off the grid. <kbd>Shift</kbd>+<kbd>R</kbd> steps it.` : 'Back on the grid.', 2); }
   else { g._bRot = (((g._bRot || 0) + 1) & 3); g.ui.hint('Turned a quarter.', 1.2); }
   g.machines.setGhost(null);
@@ -768,7 +774,7 @@ export function rotateKey(g, tool, shift) {
 export function zoopKey(g, tool, delta, shift) {
   if (!tool || !isShellTool(tool.kind) || tool.kind === 'wramp' || tool.kind === 'stair') return false;
   const z = zoopOf(g);
-  if (shift && tool.kind === 'pad') z.w = Math.max(1, Math.min(ZOOP_SIDE, z.w + delta)); else z.n = Math.max(1, Math.min(ZOOP_LINE, z.n + delta));
+  if (shift && tool.kind === 'pad') z.w = Math.max(1, Math.min(ZOOP_SIDE, z.w + delta)); else z.n = Math.max(1, Math.min(tool.kind === 'levelpad' ? 3 : ZOOP_LINE, (tool.kind === 'levelpad' ? Math.min(3, z.n) : z.n) + delta));   // the Leveling Pad's size is 1 to 3: the number never runs past it, so - always moves
   if (z.w > 1) z.n = Math.min(z.n, ZOOP_SIDE);
   g.ui.hint(tool.kind === 'levelpad' ? `Leveling Pad size ${Math.min(3, z.n)}.` : `Zoop ${z.w > 1 ? z.n + ' x ' + z.w : z.n} piece${z.n * z.w > 1 ? 's' : ''}.`, 1.5);
   g.machines.setGhost(null);
@@ -835,6 +841,7 @@ function addLevel(machines, e) {
   if (e.on === undefined) e.on = true;
   const obj = M.levelObject(e); obj.position.set(e.cx, e.y0, e.cz); obj.rotation.y = e.dir === 0 ? Math.PI / 2 : e.dir === 1 ? 0 : e.dir === 2 ? -Math.PI / 2 : Math.PI;
   if (!e.view) w.reserved.add(idx(e.i, e.j, e.k));
+  (g._levelCells || (g._levelCells = new Map())).set(idx(e.i, e.j, e.k), e.id);   // a guest does not reserve the cell: logistics.held reads this map (an entry whose pad is gone is dropped there)
   return { obj };
 }
 function conflictLevel(g, e) {
@@ -850,8 +857,12 @@ function buildLevel(g, tool, e) {
   return { type: 'levelpad', i: e.i, j: e.j, k: e.k, dir: e.dir, size: e.size, mk: bestKindFor(g), on: true, st: 'idle', slot: 0, rid: tool.id, grp: nextGroup(g) };
 }
 
-// power: a Leveling Pad runs from the nearest pole or generator within reach that has power (the grid solver sets .pw on them)
+// power: the grid solver counts a Leveling Pad as a consumer (power.js, DEMAND levelpad) and sets .pw on it; a cable can wire it like any machine.
+// Before the first solve a freshly placed pad reads the nearest pole or generator the way it used to.
+export const levelKw = (e) => (e.on && e.st !== 'done' ? LEVEL_KW : 0);   // an idle or finished pad draws nothing
+export const levelAt = (e) => [cellX(e.i), e.j * C + 1.0, cellZ(e.k)];
 export function levelPower(g, e) {
+  if (e.pw !== undefined) return e.pw;
   const reach = ((g.T && g.T.poleReach) || 7) + 1.5, x = cellX(e.i), z = cellZ(e.k), y = e.j * C + 1;
   let best = 0;
   for (const t of g.logi.tiles.values()) {
@@ -911,28 +922,28 @@ export function tickLevels(g, dt) {
     if (e.dirtyCfg) { e.dirtyCfg = false; g.netSend({ t: 'ent-', id: e.id }); g.netSend({ t: 'ent+', ent: g.stripEnt(e) }); }
   }
 }
-// a compact row for the guest every 0.5 s: [state index, slot, dug, laid, power%, skipped]
+// a compact row for the guest every 0.5 s: [state index, slot, dug, laid, power%, skipped, why a slot was skipped]
 export function levelRow(g) {
   const d = {}; let any = false;
-  for (const it of g.machines.items.values()) { const e = it.ent; if (e.type !== 'levelpad') continue; d[e.id] = [LEVEL_ST.indexOf(levelStatus(e)), e.slot | 0, e.dug | 0, e.laid | 0, Math.round((e.pwv || 0) * 100), e.skip | 0]; any = true; }
+  for (const it of g.machines.items.values()) { const e = it.ent; if (e.type !== 'levelpad') continue; d[e.id] = [LEVEL_ST.indexOf(levelStatus(e)), e.slot | 0, e.dug | 0, e.laid | 0, Math.round(((e.pw ?? e.pwv) || 0) * 100), e.skip | 0, String(e.why || '').slice(0, 60)]; any = true; }
   return any ? d : null;
 }
 export function applyLevelRow(g, d) {
   if (!d || typeof d !== 'object') return;
   for (const [id, a] of Object.entries(d)) {
     const e = entOf(g, +id); if (!e || e.type !== 'levelpad' || !Array.isArray(a)) continue;
-    e.st = LEVEL_ST[a[0] | 0] || 'idle'; e.slot = a[1] | 0; e.dug = a[2] | 0; e.laid = a[3] | 0; e.pwv = (a[4] | 0) / 100; e.skip = a[5] | 0;
+    e.st = LEVEL_ST[a[0] | 0] || 'idle'; e.slot = a[1] | 0; e.dug = a[2] | 0; e.laid = a[3] | 0; e.pwv = (a[4] | 0) / 100; e.pw = e.pwv; e.skip = a[5] | 0; e.why = typeof a[6] === 'string' ? a[6] : '';
     const it = g.machines.items.get(+id); if (it) M.setLamp(it.obj, e.on && (e.st === 'dig' || e.st === 'lay'));
   }
 }
 const ST_TEXT = { idle: 'Ready', dig: 'Digging the area out', lay: 'Laying a pad', nopower: 'No power: link it to a pole or a generator', nofunds: 'Waiting for money for the next pad', blocked: 'Skipped a slot that was blocked', done: 'Finished', off: 'Stopped' };
 export function infoLevel(g, e) {
   const st = levelStatus(e), slots = levelSlots(e).length;
-  return { title: 'LEVELING PAD', lit: e.on && (st === 'dig' || st === 'lay'), lines: [ST_TEXT[st] + (st === 'blocked' && e.why ? ': ' + e.why : ''), `Area ${e.size} x ${e.size} pads (${e.size * 4} x ${e.size * 4} cells), ${KIND_NAME[e.mk]} pads`, `Slot ${Math.min(e.slot | 0, slots)} of ${slots}: ${e.laid | 0} laid, ${e.skip | 0} skipped, ${e.dug | 0} plush dug`, `Draws ${LEVEL_KW} kW. ${(e.pwv ?? 0) > 0.05 ? 'Powered ' + Math.round((e.pwv ?? 0) * 100) + '%' : 'Not powered'}`, e.on ? 'E stops it' : e.st === 'done' ? 'E runs it again on the same area (pads are skipped where they stand)' : 'E starts it'] };
+  return { title: 'LEVELING PAD', lit: e.on && (st === 'dig' || st === 'lay'), lines: [ST_TEXT[st] + (st === 'blocked' && e.why ? ': ' + e.why : ''), `Area ${e.size} x ${e.size} pads (${e.size * 4} x ${e.size * 4} cells), ${KIND_NAME[e.mk]} pads`, `Slot ${Math.min(e.slot | 0, slots)} of ${slots}: ${e.laid | 0} laid, ${e.skip | 0} skipped, ${e.dug | 0} plush dug`, `Draws ${LEVEL_KW} kW while it runs. ${(e.pw ?? e.pwv ?? 0) > 0.05 ? 'Powered ' + Math.round((e.pw ?? e.pwv ?? 0) * 100) + '%' : 'Not powered'}`, e.on ? 'E stops it' : e.st === 'done' ? 'E runs it again on the same area (pads are skipped where they stand)' : 'E starts it'] };
 }
 export function useLevel(g, e) {
   const r = g.setCfg(e, { on: !e.on });
-  if (r.ok) { g.sound.place(); g.ui.hint(e.on ? 'Leveling Pad stopped.' : 'Leveling Pad running.', 2); } else { g.sound.error(); g.ui.hint(r.why || 'Could not change that', 2); }
+  if (r.ok) { g.sound.place(); g.ui.hint(e.on ? 'Leveling Pad running.' : 'Leveling Pad stopped.', 2); } else { g.sound.error(); g.ui.hint(r.why || 'Could not change that', 2); }
   return true;
 }
 // restarting resets the slot counter so a second run covers the area again

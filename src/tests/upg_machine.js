@@ -468,17 +468,17 @@ export default async function (ctx) {
     return true;
   });
 
-  await T('upg.machine.roof-bolter-frames-every-third-step-with-best-frame', async () => {
+  await T('upg.machine.roof-bolter-sets-a-cube-every-fourth-step-with-best-frame', async () => {
     for (const best of ['timber', 'steel']) {
       await newWorld(); const up = { ...MECH_UP, mechSpeed: 6, mechLayer: 1, mechBolt: 1 }; if (best === 'timber') delete up.steel;
       const { mech } = mechRig(up); const m0 = S().money;
-      // every third step the bolter tries a frame; open ground near the surface ("No roof to prop") legitimately refuses
+      // every fourth step (one 2.4 m cube per 4 cells) the bolter tries a frame; open ground near the surface ("No roof to prop") legitimately refuses
       const orig = g.machines.frameFromCell.bind(g.machines); let tries = 0, oks = 0; g.machines.frameFromCell = (...a) => { const r = orig(...a); tries++; if (r.ok) oks++; return r; };
       try { for (let n = 0; n < 3200; n++) { powerAll(); g.time += 0.05; L().update(0.05); } } finally { g.machines.frameFromCell = orig; }
       const frames = S().entities.filter((e) => e.type === 'frame' && e.auto);
       if (mech.adv < 6) return `${best}: mech only advanced ${mech.adv}`;
       if (!frames.length) return `${best}: no frames after ${mech.adv} steps`;
-      if (Math.abs(tries - Math.floor(mech.adv / 3)) > 1 || frames.length !== oks) return `${best}: ${tries} frame attempts and ${frames.length} frames after ${mech.adv} steps (expected ${Math.floor(mech.adv / 3)} attempts)`;
+      if (Math.abs(tries - Math.floor(mech.adv / 4)) > 1 || frames.length !== oks) return `${best}: ${tries} frame attempts and ${frames.length} frames after ${mech.adv} steps (expected ${Math.floor(mech.adv / 4)} attempts)`;
       if (frames.some((f) => f.kind !== best)) return `${best}: used ${[...new Set(frames.map((f) => f.kind))].join()}`;
       const paid = m0 - S().money; const want = 3 * mech.adv + frames.length * FRAME_TYPES[best].cost;
       if (paid !== want) return `${best}: paid ${paid}, expected ${want}`;
@@ -537,8 +537,8 @@ export default async function (ctx) {
       if (got !== expect) return `L${l}: bored ${got} cells, a ${W}x${H} slab held ${expect}`;
       let ring2 = 0; for (let o = -half - 1; o <= W - half; o++) for (let h = -1; h <= H; h++) if (!(o >= -half && o < W - half && h >= 0 && h < H) && w().get(nx + px * o, bor.j + h, nk + pz * o)) ring2++;
       if (ring2 !== ring) return `L${l}: cut outside the ${W}x${H} section`;
-      go(() => bor.steps >= 5); const lining = S().entities.filter((e) => e.type === 'frame' && e.auto && e.kind === 'concrete');
-      if (!lining.length || !lining.every((f) => near(f.w, W * 0.6 - 0.04, 1e-6) && near(f.h, H * 0.6 - 0.02, 1e-6))) return `L${l}: lining is not ${W}x${H}`;
+      const whys = []; const ff = g.machines.frameFromCell.bind(g.machines); g.machines.frameFromCell = (...a) => { const r = ff(...a); whys.push(r.ok ? 'ok' : r.why); return r; }; try { go(() => bor.steps >= 5); } finally { delete g.machines.frameFromCell; } const lining = S().entities.filter((e) => e.type === 'frame' && e.auto && e.kind === 'concrete');
+      if (!lining.length || !lining.every((f) => near(f.w, 4 * 0.6 - 0.04, 1e-6) && near(f.h, 4 * 0.6 - 0.02, 1e-6) && near(f.d, 4 * 0.6 - 0.04, 1e-6))) return `L${l}: the lining is not a 4x4x4 cube (a ${W}x${H} bore is trimmed out to fit one); cube plans: ${whys.join()}, done ${bor.done}`;
     }
     return true;
   });

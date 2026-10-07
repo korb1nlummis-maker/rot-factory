@@ -8,6 +8,7 @@ import { speciesIcon, needleFrames } from './icons.js';
 import { fmt } from './util.js';
 import { describeBoosts } from './remains.js';
 import { MATERIALS } from './crafting.js';
+import { Dials } from './dials.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,18 +24,38 @@ export class UI {
     this.openModal = null;
     this.hotbarKey = '';
     this.ringLen = 113;
+    this.dials = new Dials($('dialsL'), $('dialsR'));
+    this.watchBelt();
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.closeModals());
     for (const b of document.querySelectorAll('[data-ptab]')) b.addEventListener('click', () => this.pauseTab(b.dataset.ptab));
     this.renderControls();
     for (const m of document.querySelectorAll('.modal')) m.addEventListener('mousedown', (e) => { if (e.target === m) this.closeModals(); });
   }
 
-  bind(game) { this.game = game; }
+  bind(game) {
+    this.game = game;
+    // a click on a dial (the cursor is free, so its tooltip can show) must still take the mouse back for the game
+    $('belt').addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.dial') && game.mode === 'play' && !this.isModalOpen() && document.pointerLockElement !== game.canvas) game.requestLock(); });
+  }
+  // --center-h is how tall the hotbar column is: on wide screens the hint sits right above it, between the two dial groups. --belt-h is the whole belt, so the centre-screen warnings can sit above it
+  watchBelt() {
+    const belt = $('belt'), mid = $('bottom'); if (!belt || !mid) return;
+    const upd = () => { const r = document.documentElement.style; r.setProperty('--center-h', mid.offsetHeight + 'px'); r.setProperty('--belt-h', belt.offsetHeight + 14 + 'px'); };
+    this.syncBelt = upd; upd(); if (typeof ResizeObserver !== 'undefined') { const ro = new ResizeObserver(upd); ro.observe(mid); ro.observe(belt); }
+    window.addEventListener('resize', upd);
+  }
 
   // ---------------- money ----------------
   setMoney(v, instant = false) {
     this.moneyTarget = v;
     if (instant) { this.moneyShown = v; $('moneyVal').textContent = fmt(v); }
+    this.syncMoney(v);
+  }
+  // belts and bots keep selling behind an open terminal, bench or depot list: the balance and every priced button (data-cost) follow the money without rebuilding the window
+  syncMoney(v) {
+    const m = this.openModal; const box = m === 'shop' ? 'shopMoney' : m === 'craft' ? 'craftMoney' : m === 'travel' ? 'travelMoney' : null; if (!box) return;
+    $(box).textContent = fmt(v);
+    for (const b of $(m).querySelectorAll('button[data-cost]')) b.disabled = v < +b.dataset.cost;
   }
   gain(amount) {
     this.deltaAcc += amount;
@@ -54,6 +75,7 @@ export class UI {
       this.deltaTimer -= dt;
       if (this.deltaTimer <= 0) { $('moneyDelta').classList.remove('show'); this.deltaAcc = 0; }
     }
+    this._beltT = (this._beltT || 0) - dt; if (this._beltT <= 0) { this._beltT = 1; if (this.syncBelt) this.syncBelt(); }   // a page that is not being drawn gets no resize callbacks
     if (this.hintTimer > 0) {
       this.hintTimer -= dt;
       if (this.hintTimer <= 0) $('hint').style.opacity = 0;
@@ -92,19 +114,16 @@ export class UI {
     tr.className = 'tr r' + info.rid;
     t.querySelector('.tv').textContent = info.value;
   }
+  // the carry dial: one ring segment per slot (many slots share a segment), coloured by the rarest plush in it; the middle says how many
   setCarry(list, max) {
-    $('carryN').textContent = list.length;
-    $('carryMax').textContent = max;
-    const box = $('carryChips');
-    const show = Math.min(max, 40);
-    let html = '';
-    for (let i = 0; i < show; i++) {
-      const it = list[i];
-      if (it) html += `<i class="chip" style="background:${RARITY[species[it.sp].rarity].color}"></i>`;
-      else html += '<i class="chip empty"></i>';
+    const n = Math.min(max, 40), per = max / n, segs = [];
+    for (let s = 0; s < n; s++) {
+      let best = -1, col = '';
+      for (let i = Math.floor(s * per); i < Math.min(list.length, Math.ceil((s + 1) * per)); i++) { const r = species[list[i].sp].rarity; if (r > best) { best = r; col = RARITY[r].color; } }
+      segs.push(col);
     }
-    if (max > 40) html += `<small style="color:#aaa;margin-left:4px">+${max - 40}</small>`;
-    box.innerHTML = html;
+    const full = list.length >= max;
+    this.dials.set('carry', { on: true, frac: list.length / Math.max(1, max), val: list.length, unit: '/ ' + max, segs, state: full ? 'warn' : 'ok', dim: list.length === 0, sub: full ? 'FULL' : '', text: `${list.length} of ${max} plush${full ? ', full' : ''}` });
   }
   setHotbar(items, sel) {
     const key = items.map((i) => (i ? i.id + (i.count ?? '') + (i.have === 0 ? 'x' : '') : '-')).join('|') + '#' + sel;
@@ -177,55 +196,61 @@ export class UI {
   }
   setDanger(v) { $('vig').style.boxShadow = `inset 0 0 220px 40px rgba(255,60,30,${(v * 0.45).toFixed(3)})`; }
   hurt(v) { const h = $('hurt'); h.style.opacity = v; setTimeout(() => (h.style.opacity = 0), 60); }
+  // the vein dial: the ring is how rich the plush around you is, the arrow (assay level 2) points at the nearest vein
   setAssay(on, v, ptr) {
-    $('assay').classList.toggle('hidden', !on); if (on) $('assayBar').style.transform = `scaleX(${Math.max(0.03, v).toFixed(3)})`;
-    const pe = $('assayPtr'); pe.classList.toggle('hidden', !on || !ptr);
-    if (on && ptr) { $('assayArrow').style.transform = `rotate(${ptr.rel.toFixed(0)}deg)`; $('assayTxt').textContent = ptr.text; }
+    const pct = Math.round(Math.min(1, Math.max(0, v)) * 100);
+    this.dials.set('vein', { on, frac: Math.max(0.03, v), rot: ptr ? ptr.rel : null, val: ptr ? ptr.text : pct + '%', state: v > 0.7 ? 'hot' : 'ok', dim: v < 0.05 && !ptr,
+      text: ptr ? `vein assay ${pct} percent, nearest vein ${ptr.text}` : `vein assay ${pct} percent` });
   }
-  setPower(on, frac, txt) { const e = $('power'); e.classList.toggle('hidden', !on); if (on) { $('pwFill').style.width = (frac * 100).toFixed(0) + '%'; $('pwTxt').textContent = txt; } }
-  setAir(on, dust, lung, txt) { const e = $('air'); e.classList.toggle('hidden', !on); if (on) { $('airFill').style.width = Math.min(100, dust * 100).toFixed(0) + '%'; $('lungFill').style.width = Math.min(100, lung * 100).toFixed(0) + '%'; $('airTxt').textContent = txt; } }
+  // the grid dial: the ring is demand over supply of the grid you stand nearest to. n = { demand, supply, tripped, sat } when the caller has the numbers
+  setPower(on, frac, txt, n) {
+    if (!on) { this.dials.set('grid', { on: false }); return; }
+    if (n && !(Number.isFinite(n.demand) && Number.isFinite(n.supply))) n = null;   // a row with missing or wrong numbers: read the text, never throw
+    const m = /([\d.]+) \/ ([\d.]+) kW/.exec(txt || ''), w = /([\d.]+) kW wanted/.exec(txt || '');
+    const demand = n ? n.demand : m ? +m[1] : w ? +w[1] : null, supply = n ? n.supply : m ? +m[2] : null;
+    const tripped = n ? !!n.tripped : /TRIPPED/.test(txt || ''), nofuel = /NO FUEL/.test(txt || '') || (!!n && !tripped && n.supply <= 0), brown = n ? n.sat < 0.99 && !tripped && !nofuel : /BROWNOUT/.test(txt || '');
+    const state = tripped || nofuel ? 'crit' : brown || frac > 0.9 ? 'warn' : 'ok';
+    this.dials.set('grid', { on: true, frac, val: demand === null ? '' : demand.toFixed(demand < 10 ? 1 : 0), unit: 'kW', state,
+      sub: tripped ? 'TRIPPED' : nofuel ? 'NO FUEL' : brown ? 'BROWNOUT' : supply !== null ? `of ${supply.toFixed(supply < 10 ? 1 : 0)} kW` : '', text: txt, dim: false });
+  }
+  // the dust dial (air monitor): outer ring = dust in the air, inner ring = dust in your lungs; the line under says what to do about it
+  setAir(on, dust, lung, txt) {
+    const state = lung > 0.6 ? 'crit' : dust > 0.3 || lung > 0.3 || /STALE|FAN/.test(txt || '') && dust > 0.15 ? 'warn' : 'ok';
+    this.dials.set('dust', { on, frac: Math.min(1, dust), frac2: Math.min(1, lung), val: Math.round(Math.min(1, dust) * 100) + '%', unit: 'dust', sub: txt, state, text: `${txt}: dust in the air ${Math.round(Math.min(1, dust) * 100)} percent, in your lungs ${Math.round(Math.min(1, lung) * 100)} percent` });
+  }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
-  setCartLine(n, cap, mode) { const e = $('cartLine'); e.classList.toggle('hidden', n < 0); if (n >= 0) { $('cartN').textContent = n; $('cartMax').textContent = cap; $('cartMode').textContent = mode === 'follow' ? 'following' : 'parked'; } }
+  setCartLine(n, cap, mode) {
+    const full = n >= 0 && cap > 0 && n >= cap;
+    this.dials.set('cart', { on: n >= 0, frac: cap > 0 ? n / cap : 0, val: n, unit: '/ ' + cap, sub: mode === 'follow' ? 'following' : 'parked', state: full ? 'warn' : 'ok', dim: n === 0, text: `${n} of ${cap} plush in the cart, ${mode === 'follow' ? 'following you' : 'parked'}` });
+  }
+  // the clock dial: the ring is the 24 hours (midnight at the top, the lit arc is day, 06:00 to 18:00) and the sun or moon rides it
   setClock(min, open, helmet) {
-    const e = $('clock');
-    e.classList.toggle('hidden', !helmet);
-    if (!helmet) return;
-    const cv = $('clockCv'), g = cv.getContext('2d');
-    const W = cv.width, H = cv.height;
-    g.clearRect(0, 0, W, H);
-    const cx = W / 2, cy = H - 18, R = W / 2 - 14;
-    // dial: horizon + arc, sun by day, moon by night
-    g.lineWidth = 3; g.strokeStyle = 'rgba(243,246,226,0.35)';
-    g.beginPath(); g.arc(cx, cy, R, Math.PI, 0); g.stroke();
-    g.beginPath(); g.moveTo(cx - R - 6, cy); g.lineTo(cx + R + 6, cy); g.stroke();
-    g.fillStyle = 'rgba(243,246,226,0.4)';
-    for (let i = 0; i <= 12; i++) { const a = Math.PI + (i / 12) * Math.PI; g.beginPath(); g.arc(cx + Math.cos(a) * R, cy + Math.sin(a) * R, i % 3 === 0 ? 2.6 : 1.4, 0, 7); g.fill(); }
-    // sun travels 06:00 -> 18:00, moon 18:00 -> 06:00
-    const day = min >= 360 && min < 1080;
-    const t = day ? (min - 360) / 720 : ((min - 1080 + 1440) % 1440) / 720;
-    const a = Math.PI + t * Math.PI;
-    const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
-    if (day) {
-      g.fillStyle = '#ffd86a'; g.shadowColor = '#ffb030'; g.shadowBlur = 12;
-      g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.shadowBlur = 0;
-      g.strokeStyle = '#ffd86a'; g.lineWidth = 2;
-      for (let i = 0; i < 8; i++) { const r = (i / 8) * Math.PI * 2; g.beginPath(); g.moveTo(x + Math.cos(r) * 11, y + Math.sin(r) * 11); g.lineTo(x + Math.cos(r) * 15, y + Math.sin(r) * 15); g.stroke(); }
-    } else {
-      g.fillStyle = '#dfe8ff'; g.shadowColor = '#8fb4ff'; g.shadowBlur = 10;
-      g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.shadowBlur = 0;
-      g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(x + 4, y - 2, 7, 0, 7); g.fill(); g.globalCompositeOperation = 'source-over';
-    }
-    const h = Math.floor(min / 60), m = Math.floor(min % 60);
-    $('clockTxt').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    const st = $('clockState'); st.textContent = open ? 'OPEN' : 'CLOSED'; st.style.color = open ? '#7ef0c4' : '#ff8a7a';
+    const t = Number.isFinite(min) ? ((min % 1440) + 1440) % 1440 : 0, h = Math.floor(t / 60), m = Math.floor(t % 60);
+    this._clock = { min: t, open: !!open, hhmm: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`, helmet: !!helmet };
+    this.paintClock();
+  }
+  // setClock and setDay both land here, so the reading is the same whichever came last (and an unchanged reading writes nothing)
+  paintClock() {
+    const c = this._clock, day = c.min >= 360 && c.min < 1080;
+    this.dials.set('clock', { on: c.helmet, frac: 0.5, val: c.hhmm, sub: c.open ? 'OPEN' : 'CLOSED', state: c.open ? 'ok' : 'closed', mk: c.min / 1440, mkc: day ? '#ffd86a' : '#b9d0ff', label: this._dayLabel || 'DAY', text: `${this._dayLabel || 'day'} ${c.hhmm}, ${c.open ? 'open' : 'closed'}` });
   }
   // the big morning card: DAY n, with a line under it
   dayCard(n, sub) {
     const c = $('dayCard'); $('dcDay').textContent = 'Day ' + n; $('dcSub').textContent = sub || '';
     c.classList.remove('show'); void c.offsetWidth; c.classList.add('show');
   }
-  setDay(n) { const e = $('clockDay'); if (e) e.textContent = 'DAY ' + n; }
-  setDepth(txt) { $('depth').textContent = txt; }
+  setDay(n) { this._dayLabel = 'DAY ' + n; if (this._clock) this.paintClock(); }
+  // the depth and from-bay dials. txt is the whole old readout ("BURIED 12.3 m  ·  1.23 km FROM BAY  ·  EXIT 3.67 km"), n has the numbers: { depth, alt, out, left }
+  setDepth(txt, n) {
+    this._depthTxt = txt || '';
+    if (!n) { this.dials.set('depth', { on: false }); this.dials.set('range', { on: false }); return; }
+    const km = (v) => (v >= 1000 ? { val: (v / 1000).toFixed(2), unit: 'km' } : { val: String(Math.round(v)), unit: 'm' });
+    const buried = n.depth > 0.3, high = !buried && n.alt > 6;
+    this.dials.set('depth', { on: buried || high, label: high ? 'ALTITUDE' : 'BURIED', frac: Math.min(1, (high ? n.alt : n.depth) / 43), val: (high ? n.alt : n.depth).toFixed(buried && n.depth < 10 ? 1 : 0), unit: 'm',
+      state: 'ok', sub: n.pile || '', info: { text: txt || '' }, text: `${high ? 'altitude' : 'buried'} ${(high ? n.alt : n.depth).toFixed(1)} metres` });
+    const d = km(n.out), x = km(n.left);
+    this.dials.set('range', { on: n.out > 30, frac: Math.min(1, n.out / (n.out + n.left)), val: d.val, unit: d.unit, sub: n.out > 300 ? `EXIT ${x.val} ${x.unit}` : '', state: 'ok', info: { text: txt || '' }, text: `${d.val} ${d.unit} from the bay${n.out > 300 ? `, exit ${x.val} ${x.unit}` : ''}` });
+  }
   setTrap(on, secs, frac, pulse, dying) {
     const e = $('trap');
     e.classList.toggle('hidden', !on);
@@ -235,25 +260,38 @@ export class UI {
     e.style.setProperty('--p', pulse.toFixed(2));
     e.style.setProperty('--f', (1 - frac).toFixed(2));
   }
-  setVitals(hp, air, showAir, dying, lung) {
-    $('hpFill').style.width = (hp * 100).toFixed(0) + '%';
-    $('hpBar').classList.toggle('low', hp < 0.35);
-    $('hpBar').classList.toggle('full', hp > 0.995);
-    const a = $('airBar');
-    a.classList.toggle('hidden', !(showAir || air < 0.999));
-    $('airFill2').style.width = (air * 100).toFixed(0) + '%';
-    a.classList.toggle('dying', !!dying || air < 0.25);
-    $('lungBar').style.width = Math.min(100, lung * 100).toFixed(0) + '%';
+  // health and breath. hpAbs/hpMax and airSecs are optional numbers for the middle of the dials
+  setVitals(hp, air, showAir, dying, lung, hpAbs, hpMax, airSecs) {
+    void lung;
+    const fin = (x, d) => (Number.isFinite(x) ? x : d), h = Math.min(1, Math.max(0, fin(hp, 0))), a = Math.min(1, Math.max(0, fin(air, 1)));
+    const cap = Number.isFinite(hpMax) && hpMax > 0 ? Math.round(hpMax) : undefined;   // the number in the middle never passes the maximum or goes below 0
+    const hv = Math.min(cap === undefined ? 100 : cap, Math.max(0, Number.isFinite(hpAbs) ? Math.ceil(hpAbs - 1e-6) : Math.round(h * 100)));
+    this.dials.set('hp', { on: true, frac: h, val: hv, unit: cap !== undefined ? '/ ' + cap : '%', state: h < 0.35 ? 'crit' : h < 0.6 ? 'warn' : 'ok', dim: h > 0.995,
+      text: `${hv} of ${cap !== undefined ? cap : 100} health` });
+    const secs = Number.isFinite(airSecs) ? Math.max(0, Math.ceil(airSecs)) : null;
+    const low = !!dying || a < 0.25;
+    this.dials.set('breath', { on: !!(showAir || a < 0.999), frac: a, val: secs !== null ? secs : Math.round(a * 100) + '%', unit: secs !== null ? 'sec' : '', state: low ? 'crit' : a < 0.5 ? 'warn' : 'ok', sub: dying ? 'SUFFOCATING' : '',
+      text: `${Math.round(a * 100)} percent air${secs !== null ? `, ${secs} seconds left` : ''}${dying ? ', suffocating' : ''}` });
   }
   // dust warning: stage 0 none, 1 dusty, 2 wheezing, 3 about to pass out
   setLungWarn(stage, label, eta, vig, red) {
     const w = $('lungWarn'), v = $('lungVig'); w.classList.toggle('hidden', stage === 0); w.classList.remove('s1', 's2', 's3'); if (stage) w.classList.add('s' + stage);
     $('lungStage').textContent = label; $('lungEta').textContent = eta; v.style.opacity = vig.toFixed(3); v.classList.toggle('red', !!red);
   }
+  // the structural survey: FRAME (how deep you are against the best frame you own, and the weight above), SUPPORT (load on the nearest support) and STALE AIR (what the depth does to the air)
   setSurvey(on, d) {
-    $('survey').classList.toggle('hidden', !on); if (!on) return;
-    $('svDepth').textContent = d.depth; $('svBest').textContent = d.best; $('svPress').textContent = d.press; $('svAir').textContent = d.air || '';
-    const l = $('svLoad'); l.textContent = d.load; l.className = d.cls || '';
+    if (!on) { for (const id of ['frame', 'support', 'stale']) this.dials.set(id, { on: false }); return; }
+    const n = d.n || {};
+    const bf = n.best;
+    const flag = bf && bf.flag === 'weak' ? 'TOO WEAK' : bf && bf.flag === 'near' ? 'NEAR LIMIT' : '';
+    const frameLine = bf ? `${bf.name} ${isFinite(bf.max) ? bf.max + ' m' : 'any depth'}${flag ? ' ' + flag : ''}` : 'no frames yet';
+    this.dials.set('frame', { on: true, frac: bf && isFinite(bf.max) ? Math.min(1, n.depth / bf.max) : 0, val: Math.round(n.depth), unit: 'm deep', state: flag === 'TOO WEAK' ? 'crit' : flag ? 'warn' : 'ok',
+      sub: `${frameLine}\n${n.pile || ''}`.trim(), info: { depth: d.depth, best: d.best, press: d.press }, text: `${d.depth}. ${d.best}` });
+    const r = n.loadR;
+    this.dials.set('support', { on: true, frac: r === null || r === undefined ? 0 : Math.min(1, r), val: r === null || r === undefined ? '--' : Math.round(r * 100) + '%', unit: r === null || r === undefined ? '' : 'load', state: d.cls === 'red' ? 'crit' : d.cls === 'amber' ? 'warn' : 'ok', dim: r === null || r === undefined,
+      sub: r === null || r === undefined ? 'none within 8 m' : 'nearest support', info: { load: d.load }, text: d.load });
+    const st = n.stale || 0;
+    this.dials.set('stale', { on: true, frac: st, val: Math.round(st * 100) + '%', unit: 'stale', state: st > 0.8 ? 'crit' : st > 0.25 ? 'warn' : 'ok', dim: st <= 0.01, sub: n.fan === null || n.fan === undefined ? 'fresh' : `fan every ${n.fan} m`, info: { air: d.air }, text: d.air });
   }
   // a small readout for whatever machine you are aiming at
   setTileInfo(on, title = '', lines = [], good = false) {
@@ -310,19 +348,18 @@ export class UI {
     g.fillStyle = '#d7f26a'; g.beginPath(); g.moveTo(W / 2, H - 2); g.lineTo(W / 2 - 6, H + 6); g.lineTo(W / 2 + 6, H + 6); g.closePath(); g.fill();
     $('compassTxt').textContent = readout;
   }
+  // the signal dial: how close The One is, with the arrow (scanner 3 and up) and the distance (4 and up) in the middle
   setSignal(on, level, arrowDeg, distTxt, showArrow) {
-    const s = $('signal');
-    s.classList.toggle('hidden', !on);
-    if (!on) return;
-    $('sigFill').style.width = (level * 100).toFixed(0) + '%';
-    $('sigArrow').style.visibility = showArrow ? 'visible' : 'hidden';
-    $('sigArrow').style.transform = `rotate(${arrowDeg}deg)`;
-    $('sigDist').textContent = distTxt;
+    const none = distTxt === 'no signal';
+    this.dials.set('signal', { on, frac: level, rot: showArrow ? arrowDeg : null, val: distTxt, state: level > 0.8 ? 'hot' : 'ok', dim: none,
+      text: none ? 'no signal' : `signal ${Math.round(level * 100)} percent${distTxt ? ', ' + distTxt : ''}` });
   }
 
   // ---------------- modals ----------------
   isModalOpen() { return !!this.openModal; }
+  justClosed() { return performance.now() - (this._closedAt || -1e9) < 80; }
   closeModals() {
+    this._closedAt = performance.now();
     for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden');
     const was = this.openModal;
     this.openModal = null;
@@ -371,7 +408,7 @@ export class UI {
       const reqU = u.req ? UPGRADES.find((x) => x.id === u.req.id) : null;
       const gearNote = '';
       el.innerHTML = `<h3><span>${u.name}</span><small>${lvl}/${u.max}</small></h3>${extra ? `<div style="font-size:12px;color:var(--accent2)">${extra}</div>` : ''}<p>${u.desc}</p>${gearNote}<div class="pips">${pips}</div>
-        <button ${can ? '' : 'disabled'}>${maxed ? 'MAXED' : (reqU && (g.S.up[reqU.id] || 0) < u.req.lvl) ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : nt ? nt : !unlocked ? 'Locked' : `Buy  ◈ ${fmt(cost)}`}</button>`;
+        <button ${can ? '' : 'disabled'} ${unlocked && !maxed ? `data-cost="${cost}"` : ''}>${maxed ? 'MAXED' : (reqU && (g.S.up[reqU.id] || 0) < u.req.lvl) ? `Needs ${reqU.name} ${u.req.lvl > 1 ? 'lvl ' + u.req.lvl : ''}` : nt ? nt : !unlocked ? 'Locked' : `Buy  ◈ ${fmt(cost)}`}</button>`;
       el.querySelector('button').onclick = () => { if (g.buy(u.id)) this.renderShop(); };
       grid.appendChild(el);
     }
@@ -386,7 +423,7 @@ export class UI {
       const el = document.createElement('div');
       el.className = 'card';
       el.style.borderColor = 'rgba(215,242,106,0.45)';
-      el.innerHTML = `<h3><span>🧰 ${r.name}</span><small>GEAR</small></h3><p>${r.line}: ${r.desc}</p><p style="color:var(--accent2)">Unlocked tier ${r.bought}. Crafted tier ${r.have}. Craft it and it is equipped.</p><button ${g.S.money >= r.price ? '' : 'disabled'}>Craft · ◈${fmt(r.price)}</button>`;
+      el.innerHTML = `<h3><span>🧰 ${r.name}</span><small>GEAR</small></h3><p>${r.line}: ${r.desc}</p><p style="color:var(--accent2)">Unlocked tier ${r.bought}. Crafted tier ${r.have}. Craft it and it is equipped.</p><button data-cost="${r.price}" ${g.S.money >= r.price ? '' : 'disabled'}>Craft · ◈${fmt(r.price)}</button>`;
       el.querySelector('button').onclick = () => { if (g.craftGearItem(r.id)) this.renderCraft(); };
       grid.appendChild(el);
     }
@@ -404,8 +441,8 @@ export class UI {
       const isCart = r.kind === 'cart';
       const owned = isCart && /already have|In use|in your pack/.test(r.status);
       const btns = isCart
-        ? `<button data-n="1" ${owned || g.S.money < r.price ? 'disabled' : ''} style="flex:1">${owned ? 'Owned' : /Upgrade/.test(r.status) ? 'Upgrade' : 'Craft'} · ◈${fmt(r.price)}</button>`
-        : [...new Set(r.batch)].map((n) => `<button data-n="${n}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('');
+        ? `<button data-n="1" ${owned ? '' : `data-cost="${r.price}"`} ${owned || g.S.money < r.price ? 'disabled' : ''} style="flex:1">${owned ? 'Owned' : /Upgrade/.test(r.status) ? 'Upgrade' : 'Craft'} · ◈${fmt(r.price)}</button>`
+        : [...new Set(r.batch)].map((n) => `<button data-n="${n}" data-cost="${price(n)}" ${g.S.money >= price(n) ? '' : 'disabled'} style="flex:1">x${n} · ◈${fmt(price(n))}</button>`).join('');
       const statusLine = r.status ? `<p style="color:var(--accent2);font-size:11.5px">${r.status}</p>` : '';
       const useLine = r.use ? `<p style="color:var(--dim);font-size:11.5px"><b>How to use:</b> ${r.use}</p>` : '';
       el.innerHTML = `<h3><span>${r.icon} ${r.name}</span><small>${have ? (isCart ? '' : 'have ' + have) : ''}</small></h3><p>${r.desc}</p>${matLine}${statusLine}${useLine}<div style="display:flex;gap:6px">${btns}</div>`;
@@ -422,7 +459,7 @@ export class UI {
       const el = document.createElement('div');
       el.className = 'card';
       const pct = Math.min(100, (c.have / c.need) * 100);
-      el.innerHTML = `<h3><span>${c.desc}</span><small>${c.have}/${c.need}</small></h3><div class="bar" style="height:7px"><i style="width:${pct}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div><p>Reward: <b style="color:var(--accent)">◈ ${fmt(c.reward)}</b>${c.boost ? ' + a permanent boost' : ''}</p><button>Swap (◈ ${fmt(Math.round(c.reward * 0.08))})</button>`;
+      el.innerHTML = `<h3><span>${c.desc}</span><small>${c.have}/${c.need}</small></h3><div class="bar" style="height:7px"><i style="width:${pct}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div><p>Reward: <b style="color:var(--accent)">◈ ${fmt(c.reward)}</b>${c.boost ? ' + a permanent boost' : ''}</p><button data-cost="${Math.round(c.reward * 0.08)}" ${g.S.money >= Math.round(c.reward * 0.08) ? '' : 'disabled'}>Swap (◈ ${fmt(Math.round(c.reward * 0.08))})</button>`;
       el.querySelector('button').onclick = () => { if (g.contracts.reroll(i)) this.renderShop(); else g.sound.error(); };
       grid.appendChild(el);
     });
@@ -480,7 +517,7 @@ export class UI {
         <div class="crew-btns">
           <button data-a="follow" title="The bot walks with you and drops any dig order.">Follow me</button>
           <button data-a="stay" title="The bot stops what it is doing and waits near the bin.">Stay at the bin</button>
-          <button data-a="home" title="The bot walks home along its trail, unloads at the bin and waits there.">Go home and unload</button>
+          <button data-a="home" title="The bot walks home along its trail and unloads at the bin. If it had a dig order it then goes back out to dig; use Stay at the bin to keep it home.">Go home and unload</button>
           ${hasChg ? '<button data-a="charge" title="Send the bot to the nearest Charging Station that has charge, then it carries on.">Recharge now</button>' : ''}
           ${hasGen ? '<button data-a="fuel" title="The bot digs at the pile face nearest the generator and feeds it Common to Epic plush.">Keep generator fuelled</button>' : ''}
         </div>

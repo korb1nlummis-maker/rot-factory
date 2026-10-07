@@ -200,7 +200,7 @@ export default async function (ctx) {
 
   await guard('cart.hud-line-shows-the-local-players-own-cart', async () => lanes(async (hx, hz, gx, gz) => {
     const { h, gc } = bothOut(hx, hz, gx, gz); loadN(h, 4); loadN(gc, 9); h.tier = 2; gc.tier = 1;
-    const read = () => { g.hudT = 0; g.updateHud(0.2); return [document.getElementById('cartN').textContent, document.getElementById('cartMax').textContent]; };
+    const read = () => { g.hudT = 0; g.updateHud(0.2); const d = g.ui.dials.read('cart'); return [d.val, d.unit.replace('/ ', '')]; };
     const [n1, m1] = read(); if (n1 !== '4' || m1 !== String(60)) return `host line ${n1}/${m1}`;
     // as a guest, S.cart is the guest's own
     role('guest'); S().cart = gc; S().hcart = h; const [n2, m2] = read();

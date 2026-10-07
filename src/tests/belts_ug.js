@@ -15,7 +15,7 @@ export default async function (ctx) {
   await T('belts.ug-pair-crosses-belt-and-frame', async () => {
     B.setup(UP_BASE); const bad = [], k = row();
     S().up.beltUg = 1; g.T = g.tune();
-    // a timber frame in the way (its plane stands across the line), then the entry and the exit two cells either side of it
+    // a timber frame in the way (a 2.4 m cube: the line runs through its three inner cells), then the entry and the exit two cells either side of it
     const fr = await K.put('frame:timber', { x: cellX(toI(-6)), z: cellZ(k), dir: 0 }); if (!fr.ok) return 'could not set a frame: ' + fr.why;
     const ci = toI(fr.ent.cx), kk = toK(fr.ent.cz);
     const a = await K.put('ug', { x: cellX(ci - 2), z: cellZ(kk), dir: 0 }); if (!a.ok) return 'entry refused: ' + a.why;
@@ -34,8 +34,8 @@ export default async function (ctx) {
     // transit: two feeder tiles, the whole run (4 cells) on the entry, the exit tile, all at 1.6 tiles per second (the vault is the next hop)
     const want = (2 + 4 + 1) / 1.6; if (!near(s, want, want * 0.07)) bad.push(`transit took ${s.toFixed(2)} s, wanted ${want.toFixed(2)}`);
     const info = infoFor(g, { kind: 'tile', id: entry.id }), txt = info ? info.lines.join(' | ') : '';
-    if (!/UNDERGROUND ENTRY MK1/.test(info.title) || !/Span 4 cells \(2\.4 m\): passes under 1 belt, 1 frame cell, 1 plush cell/.test(txt)) bad.push('entry readout: ' + info.title + ' ' + txt);
-    const info2 = infoFor(g, { kind: 'tile', id: exit.id }); if (!/passes under 1 belt, 1 frame cell, 1 plush cell/.test(info2.lines.join(' '))) bad.push('exit readout: ' + info2.lines.join(' | '));
+    if (!/UNDERGROUND ENTRY MK1/.test(info.title) || !/Span 4 cells \(2\.4 m\): passes under 1 belt, 3 frame cells, 1 plush cell/.test(txt)) bad.push('entry readout: ' + info.title + ' ' + txt);
+    const info2 = infoFor(g, { kind: 'tile', id: exit.id }); if (!/passes under 1 belt, 3 frame cells, 1 plush cell/.test(info2.lines.join(' '))) bad.push('exit readout: ' + info2.lines.join(' | '));
     w().setCell(ci + 1, 0, kk, 0, 0);
     return bad.length === 0 || bad.join('; ');
   });

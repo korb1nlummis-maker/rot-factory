@@ -109,9 +109,9 @@ export default async function (ctx) {
     // frames: a pad next to a frame lines up with it. Build one on clear floor east of the pads.
     const f = await K.put('frame:timber', A.i0 + 20, A.k0 + 2); if (!f.ok) bad.push('frame: ' + f.why); else {
       const F = f.made[0]; K.equip('pad:timber'); S().items['pad:timber'] = 5; g.rebuildTools();
-      K.aim(F.gm + 3, F.glo + 1, { back: 3 }); pl = await plan();
-      if (!pl.ok) bad.push('pad beside a frame refused: ' + pl.why); else if (pl.ent.i0 !== F.gm + 1 || pl.ent.k0 !== F.glo || !/frame/.test(pl.ent.snap)) bad.push(`pad beside a frame: wanted ${F.gm + 1},${F.glo} got ${pl.ent.i0},${pl.ent.k0} ${pl.ent.snap}`);
-      K.aim(F.gm - 3, F.glo + 1, { back: 3 }); pl = await plan();
+      K.aim(F.gm + 5, F.glo + 1, { back: 3 }); pl = await plan();   // the frame is a 4x4x4 cube: the pad starts right after its 4 cells
+      if (!pl.ok) bad.push('pad beside a frame refused: ' + pl.why); else if (pl.ent.i0 !== F.gm + 4 || pl.ent.k0 !== F.glo || !/frame/.test(pl.ent.snap)) bad.push(`pad beside a frame: wanted ${F.gm + 4},${F.glo} got ${pl.ent.i0},${pl.ent.k0} ${pl.ent.snap}`);
+      K.aim(F.gm - 2, F.glo + 1, { back: 3 }); pl = await plan();
       if (!pl.ok) bad.push('pad west of a frame refused: ' + pl.why); else if (pl.ent.i0 !== F.gm - 4 || pl.ent.k0 !== F.glo) bad.push(`pad west of a frame: wanted ${F.gm - 4},${F.glo} got ${pl.ent.i0},${pl.ent.k0}`);
     }
     return bad.length === 0 || bad.join(' || ');

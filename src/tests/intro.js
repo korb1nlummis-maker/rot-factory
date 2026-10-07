@@ -20,6 +20,6 @@ export default async function (ctx) {
     const card = document.getElementById('dcDay').textContent, shown = document.getElementById('dayCard').classList.contains('show');
     return (shown && card === 'Day 2') || `card "${card}" shown ${shown} (closed overnight ${closed})`;
   });
-  await T('intro.clock-shows-the-day', async () => { fresh({}); S().gameMin = 3000; g._clkT = 0; g.updateClock(0.1); return document.getElementById('clockDay').textContent === 'DAY 3' || document.getElementById('clockDay').textContent; });
+  await T('intro.clock-shows-the-day', async () => { fresh({}); S().gameMin = 3000; g._clkT = 0; g.updateClock(0.1); const lab = g.ui.dials.read('clock').label; return lab === 'DAY 3' || lab; });
   await T('intro.new-game-keeps-the-name-and-skips-intro-when-continuing', async () => { fresh({}); S().name = 'Test Name'; const raw = JSON.parse(JSON.stringify(S())); return raw.name === 'Test Name' || 'name lost'; });
 }

@@ -30,6 +30,10 @@ export class Player {
     this.shakeAmt = 0;
     this.footCell = null;
     this.walk = null;   // (player) => true when standing on a ramp or stair; installed by build.js
+    this.ride = null;   // (player) => true when standing on a lift car (it carries you); installed by transit.js
+    this.landSafe = null;   // (player) => true when a fall here does no harm (a Cushion Pad, or a Jump Pad or the plush pile after a launch); installed by transit.js
+    this.flight = 0;    // seconds since a Jump Pad threw you (0 = not flying): while it runs your sideways speed is kept, only steered a little
+    this.launched = false; this.launchLock = 0; this.liftId = 0;
   }
 
   offsets() { return this.crouch ? [0.3, 0.72] : [0.3, 0.82, 1.32]; }
@@ -99,12 +103,18 @@ export class Player {
     let speed = stats.walk * (this.crouch ? stats.crouchMul : input.sprint ? 1.55 : 1);
     // squishy ground slows you a little
     if (this.onGround && this.pos.y > 0.6) speed *= 0.92;
-    const accel = this.onGround ? 46 : 9;
-    const tx = wx * speed, tz = wz * speed;
-    const dvx = tx - this.vel.x, dvz = tz - this.vel.z;
-    const dl = Math.hypot(dvx, dvz);
-    const maxd = accel * dt;
-    if (dl > maxd) { this.vel.x += dvx / dl * maxd; this.vel.z += dvz / dl * maxd; } else { this.vel.x = tx; this.vel.z = tz; }
+    if (this.flight > 0) {
+      // thrown by a Jump Pad: the momentum is yours until you land, the keys only steer it a little
+      this.flight += dt;
+      if (ml > 0) { this.vel.x += wx * 4 * dt; this.vel.z += wz * 4 * dt; }
+    } else {
+      const accel = this.onGround ? 46 : 9;
+      const tx = wx * speed, tz = wz * speed;
+      const dvx = tx - this.vel.x, dvz = tz - this.vel.z;
+      const dl = Math.hypot(dvx, dvz);
+      const maxd = accel * dt;
+      if (dl > maxd) { this.vel.x += dvx / dl * maxd; this.vel.z += dvz / dl * maxd; } else { this.vel.x = tx; this.vel.z = tz; }
+    }
 
     this.vel.y -= 21 * dt;
     if (input.jump && this.onGround) { this.vel.y = stats.jump; this.onGround = false; }
@@ -149,6 +159,8 @@ export class Player {
       this.pos.z = clamp(this.pos.z, -HALL_HZ + R, HALL_HZ - R);
       // walkable surfaces that are not plush cells (build shell ramps and stairs, build.js): the hook lifts the feet onto the slope, keeps its sides solid and says whether you stand on it
       if (this.walk && this.walk(this)) grounded = true;
+      // a lift car under the feet carries them (transit.js)
+      if (this.ride && this.ride(this)) grounded = true;
       // static props
       if (sim) {
         for (const c of sim.colliders) {
@@ -180,7 +192,8 @@ export class Player {
     }
     const wasAir = !this.onGround;
     this.onGround = grounded;
-    if (grounded && wasAir && this.landVel < -3.5 && this.events.land) this.events.land(-this.landVel);
+    if (grounded && wasAir && this.landVel < -3.5 && this.events.land) this.events.land(-this.landVel, this.landSafe ? !!this.landSafe(this) : false);
+    if (grounded) { if (this.flight > 0.15) { this.flight = 0; this.launched = false; } else if (this.flight === 0 && wasAir) this.launched = false; }   // landed: the flight ends (the first 0.15 s still count as the take off)
     this.landVel = this.vel.y;
     if (grounded && !ml) { this.vel.x *= 0.5; this.vel.z *= 0.5; }
     // camera smoothing offset decays

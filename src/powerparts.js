@@ -55,10 +55,11 @@ export const labelOf = (e) => (e.name ? `${partName(e)} "${e.name}"` : partName(
 
 // ---------- cable ports ----------
 // How many cables one object takes. Pole range linking is automatic and uses no port. `g` (optional) lets a pole count Grid Range.
-export const PORTS = { gen: 2, pole: 6, switch: 2, battery: 2, breaker: 4, charger: 1, meter: 1 };
+export const PORTS = { gen: 2, pole: 6, switch: 2, battery: 2, breaker: 4, charger: 1, meter: 1, hlamp: 2 };   // hlamp: one cord in and one out, so a line of hanging lanterns chains from a single generator
 export function maxPorts(e, g) {
   if (!e) return 0;
   if (e.type === 'pole') { const lv = (g && g.S && g.S.up && g.S.up.gridRange) | 0; return 6 + 2 * Math.max(0, lv); }
+  if (e.type === 'gen') return genKindOf(e).ports;   // the bigger plants take more cords
   const p = PORTS[e.type];
   return p === undefined ? 1 : p;
 }
@@ -120,6 +121,23 @@ export function summaryLine(net) {
   if (s.bat !== null) parts.push(`storage ${Math.round(s.bat * 100)}%`);
   if (s.tripped) parts.push('TRIPPED');
   return parts.join(' · ');
+}
+// the loads of a grid as a short list of [kind, kW] for a message (the biggest 8)
+export const countLoads = (net) => Object.keys((net && net.loads) || {}).length;
+export const packLoads = (net) => Object.entries((net && net.loads) || {}).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, v]) => [k, Math.round(v * 100) / 100]);
+// a guest in a world with no power part gets no grid row: the 0.17 s dyn message carries the grid nearest to it, and this makes a readable grid of it
+export function gridFromDyn(d) {
+  if (!d || typeof d !== 'object' || !Number.isFinite(d.supply) || !Number.isFinite(d.demand)) return null;
+  const loads = Object.create(null); if (Array.isArray(d.loads)) for (const q of d.loads) if (Array.isArray(q) && typeof q[0] === 'string' && Number.isFinite(q[1])) loads[q[0]] = q[1];
+  return { supply: d.supply, demand: d.demand, cap: Number.isFinite(d.cap) ? d.cap : d.supply, sat: Number.isFinite(d.sat) ? d.sat : 1, tripped: !!d.tripped, bat: 0, batMax: 0, flow: 0, loads, loadKinds: Number.isInteger(d.kinds) && d.kinds >= 0 && d.kinds < 1000 ? d.kinds : Object.keys(loads).length, hist: null };
+}
+// the biggest loads of a grid by kind, for the Load Meter: "Loads: Rail Stations 3 kW, Doors 1.6 kW, Belts 0.9 kW and 2 more kinds" ('' when nothing draws)
+export function loadsLine(net, top = 5) {
+  const list = Object.entries((net && net.loads) || {}).filter(([, v]) => v > 1e-6).sort((a, b) => b[1] - a[1]);
+  if (!list.length) return '';
+  const shown = list.slice(0, top).map(([k, v]) => `${k} ${f1(v)} kW`).join(', ');
+  const kinds = Math.max(list.length, (net && net.loadKinds) || 0);   // a guest holds only the biggest eight: the host says how many kinds there are in all
+  return `Loads: ${shown}${kinds > top ? ` and ${kinds - top} more kinds` : ''}`;
 }
 const BLOCKS = '▁▂▃▄▅▆▇█';
 export function sparkline(values, max) {
@@ -327,8 +345,8 @@ export function toggleHud(g, on) {
 function ensureHud() {
   if (hudEl) return hudEl;
   hudEl = document.createElement('div'); hudEl.id = 'pwMeterHud';
-  hudEl.style.cssText = 'position:fixed;left:22px;bottom:236px;width:230px;padding:8px 10px;background:rgba(12,14,10,.82);border:1px solid #3a4a56;border-radius:12px;z-index:12;pointer-events:none;display:none;color:#e8e3cf;font:600 11px/1.4 Helvetica,Arial,sans-serif';
-  hudEl.innerHTML = '<div style="letter-spacing:.18em;color:#7ad7ff;margin-bottom:3px">LOAD METER</div><div class="pwh-t"></div>';
+  hudEl.style.cssText = 'position:fixed;right:22px;bottom:calc(var(--belt-h, 0px) + 6px);max-height:calc(100vh - var(--belt-h, 0px) - 120px);overflow:hidden;width:min(230px, calc(100vw - 44px));padding:8px 10px;background:rgba(12,14,10,.82);border:1px solid #3a4a56;border-radius:12px;z-index:12;pointer-events:none;display:none;color:#e8e3cf;font:600 11px/1.4 Helvetica,Arial,sans-serif';
+  hudEl.innerHTML = '<div style="letter-spacing:.18em;color:#7ad7ff;margin-bottom:3px">LOAD METER</div><div class="pwh-t"></div><div class="pwh-l" style="margin-top:3px;color:#b9c6d0;font-weight:500"></div>';
   hudCv = document.createElement('canvas'); hudCv.width = 256; hudCv.height = 160; hudCv.style.cssText = 'width:210px;height:131px;display:block;margin-top:4px;border-radius:6px';
   hudEl.appendChild(hudCv); document.body.appendChild(hudEl);
   return hudEl;
@@ -336,9 +354,10 @@ function ensureHud() {
 export function hudTick(g, dt) {
   g._pwHudT = (g._pwHudT || 0) - dt; if (g._pwHudT > 0) return; g._pwHudT = 0.25;
   if (!g._pwHud || g.mode !== 'play') { if (hudEl) hudEl.style.display = 'none'; return; }
-  const el = ensureHud(), p = g.player.pos, net = g.power.nearest(p.x, p.y + 1, p.z);
+  const el = ensureHud(), p = g.player.pos, net = g.power.nearest(p.x, p.y + 1, p.z) || (g.isGuest && g.isGuest() ? gridFromDyn(g.guestGrid) : null);
   el.style.display = 'block';
   el.querySelector('.pwh-t').textContent = net ? summaryLine(net) : 'No grid within reach';
+  el.querySelector('.pwh-l').textContent = net ? loadsLine(net, 4) : '';   // the loads by kind (doors, lifts, pads, stations, lights ...)
   drawMeterFace(hudCv, net ? netSummary(net) : null, net ? net.hist : null);
 }
 
@@ -390,4 +409,62 @@ export function openPanel(g, focusId) {
   g.openModal('pwpanel');
   clearInterval(panelT);
   panelT = setInterval(() => { if (g.ui.openModal === 'pwpanel') { if (!panelEl.contains(document.activeElement) || document.activeElement.tagName !== 'INPUT') renderPanel(g, focusId); } else clearInterval(panelT); }, 1000);
+}
+
+
+// ---------------------------------------------------------------------------------------------------
+// The generator ladder. A generator is a belt-like tile of type 'gen' (logistics.js, one cell). A tile with no `gk` is the
+// ordinary 8 kW Generator, exactly as before. `gk` names one of the other rungs, from the 2 kW Portable up to the Titan Plant.
+// Every rung burns plush by the same rule: kJ per plush by rarity (power.js ENERGY_KJ) divided by the rung's output, so a
+// bigger plant gets through its fuel faster and holds a bigger hopper. Turbine Upgrades, Fusion Cores and Dyson Cores scale
+// every rung (T.genOutput is the base 8 kW and the rung multiplies it; T.genBuffer is the base hopper).
+// ---------------------------------------------------------------------------------------------------
+export const GEN_KINDS = [
+  { key: 'portable', id: 'gen:portable', name: 'Portable Generator', short: 'Portable', mul: 0.25, hop: 0.2, ports: 2, scale: 0.62, glow: 5, price: 120, grow: 1.2, color: 0xb8801c },
+  { key: 'std', id: 'gen', name: 'Generator', short: 'Generator', mul: 1, hop: 1, ports: 2, scale: 1, glow: 8, price: 350, grow: 1.35, color: 0x8a2a1c },
+  { key: 'turbine', id: 'gen:turbine', name: 'Turbine Generator', short: 'Turbine', mul: 6, hop: 2, ports: 3, scale: 1.3, glow: 10, price: 24000, grow: 1.3, color: 0x2f5f86, bit: 1 },
+  { key: 'plant', id: 'gen:plant', name: 'Power Plant', short: 'Plant', mul: 30, hop: 4, ports: 4, scale: 1.65, glow: 12, price: 320000, grow: 1.3, color: 0x4a5a3a, bit: 2 },
+  { key: 'grid', id: 'gen:grid', name: 'Grid Power Station', short: 'Station', mul: 150, hop: 8, ports: 6, scale: 2.0, glow: 14, price: 3600000, grow: 1.3, color: 0x5a4a78, bit: 4 },
+  { key: 'titan', id: 'gen:titan', name: 'Titan Plant', short: 'Titan', mul: 800, hop: 16, ports: 8, scale: 2.4, glow: 16, price: 40000000, grow: 1.3, color: 0x7a2f2f, bit: 8 },
+];
+export const BURN_S_AT_8KW = [90, 240, 600, 1500];   // seconds one Common, Uncommon, Rare and Epic burns at 8 kW (power.js BURN_SECONDS says the same; a test compares them)
+export const GEN_BY_KEY = Object.assign(Object.create(null), Object.fromEntries(GEN_KINDS.map((k) => [k.key, k])));   // no prototype: a key like __proto__ or constructor never resolves to a rung
+export const GEN_STD = GEN_BY_KEY.std;
+export const GEN_BY_ITEM = Object.assign(Object.create(null), Object.fromEntries(GEN_KINDS.map((k) => [k.id, k])));
+export const GEN_KEYS = GEN_KINDS.filter((k) => k.key !== 'std').map((k) => k.key);   // the values `gk` may hold
+// the rung of a generator tile (an unknown or missing gk is the ordinary Generator)
+export const genKindOf = (t) => (t && t.gk !== undefined && GEN_BY_KEY[t.gk] && t.gk !== 'std' ? GEN_BY_KEY[t.gk] : GEN_STD);
+// the bench / hotbar item a tile gives back (the ordinary Generator is plain 'gen')
+export const genItemOf = (t) => genKindOf(t).id;
+// the bit a kind needs in T.genKinds (portable and the ordinary Generator come with the Power Grid itself)
+export const genUnlocked = (T, kind) => !kind.bit || (((T && T.genKinds) | 0) & kind.bit) !== 0;
+// kW one generator of this rung puts out while it burns, and the plush its hopper holds
+export const genKw = (T, t) => T.genOutput * genKindOf(t).mul;
+export const genHopper = (T, t) => Math.max(1, Math.round(T.genBuffer * genKindOf(t).hop));
+// bench price (before the K = 3 multiplier) of the next one of a rung when `owned` of that rung stand
+export const genPrice = (kind, owned) => Math.round(kind.price * Math.pow(kind.grow, owned));
+export const genOwned = (g, kind) => { let n = 0; for (const t of g.logi.tiles.values()) if (t.type === 'gen' && genKindOf(t) === kind) n++; return n; };
+export const secText = (sec) => (sec >= 90 ? `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s` : sec >= 10 ? `${Math.round(sec)} s` : sec >= 1 ? `${sec.toFixed(1)} s` : sec >= 0.01 ? `${sec.toFixed(2)} s` : `${(sec * 1000).toFixed(1)} ms`);
+export const kwText = (kw) => (kw >= 1e6 ? (kw / 1e6).toFixed(2) + ' GW' : kw >= 1000 ? (kw / 1000).toFixed(kw >= 1e5 ? 0 : 1) + ' MW' : (+kw).toFixed(1) + ' kW');
+
+// extra bodywork on top of the one cell Generator model (logistics.js builds it): a tint, a scale, a handle for the portable one,
+// stacks and a drum for the plants. Purely visual: the tile is still one cell and the readout names the real numbers.
+export function decorateGen(grp, ent, mats) {
+  const k = genKindOf(ent); if (k === GEN_STD) return;
+  const body = grp.getObjectByName('body'); if (body) body.material = new THREE.MeshStandardMaterial({ color: k.color, roughness: 0.5, metalness: 0.6 });
+  const steel = mats && mats.steel, dark = mats && mats.dark;
+  const add = (m) => { grp.add(m); return m; };
+  if (k.key === 'portable') {
+    const bar = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 14, Math.PI), steel); bar.position.set(0, 0.55, 0); bar.rotation.z = 0; add(bar);
+    const can = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.14), dark); can.position.set(-0.2, 0.62, 0.0); add(can);
+  } else {
+    const n = k.key === 'turbine' ? 1 : k.key === 'plant' ? 2 : k.key === 'grid' ? 3 : 4;
+    for (let q = 0; q < n; q++) {
+      const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.5 + q * 0.08, 8), steel); stack.position.set(-0.2 + q * 0.13, 0.95, 0.18); add(stack);
+    }
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.46, 14), steel); drum.rotation.z = Math.PI / 2; drum.position.set(0, 0.64, -0.12); add(drum);
+    if (k.key === 'grid' || k.key === 'titan') { const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.17, 0.7, 12, 1, true), steel); tower.position.set(0.18, 0.95, -0.2); add(tower); }
+    if (k.key === 'titan') { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.03, 8, 20), dark); ring.rotation.x = Math.PI / 2; ring.position.y = 0.12; add(ring); }
+  }
+  grp.scale.setScalar(k.scale);
 }

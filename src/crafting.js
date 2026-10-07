@@ -5,7 +5,7 @@ import { catalogRecipes } from './catalog.js';
 
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
-  frame: 'A 4x4 square (2.4 m) section. Aim at the floor, press B: it carves out its section and anchors the roof around it. Aim next to a frame and it snaps on any side (in line, beside, above, below) to build tunnels, junctions and chambers. The hammer takes it back.',
+  frame: 'A hollow 4x4x4 cube (2.4 m each way). Dig the section out first: a frame never digs. Aim at the floor and press B: it anchors the roof around its centre. Aim next to a frame and it snaps a whole cube away on any side (in line, beside, above, below) to build tunnels, junctions and chambers. The hammer takes it back.',
   rope: 'Take it out and aim at the pile where you want to climb, press B. Within 6 m of it the footing holds and your steps barely loosen the slope. Plant one every few steps going up.',
   mfan: 'Take it out and aim at any frame (even one you turned): it clamps under the top beam and blows the way you are facing. One per frame. It needs power, like a Vent Fan: a pole or a generator in reach.',
   marker: 'Aim at the floor and press B. It shows on your compass so you can find your way back.',
@@ -16,7 +16,7 @@ const USE = {
   dynamite: 'Aim at the pile and press B, then run. 4 second fuse, small blast. It hurts if you stand close.',
   charge: 'Aim at the pile and press B, then run. 6 second fuse, bigger blast. It hurts if you stand close.',
   lantern: 'Aim at a wall or the floor and press B. It lights the tunnel for good.',
-  bulk: 'Aim at an empty cell and press B. A solid wall cell that never falls. F takes it down.',
+  bulk: 'Aim at an empty cell and press B. A solid wall cell that never falls. The hammer or X takes it down.',
   belt: 'Aim at the floor and press B (hold B to lay a line, or press . for the Line Planner). Needs power from a generator and poles.',
   ramp: 'Like a belt, but it climbs or drops one step. R flips up or down while you hold it.',
   splitter: 'Aim at a belt (it converts it) or the floor and press B. Plush arriving from behind leave forward, left and right in turn: feed several sorters, vaults or lines from one belt. Outputs that are full or missing are skipped.',
@@ -30,13 +30,13 @@ const USE = {
   vault: 'Place it at the end of a belt line. Press E on it to empty it into your hands.',
   mech: 'Place it facing the pile wall. It digs and loads the belt behind it. Needs power.',
   claw: 'Plant it on the pile surface. It plucks and sells plush in reach. Needs power. It does NOT check for the One.',
-  borer: 'Place it against the pile wall (look at the base of the wall). It bores a lined tunnel on its own. Needs power. It does NOT check for the One.',
-  excavator: 'Stand it on open floor facing the pile wall (look at the base of the wall) and press B. It swings across a wide face and fills its hopper. Empty the hopper onto a belt behind it, with a Haul Truck, or by hand (E). Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It leaves The One alone.',
-  dozer: 'Stand it on open floor facing the pile wall and press B. Its blade shoves the foot of the pile out in rows: onto a belt behind it at full value, or down its chute at 85%. Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It leaves The One alone.',
-  wheel: 'Stand it on open floor facing the pile wall and press B. The wheel eats a huge face into a big hopper. Empty it onto a belt, with Haul Trucks, or by hand (E). Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It leaves The One alone.',
-  truck: 'Park it on open floor near a pole and press B: that is its yard. When a digger\'s hopper fills it drives out, loads, hauls to the nearest bin or Depot Beacon, sells the load and drives home. Its drive needs power at the yard. E parks it or sends it back to work.',
+  borer: 'Place it against the pile wall (look at the base of the wall). It bores a lined tunnel on its own. Needs power. It never eats The One: that cell stays in the pile.',
+  excavator: 'Stand it on open floor facing the pile wall (look at the base of the wall) and press B. It swings across a wide face and fills its hopper. Empty the hopper onto a belt behind it, with a Haul Truck, or by hand (E). Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It scoops The One too and keeps it in the hopper: E takes it, or a Haul Truck carries it through a Vehicle Scanner.',
+  dozer: 'Stand it on open floor facing the pile wall and press B. Its blade shoves the foot of the pile out in rows: onto a belt behind it at full value, or down its chute at 85%. Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It scoops The One too and keeps it in the hopper: E takes it, or a Haul Truck carries it through a Vehicle Scanner.',
+  wheel: 'Stand it on open floor facing the pile wall and press B. The wheel eats a huge face into a big hopper. Empty it onto a belt, with Haul Trucks, or by hand (E). Needs power. It stops where the mountain is too heavy for your best frame, and chokes on stale air without a Support Fan. It scoops The One too and keeps it in the hopper: E takes it, or a Haul Truck carries it through a Vehicle Scanner.',
+  truck: 'Park it on open floor near a pole and press B: that is its yard. When a digger\'s hopper fills it drives out, loads, hauls to the nearest bin or Depot Beacon, sells the load and drives home. Its drive needs power at the yard. Build a Vehicle Scanner on its road: a truck holding The One will not leave without one. E parks it or sends it back to work.',
   beacon: 'Place it anywhere: a remote bin, a fast travel point and a recall point.',
-  cart: 'Press U to roll it out. It stays near you, plush you grab ride on it once your hands are full, and it unloads near the bin. U parks it or calls it back, X stows it when empty.',
+  cart: 'Press U to roll it out. It stays near you, plush you grab ride on it once your hands are full, and it unloads near the bin. U parks it or calls it back, X (standing next to it) stows it when empty.',
   medkit: 'Press K to heal 50 health.',
   canister: 'Automatic: it kicks in when you run out of air while trapped.',
   mat: 'Raw building material. Frames, struts, jacks and bulkheads use it automatically when you craft them.',
@@ -68,7 +68,7 @@ export function recipes(g) {
   const list = [];
   const out = [];
   const K = 3; // crafting is not cheap either
-  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `Anchors the roof within ${FRAME_TYPES[k].radius} m, so the unsupported tunnel length starts again from here. Stronger frames reach further. Rated to ${isFinite(FRAME_TYPES[k].maxDepth) ? FRAME_TYPES[k].maxDepth + ' m deep' : 'any depth'}: set deeper than that and it breaks.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
+  for (const k of T.frames) list.push({ id: 'frame:' + k, kind: 'frame', fk: k, icon: FRAME_TYPES[k].icon, name: FRAME_TYPES[k].name, short: FRAME_TYPES[k].name.split(' ')[0], desc: `A hollow cube, 4 x 4 x 4 cells (2.4 m). Anchors the roof within ${FRAME_TYPES[k].radius} m of its centre, so the unsupported tunnel length starts again from here. Stronger frames reach further. Rated to ${isFinite(FRAME_TYPES[k].maxDepth) ? FRAME_TYPES[k].maxDepth + ' m deep' : 'any depth'}: set deeper than that and it breaks.`, price: FRAME_TYPES[k].cost, batch: [1, 5, 10], mat: k, matN: MATFRAME });
   for (const k of T.frames) list.push({ id: 'mat:' + k, kind: 'mat', mk: k, icon: MATERIALS[k].icon, name: MATERIALS[k].name, short: MATERIALS[k].name, desc: 'Building material. Frames use ' + MATFRAME + ' each. Stock up here at a discount, or find it in caches and old workings.', price: Math.max(1, Math.round(MATERIALS[k].unit * 0.7)), batch: [10, 50, 250] });
   for (let t = 1; t <= T.cartTier; t++) list.push({ id: 'cart:' + t, kind: 'cart', icon: '🛒', name: CART_NAMES[t], short: CART_NAMES[t], desc: `Press U to roll it out. Follows you, carries ${CART_CAP[t]} plush and unloads near the bin.`, price: CART_PRICE[t], batch: [1] });
   if (T.markers) {
@@ -114,7 +114,7 @@ export function recipes(g) {
   const cartTier = g.myCart() ? g.myCart().tier : [5, 4, 3, 2, 1].find((t) => (g.S.items['cart:' + t] || 0) > 0) || 0;
   const status = (r) => {
     if (r.kind === 'cart') { const t = +r.id.split(':')[1]; return cartTier >= t ? (cartTier === t ? (g.myCart() ? `In use: rolled out (${g.myCart().load.length}/${CART_CAP[t]})` : 'You have this one in your pack') : 'You already have a better cart') : (cartTier ? `Upgrade from your ${CART_NAMES[cartTier]}: +${CART_CAP[t] - CART_CAP[cartTier]} capacity` : 'You have no cart yet'); }
-    if (r.kind === 'frame') { const f = FRAME_TYPES[r.fk]; return `Rated to ${isFinite(f.maxDepth) ? f.maxDepth + ' m' : 'any'} depth. Reach ${f.radius} m: about one every ${Math.round(f.radius * 2 + 4)} m of tunnel near the surface, closer when deep. ${FRAME_NOTE[r.fk] || ''}`; }
+    if (r.kind === 'frame') { const f = FRAME_TYPES[r.fk]; return `Rated to ${isFinite(f.maxDepth) ? f.maxDepth + ' m' : 'any'} depth. Reach ${f.radius} m from the centre of its 2.4 m cube: set them flush (4 cells apart) for a solid lining, or leave a gap near the surface and let the reach cover it: closer together the deeper you go. ${FRAME_NOTE[r.fk] || ''}`; }
     if (r.kind === 'claw') return `${g.machines.count('claw')} of ${g.T.rigMax} rigs placed`;
     if (r.kind === 'mech') return `${g.logi.count('mech')} of ${g.T.mechMax} mechs placed`;
     if (r.kind === 'borer') return `${g.machines.count('borer')} of ${g.T.borerMax} borers placed`;
@@ -188,7 +188,7 @@ export function craft(g, id, n) {
   let idx = g.assignHotbar(id);
   if (idx >= 0) g.buildIdx = idx;
   g.rebuildTools();
-  if (r.use) g.ui.hint(`<b>${r.name}</b> crafted${idx >= 0 ? ` and put on hotbar slot <kbd>${idx + 1}</kbd>. Press <kbd>${idx + 1}</kbd> to take it out, <kbd>Q</kbd> to put it away` : '. Your hotbar is full: open the inventory (<kbd>I</kbd>) to choose a slot'}. ${r.use}`, 9);
+  if (r.use) g.ui.hint(`<b>${r.name}</b> crafted${idx >= 0 ? ` and put on hotbar slot <kbd>${idx + 1}</kbd>. ${g.stowed ? `Press <kbd>${idx + 1}</kbd> to take it out, <kbd>Q</kbd> to put it away` : `It is the tool in your hand now: <kbd>Q</kbd> puts it away`}` : '. Your hotbar is full: open the inventory (<kbd>I</kbd>) to choose a slot'}. ${r.use}`, 9);
   return true;
 }
 

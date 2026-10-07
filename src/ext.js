@@ -16,12 +16,15 @@ export function aimedEnt(g) {
   const eye = g.renderer.camera.position, dir = g.player.forward(g._extDir || (g._extDir = eye.clone()));
   const tile = g.logi.pick(eye, dir, 3.4);
   if (tile) return TYPES[tile.type] ? tile : null;
-  let best = null, bd = 3.4;
+  let best = null, bd = 3.4, bestIt = null, box = null, ad = 3.4;   // box: a type with a `holds` handler (a giant arch) is a room around other machines: it only wins when nothing standing in it is aimed at
   for (const it of g.machines.items.values()) {
-    const e = it.ent; if (!TYPES[e.type]) continue;
+    const e = it.ent, h = TYPES[e.type]; if (!h) continue;
     const x = e.cx ?? e.px ?? e.x, y = (e.y0 ?? e.y ?? 0) + (e.h ? e.h / 2 : 0.5), z = e.cz ?? e.pz ?? e.z; if (x === undefined) continue;
-    const v = eye.clone().set(x - eye.x, y - eye.y, z - eye.z), d = v.length(); if (d > bd + (e.hr || 0) || (d > 0.1 && v.normalize().dot(dir) < (e.hr ? 0.8 : 0.9))) continue; bd = d; best = e;
+    const lim = h.holds ? ad : bd, v = eye.clone().set(x - eye.x, y - eye.y, z - eye.z), d = v.length(); if (d > lim + (e.hr || 0) || (d > 0.1 && v.normalize().dot(dir) < (e.hr ? 0.8 : 0.9))) continue;
+    if (h.holds) { ad = d; box = it; continue; }
+    bd = d; best = e; bestIt = it;
   }
+  if (box && (!best || (ad < bd && !TYPES[box.ent.type].holds(box.ent, bestIt)))) return box.ent;
   return best;
 }
 
@@ -138,8 +141,11 @@ export function conflictTool(g, tool, e) { const h = catalogType(tool.kind); ret
 export function buildTool(g, tool, planEnt) {
   const h = catalogType(tool.kind); if (!h || !h.build) return null;
   const f = h.build(g, tool, planEnt); if (!f || !f.type) return null;
-  const { type, id: _ignored, ...rest } = f;
-  return placeEntity(g, type, rest);
+  const { type, id: _ignored, rewire, ...rest } = f;
+  const ent = placeEntity(g, type, rest);
+  if (ent && h.stat) for (const key of [].concat(h.stat)) g.S.stats[key] = (g.S.stats[key] || 0) + 1;   // achievement counters: a handler lists the S.stats key(s) one placement adds to
+  if (ent && rewire != null && g.cables && g.cables.rewire) g.cables.rewire(rewire, ent.id);   // a piece that replaces a wired tile keeps its cables (wave 2B)
+  return ent;
 }
 
 // what the hammer hands back for a catalog ent (or undefined)
@@ -159,6 +165,6 @@ export function update(g, dt, guest) {
   g._extRow = 0.5;
   for (const [k, h] of Object.entries(TYPES)) { if (!h.row) continue; const d = h.row(g); if (d != null) g.netSend({ t: 'xrow', k, d }); }
 }
-export function guestRow(g, k, d) { const h = TYPES[k]; if (h && h.guestRow) h.guestRow(g, d); }
+export function guestRow(g, k, d) { if (g.net && g.net.role === 'host') return; const h = TYPES[k]; if (h && h.guestRow) h.guestRow(g, d); }   // rows run host to guest only: a host never acts on one a guest sends (it would set the host's cabs, doors and pads)
 
 export { TRANSIENT };

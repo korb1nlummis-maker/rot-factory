@@ -3,7 +3,10 @@ import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config
 import { species, RARITY, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import { FUEL_MAX_RARITY } from './power.js';
+import { genHopper, genKindOf, decorateGen } from './powerparts.js';
 import { buildMountFan } from './mountfan.js';
+import * as SR from './splitrules.js';
+import { partGroup, glow as partGlow, LAMP_ON, LAMP_OFF } from './splitmesh.js';
 import { TIER_MUL, TIER_COLOR, SPACING, HOP_MAX, tierOf, lenOf, capOf, framesNeeded, FRAME_REACH, LIFT_FREE } from './beltdata.js';
 
 export const DX = [1, 0, -1, 0];
@@ -60,6 +63,7 @@ export class Logistics {
     for (const m of [this.bedMesh, this.railMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
     this._liftCache = new WeakMap(); this.lifts = new Set(); this.beltOrder = [];
     this.cols = new Map();   // lift shaft cells (above the base tile) -> the lift tile that owns them
+    this.feedMap = new Map(); this.parts = new Set();   // belt tile id -> the belt tiles that hand over to it (rebuilt with the meshes); the mergers and ruled splitters (for their lamps)
     this.dirty = true;
     this.visualOnly = false; // a guest only draws what the host simulates
     this.byId = new Map();
@@ -70,20 +74,37 @@ export class Logistics {
   clear() {
     this.tiles.clear();
     this.byId.clear();
-    this.cols.clear(); this.lifts.clear();
+    this.cols.clear(); this.lifts.clear(); this.feedMap.clear(); this.parts.clear();
     for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); }
     this.objs.clear();
     this.dirty = true;
   }
 
   tileAt(i, j, k) { return this.tiles.get(idx(i, j, k)); }
+  held(i, j, k) {
+    const h = this.game.cellHeld; if (h && h(i, j, k)) return true;
+    const key = idx(i, j, k), R = this.game._rail;
+    if (R && R.nodes.size && R.nodes.has(key)) return true;   // a Mine Rail piece (a guest never reserves the cell itself: it only knows the pieces the host sent)
+    const lc = this.game._levelCells; if (lc) { const id = lc.get(key); if (id !== undefined) { if (this.game.machines.items.has(id)) return true; lc.delete(key); } }   // a Leveling Pad (same reason)
+    return false;
+  }
   count(type) { let n = 0; for (const t of this.tiles.values()) if (t.type === type) n++; return n; }
 
   // ---------------------------------------------------------------- placement
+  // Is something standing in this cell? A belt or machine tile, a belt lift's shaft, a transit door, lift shaft or pad (transit.js sets game.cellHeld), or anything else that
+  // reserved the cell: a Mine Rail piece, a ramp or stair volume, a Leveling Pad, a depot beacon. Every placement path asks this (canPlace, the bulkhead and beacon aims, the
+  // furnish and arch rules, the rail), so no piece can be set down on another's cell. Returns the reason or null.
+  cellTaken(i, j, k) {
+    const key = idx(i, j, k);
+    if (this.tiles.has(key) || this.cols.has(key)) return 'Occupied';
+    if (this.held(i, j, k)) return 'In the way';
+    if (this.game.world.reserved.has(key)) return 'In the way';
+    return null;
+  }
   canPlace(i, j, k) {
     const w = this.game.world;
     if (!w.inside(i, j, k) || w.solid(i, j, k)) return 'Blocked';
-    if (this.tiles.has(idx(i, j, k)) || this.cols.has(idx(i, j, k))) return 'Occupied';
+    { const why = this.cellTaken(i, j, k); if (why) return why; }
     if (j > 0 && !w.solid(i, j - 1, k)) return 'Needs a floor';
     // do not place inside the player
     const p = this.game.player.pos;
@@ -124,7 +145,7 @@ export class Logistics {
     let best = null;
     for (let m = 0; m < 4; m++) {
       const n = this.tiles.get(idx(a.i - DX[m], a.j, a.k - DZ[m]));
-      if (!n || n.type !== 'belt' || n.rise || n.detector || n.splitter || n.lift || n.ug || n.dir === m || ((n.dir + 2) & 3) === m) continue;
+      if (!n || n.type !== 'belt' || n.rise || n.detector || n.splitter || n.merger || n.lift || n.ug || n.dir === m || ((n.dir + 2) & 3) === m) continue;
       if (this.nextOf(n)) continue;
       let fed = false;
       for (let q = 0; q < 4 && !fed; q++) { const f = this.tiles.get(idx(n.i - DX[q], n.j, n.k - DZ[q])); if (f && f.type === 'belt' && f.dir === q && !f.rise) fed = true; }
@@ -161,7 +182,10 @@ export class Logistics {
     if (ent.type === 'belt' && ent.lift) { const up = Math.sign(ent.lift.h); for (let q = 1; q <= Math.abs(ent.lift.h); q++) { const ck = idx(ent.i, ent.j + up * q, ent.k); this.cols.set(ck, ent); this.game.world.reserved.add(ck); } }   // the shaft (above the tile for an up lift, below it for a down lift): nothing else is built in it
     if (ent.type !== 'belt') this.buildObj(ent);
     if (ent.type === 'belt' && ent.detector) this.buildGate(ent);
+    if (ent.type === 'belt' && ent.smart && !SR.cleanRules(ent.rules, ent.smart)) ent.rules = SR.defaultRules();   // an old or hand made tile with no (or bad) rules deals like a plain splitter
     if (ent.type === 'belt' && ent.splitter) this.buildSplitter(ent);
+    if (ent.type === 'belt' && ent.merger) this.buildMerger(ent);
+    if (ent.type === 'belt' && (ent.merger || ent.smart)) this.parts.add(ent);
     if (ent.type === 'belt' && ent.lift) { this.buildLift(ent); this.lifts.add(ent); }
     if (ent.type === 'belt' && ent.ug) { this.buildUg(ent); this.linkUg(ent); }
     this.dirty = true;
@@ -173,7 +197,7 @@ export class Logistics {
     this.tiles.delete(key);
     this.byId.delete(ent.id);
     this.game.world.reserved.delete(key);
-    this.lifts.delete(ent); if (ent.type === 'belt' && ent.ug) this.unlinkUg(ent);
+    this.lifts.delete(ent); this.parts.delete(ent); if (ent.type === 'belt' && ent.ug) this.unlinkUg(ent);
     if (ent.type === 'belt' && ent.lift) { const up = Math.sign(ent.lift.h); for (let q = 1; q <= Math.abs(ent.lift.h); q++) { const ck = idx(ent.i, ent.j + up * q, ent.k); if (this.cols.get(ck) === ent) { this.cols.delete(ck); this.game.world.reserved.delete(ck); } } }
     const o = this.objs.get(ent.id);
     if (o) { this.game.machines.disposeObj(o); this.root.remove(o); this.objs.delete(ent.id); }
@@ -200,12 +224,13 @@ export class Logistics {
       g.add(box, lid);
     } else if (ent.type === 'gen') {
       const red = new THREE.MeshStandardMaterial({ color: 0x8a2a1c, roughness: 0.5, metalness: 0.6 });
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.46, 0.58), red); body.position.y = 0.3;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.46, 0.58), red); body.position.y = 0.3; body.name = 'body';
       const base = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.6), M.dark); base.position.y = 0.04;
       const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.5, 10), M.steel); chim.position.set(0.18, 0.78, -0.15);
       const win = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.02), M.dark); win.position.set(0, 0.32, 0.3); win.name = 'win';
       const hopper = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.18, 10, 1, true), M.steel); hopper.position.set(-0.1, 0.62, 0.0);
       g.add(base, body, chim, win, hopper);
+      if (ent.gk) decorateGen(g, ent, M);   // the generator ladder: Portable, Turbine, Power Plant ... (powerparts.js)
     } else if (ent.type === 'charger') {
       const pad = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.62), M.dark); pad.position.y = 0.035;
       const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.05, 16), M.steel); plate.position.set(0.04, 0.095, 0.0);
@@ -268,12 +293,12 @@ export class Logistics {
     const bedMax = this.bedMesh.instanceMatrix.count, railMax = this.railMesh.instanceMatrix.count;
     const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc, off = this._off || (this._off = new THREE.Vector3());
     const tierCols = this._tierCols || (this._tierCols = TIER_COLOR.map((h) => new THREE.Color(h)));
-    const feeders = new Map(); let maxMul = 1;
+    const feeders = new Map(); let maxMul = 1; const fm = this.feedMap; fm.clear();
     for (const t of this.tiles.values()) {
       if (t.type !== 'belt') continue;
       maxMul = Math.max(maxMul, TIER_MUL[tierOf(t)] * (t.hose ? 2 : 1));
       const nx = this.nextOf(t);
-      if (nx && nx.type === 'belt' && ((nx.dir + 2) & 3) !== t.dir) { const l = feeders.get(nx.id) || []; l.push(t.dir); feeders.set(nx.id, l); }
+      if (nx && nx.type === 'belt' && ((nx.dir + 2) & 3) !== t.dir) { const l = feeders.get(nx.id) || []; l.push(t.dir); feeders.set(nx.id, l); const f = fm.get(nx.id); if (f) f.push(t); else fm.set(nx.id, [t]); }   // (a merger reads who feeds it from feedMap)
     }
     const putRail = (tc) => { m.toArray(rm, r * 16); rc[r * 3] = tc.r; rc[r * 3 + 1] = tc.g; rc[r * 3 + 2] = tc.b; r++; };
     for (const t of this.tiles.values()) {
@@ -338,7 +363,10 @@ export class Logistics {
       if (n.ug && n.ug.role === 'out' && fromDir !== 'ug') return false;  // an underground exit only takes what its own entry sends
       const len = lenOf(n), last = n.items[n.items.length - 1], at = Math.max(0, Math.min(t0, len));
       if (n.items.length >= capOf(len) || (last && last.t < SPACING + at - 1e-6)) return false;   // the epsilon: a dense line sits exactly at the spacing
+      const lane = n.merger ? this.mergeLane(n, fromDir) : -1;   // a powered merger lets one input lane push at a time (fair, or by priority)
+      if (lane === -2) return false;
       n.items.push({ sp: item.sp, vr: item.vr, t: at });
+      if (lane >= 0) n.mrr = (lane + 1) % 3;
       return true;
     }
     if (n.type === 'sorter') {
@@ -348,7 +376,7 @@ export class Logistics {
     }
     if (n.type === 'gen') {
       const r = species[item.sp] ? species[item.sp].rarity : 9;
-      if (r > FUEL_MAX_RARITY || n.q.length >= (this.game.T.genBuffer)) return false;
+      if (r > FUEL_MAX_RARITY || n.q.length >= genHopper(this.game.T, n)) return false;
       n.q.push({ sp: item.sp, vr: item.vr });
       return true;
     }
@@ -396,6 +424,7 @@ export class Logistics {
     this._moving = 0;
     arrowTex.offset.y = (arrowTex.offset.y - dt * spd * 0.5) % 1;
     for (const t of this.lifts) this.liftLook(t, tick);
+    if (this.parts.size && !(this._partT > tick)) { this._partT = tick + 0.25; this.partLooks(); }
     // belts run in equal sub steps when the fastest tile would move a plush more than 0.8 of a tile in one go, so a Mk6 line at full upgrades still moves
     // exactly as printed and does not depend on the frame time (one sub step at every speed the game had before)
     const sub = Math.max(1, Math.min(8, Math.ceil(spd * (this.maxMul || 1) * dt / 0.8)));
@@ -448,6 +477,7 @@ export class Logistics {
   handOff(t, f, t0) {
     if (t.splitter) {
       const outs = this.splitOuts(t);
+      if (t.smart && (t.pw ?? 0) > 0.05) return this.smartHandOff(t, f, t0, outs);   // rules need power: an unpowered one deals plain, below
       for (let q = 0; q < outs.length; q++) { const o = outs[((t.rr || 0) + q) % outs.length]; if (this.accept(o.tile, f, o.dir, t0)) { t.rr = ((t.rr || 0) + q + 1) % outs.length; return true; } }
       return false;
     }
@@ -501,7 +531,8 @@ export class Logistics {
     const win = o.getObjectByName('win');
     const lit = t.burn > 0;
     if (win) win.material = lit ? M.glowO : M.dark;
-    if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18, t.j * C + 1.1, cellZ(t.k) - 0.15);
+    const gs = genKindOf(t).scale;
+    if (lit && Math.random() < dt * 5) this.game.fx.smoke(cellX(t.i) + 0.18 * gs, t.j * C + 0.5 + 0.6 * gs, cellZ(t.k) - 0.15 * gs);
   }
 
   // ---- lifts and underground ends (belt tiles that are drawn as their own meshes) ----
@@ -581,6 +612,7 @@ export class Logistics {
   // ---- splitters: a belt piece that deals plush out forward, left and right in turn ----
   buildSplitter(ent) {
     const old = this.objs.get(ent.id); if (old) { this.game.machines.disposeObj(old); this.root.remove(old); }
+    if (ent.smart) { this.placePart(ent); ent.rr = ent.rr || 0; return; }   // a smart or programmable splitter has its own look (splitmesh.js)
     const g = new THREE.Group();
     g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
     g.rotation.y = YAW[ent.dir || 0];
@@ -596,11 +628,74 @@ export class Logistics {
   // forward, left and right neighbours of a splitter that currently exist
   splitOuts(t) {
     const outs = [];
+    let slot = 0;   // 0 forward, 1 right, 2 left: the rules of a smart splitter are kept by slot
     for (const d of [t.dir, (t.dir + 1) & 3, (t.dir + 3) & 3]) {
       const n = this.tiles.get(idx(t.i + DX[d], t.j + (d === t.dir ? (t.rise || 0) : 0), t.k + DZ[d]));
-      if (n && n !== t) outs.push({ tile: n, dir: d });
+      if (n && n !== t) outs.push({ tile: n, dir: d, slot });
+      slot++;
     }
     return outs;
+  }
+
+  // ---- mergers, smart and programmable splitters (wave 2B; the rules are in splitrules.js) ----
+  placePart(ent) {
+    const old = this.objs.get(ent.id); if (old) { this.game.machines.disposeObj(old); this.root.remove(old); }
+    const g = partGroup(ent);
+    g.position.set(cellX(ent.i), ent.j * C, cellZ(ent.k));
+    g.rotation.y = YAW[ent.dir || 0];
+    this.root.add(g);
+    this.objs.set(ent.id, g);
+  }
+  buildMerger(ent) { this.placePart(ent); ent.mrr = ent.mrr || 0; }
+
+  // the lamp of every merger and ruled splitter: green with power, red without (unpowered they act like a plain merger or splitter)
+  partLooks() {
+    for (const t of this.parts) {
+      const o = this.objs.get(t.id), lamp = o && o.getObjectByName('lamp'); if (!lamp) continue;
+      const on = (t.pw ?? 0) > 0.05, want = on ? partGlow(LAMP_ON) : partGlow(LAMP_OFF);
+      if (lamp.material !== want) lamp.material = want;
+    }
+  }
+
+  // which input lane of a merger is pushing: 0 back, 1 left, 2 right. Returns the lane the plush may come in on, -1 when nothing governs this push
+  // (an unpowered merger, or a push from something that is not a belt in one of its lanes), or -2 when another lane has the turn.
+  mergeLane(n, fromDir) {
+    if ((n.pw ?? 0) <= 0.05 || typeof fromDir !== 'number') return -1;
+    const lane = SR.laneOf(n.dir, fromDir); if (lane < 0) return -1;
+    const feeds = this.feedMap.get(n.id); if (!feeds) return -1;
+    const ready = [false, false, false], claim = [false, false, false], mine = [false, false, false], prio = n.merger === 'prio';
+    for (const f of feeds) {
+      const s = SR.laneOf(n.dir, f.dir); if (s < 0) continue;
+      mine[s] = true;
+      const first = f.items[0]; if (!first) continue;
+      if (!this.willPush(f, n, first)) continue;   // a plush that will never go into this merger (a ruled splitter sends it elsewhere, a lift stands still) must not hold the turn
+      const len = lenOf(f), live = !f.halt;   // an unpowered feeder still creeps (hand crank), so it still holds its place
+      if (first.t >= len - 1e-6) ready[s] = true;
+      if (live && first.t >= len - SR.LOOKAHEAD) claim[s] = true;
+    }
+    if (!mine[lane]) return -1;   // a lane with no belt of its own in the feed list (a sorter or mech pushing from there): not governed
+    const win = SR.mergePick(ready, claim, prio, n.mrr, n.lanes);
+    return win === lane ? lane : -2;
+  }
+
+  // will the first plush `it` of feeder f try to go into tile n? False for a lift that stands still and for a powered ruled splitter whose rules keep it from that output.
+  willPush(f, n, it) {
+    if (f.lift && !this.liftSupport(f).ok) return false;
+    if (f.smart && f.splitter && (f.pw ?? 0) > 0.05) {
+      const outs = this.splitOuts(f), o = outs.find((x) => x.tile === n);
+      return !!o && SR.route(f, outs.map((x) => x.slot), it).order.includes(o.slot);
+    }
+    return true;
+  }
+
+  // one plush of a powered smart or programmable splitter: the rules say which outputs may take it, in what order
+  smartHandOff(t, f, t0, outs) {
+    const r = SR.route(t, outs.map((o) => o.slot), f);
+    for (let q = 0; q < r.order.length; q++) {
+      const s = r.order[q], o = outs.find((x) => x.slot === s);
+      if (o && this.accept(o.tile, f, o.dir, t0)) { if (q < r.primary) t.rr = (s + 1) % 3; else t.orr = (s + 1) % 3; return true; }
+    }
+    return false;
   }
 
   // ---- detector gates ----
@@ -791,7 +886,7 @@ export class Logistics {
     }
     // nothing within reach: advance
     const [ni, , nk] = this.mechCell(m, 1, 0, 0);
-    const okAhead = !w.solid(ni, m.j, nk) && !this.tiles.has(idx(ni, m.j, nk)) && (m.j === 0 || w.solid(ni, m.j - 1, nk));
+    const okAhead = !w.solid(ni, m.j, nk) && !this.cellTaken(ni, m.j, nk) && (m.j === 0 || w.solid(ni, m.j - 1, nk));   // (a rail piece, a shaft or a door ahead stops it like a belt would)
     if (!okAhead) { this.setLamp(m, M.glowR); m.timer = 1.0; m.state = 'stuck'; return; }
     const oldKey = idx(m.i, m.j, m.k), oi = m.i, oj = m.j, ok = m.k;
     this.tiles.delete(oldKey); w.reserved.delete(oldKey);
@@ -806,7 +901,7 @@ export class Logistics {
       g.S.money -= 3; g.ui.setMoney(g.S.money);
       g.layBelt(oi, oj, ok, (m.dir + 2) & 3);
     }
-    if (T.mechBolt && m.adv % 3 === 0) g.machines.autoFrame(oi, oj, ok, m.dir);
+    if (T.mechBolt && m.adv % 4 === 0) g.machines.autoFrame(oi, oj, ok, m.dir);   // one 2.4 m cube per 4 cells of advance
     this.dirty = true;
   }
 

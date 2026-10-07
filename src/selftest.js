@@ -88,6 +88,7 @@ export async function runSelfTest(g, only = '') {
   const T = async (name, fn) => {
     if (only && !name.startsWith(only)) return;
     if (WORLD_TESTS.some((x) => name.startsWith(x))) await newWorld();
+    g.surgeT = 1e9; if (g.outage > 0) { g.outage = 0; if (g.power) g.power.outage = false; }   // the random grid surge (40 s without power, after 25 to 45 game minutes with a generator) would fail whichever power test a long run happens to be in
     const before = g.errCount || 0;
     try {
       const r = await fn();
@@ -281,15 +282,18 @@ export async function runSelfTest(g, only = '') {
     return (count() === before && S().stats.cells < 400 + before) || 'frames removed plush: ' + (before - count());
   });
   await T('mining.frame-mesh-is-hollow-box', async () => {
-    const { buildFrameMesh } = await import('./machines.js'); const gr = buildFrameMesh('steel', 'x', 4 * 0.6 - 0.04, 4 * 0.6 - 0.02); let pillars = 0, beams = 0; gr.children.forEach((c) => { if (!c.geometry) return; const q = c.geometry.parameters; if (q.height > 2) pillars++; else if (q.height < 1 && q.depth > 0.1 && q.width > 0.1 && !(q.depth < 0.05)) beams++; }); return (pillars === 4 && beams === 4) || `pillars ${pillars} beams ${beams}`;
+    const { buildFrameMesh } = await import('./machines.js'); const W = 4 * 0.6 - 0.04, H = 4 * 0.6 - 0.02, D = 4 * 0.6 - 0.04; const gr = buildFrameMesh('timber', 'x', W, H, undefined, D); gr.rotation.y = 0; gr.updateMatrixWorld(true);
+    let pillars = 0, ring = 0; gr.children.forEach((c) => { if (!c.geometry) return; const q = c.geometry.parameters; if (q.height > 2) pillars++; else if (c.position.y > H - 0.25 && (q.width > W - 0.05 || q.depth > D - 0.5) && q.depth > 0.1 && q.width > 0.1) ring++; });
+    const sz = new THREE.Box3().setFromObject(gr).getSize(new THREE.Vector3());
+    return (pillars === 4 && ring >= 4 && Math.abs(sz.x - W) < 0.04 && Math.abs(sz.z - D) < 0.04) || `pillars ${pillars} top beams ${ring} size ${sz.x.toFixed(2)} x ${sz.y.toFixed(2)} x ${sz.z.toFixed(2)}`;
   });
   await T('mining.frame-snaps-on-any-side', async () => {
     fresh(mkUp()); const { i, k } = spot(); dig(i, k - 5, 30, 17, 8, false); craft('frame:timber', 8); selectTool('frame:timber');
     lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return 'first: ' + pl.why; placeNow(); const a = S().entities.find((x) => x.type === 'frame');
     // stand inside the first section and look at the wall, ceiling or the corridor beyond: what you look at decides the side
-    const aimAtBlock = async (m, lo, j0) => { const cx = cellX(m), cz = cellZ(lo) + 1.5 * 0.6, cy = j0 * 0.6 + 1.2; const sx = cellX(a.gm) - (m === a.gm ? 0 : 2.2), sy0 = 0; p().pos.set(sx, sy0, m === a.gm ? cellZ(a.glo) + 0.9 : cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); return plan(); };
+    const aimAtBlock = async (m, lo, j0) => { const cx = cellX(m) + 1.5 * 0.6, cz = cellZ(lo) + 1.5 * 0.6, cy = j0 * 0.6 + 1.2; const sx = cellX(a.gm) - (m === a.gm ? 0 : 2.2), sy0 = 0; p().pos.set(sx, sy0, m === a.gm ? cellZ(a.glo) + 0.9 : cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); return plan(); };
     const out = {};
-    for (const [name, m, lo, j0, expect] of [['line', a.gm + 1, a.glo, a.gj, 'next in line'], ['beside', a.gm, a.glo + 4, a.gj, 'beside it'], ['beside-other', a.gm, a.glo - 4, a.gj, 'beside it'], ['above', a.gm, a.glo, a.gj + 4, 'above it']]) {
+    for (const [name, m, lo, j0, expect] of [['line', a.gm + 4, a.glo, a.gj, 'next in line'], ['beside', a.gm, a.glo + 4, a.gj, 'beside it'], ['beside-other', a.gm, a.glo - 4, a.gj, 'beside it'], ['above', a.gm, a.glo, a.gj + 4, 'above it']]) {
       pl = await aimAtBlock(m, lo, j0); if (!pl.ok) return name + ': ' + pl.why; if (pl.ent.snap !== expect) return `${name}: snap ${pl.ent.snap}`; if (pl.ent.gm !== m || pl.ent.glo !== lo || pl.ent.gj !== j0) return `${name}: wrong block ${pl.ent.gm},${pl.ent.glo},${pl.ent.gj}`; out[name] = true;
     }
     // below the floor is refused
@@ -297,9 +301,9 @@ export async function runSelfTest(g, only = '') {
     return Object.keys(out).length === 4;
   });
   await T('mining.frame-chain-lines-up', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 30, 5, 4, false); craft('frame:steel', 4); selectTool('frame:steel'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return pl.why; placeNow();
-    for (let n = 1; n <= 3; n++) { const a = S().entities.filter((x) => x.type === 'frame').pop(); const cx = cellX(a.gm + 1), cz = cellZ(a.glo) + 0.9, cy = a.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); pl = await plan(); if (!pl.ok) return 'link ' + n + ': ' + pl.why; placeNow(); }
-    const fs = S().entities.filter((x) => x.type === 'frame'); const ms = fs.map((f) => f.gm); const los = new Set(fs.map((f) => f.glo)), js = new Set(fs.map((f) => f.gj)); return (fs.length === 4 && los.size === 1 && js.size === 1 && ms.every((m, n) => m === ms[0] + n)) || 'chain ' + ms;
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 40, 5, 4, false); craft('frame:steel', 4); selectTool('frame:steel'); lookEast(cellX(i + 4) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return pl.why; placeNow();
+    for (let n = 1; n <= 3; n++) { const a = S().entities.filter((x) => x.type === 'frame').pop(); const cx = cellX(a.gm + 4) + 0.9, cz = cellZ(a.glo) + 0.9, cy = a.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); pl = await plan(); if (!pl.ok) return 'link ' + n + ': ' + pl.why; placeNow(); }
+    const fs = S().entities.filter((x) => x.type === 'frame'); const ms = fs.map((f) => f.gm); const los = new Set(fs.map((f) => f.glo)), js = new Set(fs.map((f) => f.gj)); return (fs.length === 4 && los.size === 1 && js.size === 1 && ms.every((m, n) => m === ms[0] + 4 * n)) || 'chain ' + ms;
   });
   await T('mining.frame-never-duplicates-block', async () => {
     fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 24, 5, 4, false); craft('frame:timber', 2); selectTool('frame:timber'); lookEast(cellX(i + 16) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const a = S().entities.find((x) => x.type === 'frame'); { const cx = cellX(a.gm), cz = cellZ(a.glo) + 0.9, cy = a.gj * 0.6 + 1.2; p().pos.set(cx - 2.2, 0, cellZ(k) + 0.3); p().vel.set(0, 0, 0); const e = p().eyePos(new V3()); p().yaw = Math.atan2(cx - e.x, cz - e.z); p().pitch = Math.atan2(cy - e.y, Math.hypot(cx - e.x, cz - e.z)); } pl = await plan();
@@ -353,7 +357,7 @@ export async function runSelfTest(g, only = '') {
     const flat = g.slide.unstableAt(i - 3, 0, k); const j = 3; const ci = i + 20, ck = k; w().setCell(ci, j, ck, 2, 0); for (let d = 0; d <= 4; d++) { w().setCell(ci + 1, j - d, ck, 0, 0); }
     const cliff = g.slide.unstableAt(ci, j, ck); return (g.T.slopeProbe && cliff === true && flat === false) || `probe ${g.T.slopeProbe} cliff ${cliff} flat ${flat}`;
   });
-  await T('mining.airmonitor-shows-with-dust', async () => { fresh({ airmon: 1 }); g.dust.cells.clear(); g.dust.add(p().pos.x, p().pos.y + 1.4, p().pos.z, 1); adv(1); const el = document.getElementById('air'); return (el && !el.classList.contains('hidden')) || 'gauge hidden'; });
+  await T('mining.airmonitor-shows-with-dust', async () => { fresh({ airmon: 1 }); g.dust.cells.clear(); g.dust.add(p().pos.x, p().pos.y + 1.4, p().pos.z, 1); adv(1); return g.ui.dials.read('dust').on || 'gauge hidden'; });
 
   // ================================================================== TUNNEL RULE
   const tunnelOutcome = async (up, len, supportEvery, supportKind = 'strut') => {
@@ -398,7 +402,7 @@ export async function runSelfTest(g, only = '') {
   WORLD_TESTS.push('stress.');
   const placeFrameAt = async (m, lo, j0, kind = 'timber', k0 = null, standZ = null) => {
     // place a frame section by aiming at its block from inside the neighbouring section (or the tunnel)
-    const cx = cellX(m), cz = cellZ(lo) + 0.9, cy = j0 === 0 ? 0.1 : j0 * 0.6 + 1.2;
+    const cx = cellX(m) + 0.9, cz = cellZ(lo) + 0.9, cy = j0 === 0 ? 0.1 : j0 * 0.6 + 1.2;   // the centre of the 4 deep cube whose first cell is m
     // aiming along the corridor: stand back in the tunnel. Aiming at a section beside: stand inside the section next to it
     const base = S().entities.find((x) => x.type === 'frame'); const beside = base && lo !== base.glo && m === base.gm;
     if (beside) p().pos.set(cx, 0, standZ ?? cz); else p().pos.set(cx - 2.2, 0, standZ ?? cz); p().vel.set(0, 0, 0); const e = p().eyePos(new V3());
@@ -406,12 +410,12 @@ export async function runSelfTest(g, only = '') {
     if (pl.ent.gm !== m || pl.ent.glo !== lo || pl.ent.gj !== j0) return { ok: false, why: `planned ${pl.ent.gm},${pl.ent.glo},${pl.ent.gj} wanted ${m},${lo},${j0}` }; placeNow(); return { ok: true };
   };
   await T('stress.200-frames-structure', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 5, 70, 17, 8, false); craft('frame:timber', 220); selectTool('frame:timber');
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 5, 230, 17, 8, false); craft('frame:timber', 220); selectTool('frame:timber');
     lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const first = S().entities.find((x) => x.type === 'frame');
     const t0 = performance.now(); let placed = 1; const fail = [];
     // a 50 long tunnel run, then a second row beside it and a third row above: 150 sections
-    for (let n = 1; n < 50; n++) { const r = await placeFrameAt(first.gm + n, first.glo, first.gj, 'timber', k, cellZ(k) + 0.3); if (!r.ok) { fail.push('line ' + n + ': ' + r.why); break; } placed++; }
-    for (let n = 0; n < 50; n++) { const r = await placeFrameAt(first.gm + n, first.glo + 4, first.gj, 'timber', k, cellZ(k) + 0.3); if (!r.ok) { fail.push('beside ' + n + ': ' + r.why); break; } placed++; }
+    for (let n = 1; n < 50; n++) { const r = await placeFrameAt(first.gm + 4 * n, first.glo, first.gj, 'timber', k, cellZ(k) + 0.3); if (!r.ok) { fail.push('line ' + n + ': ' + r.why); break; } placed++; }
+    for (let n = 0; n < 50; n++) { const r = await placeFrameAt(first.gm + 4 * n, first.glo + 4, first.gj, 'timber', k, cellZ(k) + 0.3); if (!r.ok) { fail.push('beside ' + n + ': ' + r.why); break; } placed++; }
     const ms = (performance.now() - t0) / placed; if (fail.length) return fail[0] + ` (placed ${placed})`;
     const fs = S().entities.filter((x) => x.type === 'frame'); const dup = new Set(fs.map((f) => `${f.gm},${f.glo},${f.gj},${f.axis}`)); if (dup.size !== fs.length) return 'duplicate blocks';
     adv(2); return (fs.length === placed && w().supports.length >= placed && ms < 400) || `frames ${fs.length} placed ${placed} supports ${w().supports.length} ${ms.toFixed(0)}ms each`;
@@ -428,8 +432,8 @@ export async function runSelfTest(g, only = '') {
     return (maxBodies < 900 && maxQ < 5000) || `max bodies ${maxBodies} queue ${maxQ}`;
   });
   await T('stress.supports-survive-save-load', async () => {
-    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 30, 5, 4, false); craft('frame:concrete', 6); selectTool('frame:concrete'); lookEast(cellX(i + 14) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const first = S().entities.find((x) => x.type === 'frame');
-    for (let n = 1; n < 5; n++) { const r = await placeFrameAt(first.gm + n, first.glo, first.gj, 'concrete', k, cellZ(k) + 0.3); if (!r.ok) return r.why; }
+    fresh(mkUp()); const { i, k } = spot(); dig(i, k - 1, 40, 5, 4, false); craft('frame:concrete', 6); selectTool('frame:concrete'); lookEast(cellX(i + 4) - 1.4, cellZ(k) + 0.3, -0.2); let pl = await plan(); placeNow(); const first = S().entities.find((x) => x.type === 'frame');
+    for (let n = 1; n < 5; n++) { const r = await placeFrameAt(first.gm + 4 * n, first.glo, first.gj, 'concrete', k, cellZ(k) + 0.3); if (!r.ok) return r.why; }
     const before = JSON.stringify(S().entities.filter((x) => x.type === 'frame').map((f) => [f.kind, f.gm, f.glo, f.gj, f.axis]));
     const raw = JSON.parse(JSON.stringify(S().entities)); // what a save would hold
     resetEntities(); if (w().supports.length) return 'supports not cleared'; for (const e of raw) g.addEntity(e); S().entities = raw;
@@ -512,7 +516,7 @@ export async function runSelfTest(g, only = '') {
   await T('hall.signs-and-chalkboard-exist', async () => {
     const sc = g.renderer.scene; const count = (n) => { let c = 0; sc.traverse((o) => { if (o.name === n) c++; }); return c; };
     const cb = sc.getObjectByName('chalkboard'); if (!cb) return 'no chalkboard'; let textured = false; cb.traverse((o) => { if (o.material && o.material.map && o.material.map.image) textured = true; });
-    return (count('exitSign') >= 2 && count('climbSign') >= 4 && textured) || `exit ${count('exitSign')} climb ${count('climbSign')} chalk ${textured}`;
+    return (count('exitSign') === 1 && count('climbSign') >= 4 && textured) || `exit ${count('exitSign')} climb ${count('climbSign')} chalk ${textured}`;
   });
 
   // ================================================================== AUDIO: no random noises
@@ -754,6 +758,7 @@ export async function runSelfTest(g, only = '') {
   // extra test modules: src/tests/*.js each export default async (ctx) => { await ctx.T('area.name', async () => true | 'reason') }
   const mods = import.meta.glob('./tests/*.js', { eager: true });
   const ctx = { capacityOf, loadOn, g, S, w, p, sim, L, V3, THREE, cfg, cellX, cellY, cellZ, toI, toJ, toK, UPGRADES, FRAME_TYPES, effLevels, computeTuning, recipes, MATERIALS, CART_CAP, CART_NAMES, species, NEEDLE, fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, plushWall, standBeforeWall, newWorld, realSleep, sleep, WORLD_TESTS };
+  if (typeof window !== 'undefined') window.__stCtx = ctx;   // dev tooling: lets a runner re-import one test file with a cache-busting query and run it against this ctx
   for (const path of Object.keys(mods).sort()) { const fn = mods[path].default; if (typeof fn === 'function') await fn(ctx); }
 
   return { results, errs: (g.errCount || 0) - errs0, helpers: { fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, resetEntities, sleep, V3 } };

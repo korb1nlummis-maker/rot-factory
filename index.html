@@ -15,15 +15,12 @@
   <div id="topleft">
     <div class="logo-mini">ROT<span>FACTORY</span></div>
     <div id="money"><span class="coin">◈</span><b id="moneyVal">0</b><i id="moneyDelta"></i></div>
-    <div id="assay" class="hidden"><span>VEIN ASSAY</span><div class="bar"><i id="assayBar"></i></div><div id="assayPtr" class="hidden"><b id="assayArrow">➤</b> <em id="assayTxt"></em></div></div>
-    <div id="survey" class="hidden"><span>STRUCTURAL SURVEY</span><b id="svDepth"></b><em id="svBest"></em><em id="svPress"></em><em id="svAir"></em><em id="svLoad"></em></div>
     <div id="streak" class="hidden"><span id="streakVal">x1</span><div class="bar"><i id="streakBar"></i></div></div>
   </div>
   <div id="topcenter">
     <div id="compass" class="hidden"><canvas id="compassCv" width="560" height="64"></canvas><div id="compassTxt"></div></div>
-    <div id="depth"></div>
   </div>
-  <div id="topright"><div id="clock" class="hidden"><canvas id="clockCv" width="168" height="92"></canvas><div id="clockDay"></div><div class="clock-row"><b id="clockTxt">07:00</b><span id="clockState">OPEN</span></div></div><div id="toasts"></div></div>
+  <div id="topright"><div id="toasts"></div></div>
   <div id="brim"></div>
 
   <div id="center">
@@ -32,19 +29,12 @@
     <div id="target" class="hidden"><div class="tn"></div><div class="tr"></div><div class="tv"></div></div>
   </div>
   <div id="warn" class="hidden"></div>
-  <div id="hint"></div>
-
-  <div id="bottom">
-    <div id="carry"><div class="carry-label">CARRYING <b id="carryN">0</b> / <b id="carryMax">1</b></div><div class="carry-label hidden" id="cartLine" style="color:#ffcf8a">CART <b id="cartN">0</b> / <b id="cartMax">0</b> · <span id="cartMode"></span></div><div id="carryChips"></div></div>
-    <div id="hotbar"></div>
-    <div id="hotbarHint"></div>
-  </div>
-  <div id="power" class="hidden"><div class="sig-title" style="color:#7ad7ff">GRID</div><div class="sig-meter"><i id="pwFill"></i></div><div class="sig-row"><span id="pwTxt"></span></div></div>
-  <div id="air" class="hidden"><div class="sig-title" style="color:#d8c58a">AIR</div><div class="sig-meter"><i id="airFill"></i></div><div class="sig-meter" style="height:5px"><i id="lungFill"></i></div><div class="sig-row"><span id="airTxt"></span></div></div>
-  <div id="signal" class="hidden">
-    <div class="sig-title">THE ONE</div>
-    <div class="sig-meter"><i id="sigFill"></i></div>
-    <div class="sig-row"><span id="sigArrow">➤</span><span id="sigDist"></span></div>
+  <!-- the belt: round dials in two groups, one each side of the hotbar. The compass is not here: it stays at the top. -->
+  <div id="belt">
+    <div id="hint"></div>
+    <div id="dialsL" class="dials" role="group" aria-label="Body and power gauges"></div>
+    <div id="bottom"><div id="hotbar"></div><div id="hotbarHint"></div></div>
+    <div id="dialsR" class="dials" role="group" aria-label="Sensor and survey gauges"></div>
   </div>
   <div id="buried" class="hidden"><b>BURIED</b><span>Dig yourself out. Left click on the plush around you, or punch with R.</span></div>
   <div id="vig"></div>
@@ -55,7 +45,6 @@
   <div id="lungWarn" class="hidden"><b id="lungStage"></b><span id="lungEta"></span></div>
   <div id="dayCard"><div class="dc-day" id="dcDay">DAY 1</div><div class="dc-sub" id="dcSub"></div></div>
   <div id="trap" class="hidden"><div id="trapVig"></div><div id="trapBox"><span id="trapLabel">AIR</span><b id="trapNum">60</b><i>punch: R or right click, hold Space to punch up</i></div></div>
-  <div id="vitals"><div id="hpBar" class="vbar"><label>HEALTH</label><div><i id="hpFill"></i></div></div><div id="airBar" class="vbar hidden"><label>AIR</label><div><i id="airFill2"></i></div></div><i id="lungBar" style="display:none"></i></div>
   <div id="hurt"></div>
 </div>
 
@@ -112,8 +101,8 @@
       <section><h3>The goal</h3><p>The warehouse is full of millions of plush, and exactly one of them matters: <b>Il Rotto Supremo</b>. The Dossier computer shows what it looks like. Find it to win. Or give up and dig out of the exit, 4.9 km east.</p></section>
       <section><h3>Your first minutes</h3><ol><li>Walk to the pile and look at a plush. Left click grabs it, instantly. Hold to keep grabbing until your hands are full.</li><li>Walk near the <b>SORT bin</b>. It eats what you carry and pays you. Click again while holding plush to throw one in (the bin sucks thrown plush in).</li><li><kbd>E</kbd> at the desk (or <kbd>Tab</kbd>) buys upgrades: a bigger bag, faster hands, tools, crew. <kbd>E</kbd> at the bench crafts things.</li></ol></section>
       <section><h3>Tools and the hotbar</h3><p>Open the inventory with <kbd>I</kbd>. Put tools and building items on the 9-slot hotbar and use <kbd>1</kbd>-<kbd>9</kbd> to take one out; <kbd>Q</kbd> puts it away. <b>An empty slot is your bare hands.</b> With a tool out, click (or <kbd>B</kbd>) uses it. The <b>hammer</b> in slot 1 knocks down anything you built and gives it back.</p></section>
-      <section><h3>Digging and staying alive</h3><ul><li>Dig tunnels by grabbing plush straight ahead of you. A tunnel stands for about 7 m on its own; the deeper and heavier the pile above, the shorter. Past that the roof creaks and falls.</li><li><b>Frames</b> are 4x4 squares that carve their own section and hold the roof around them. Aim next to a frame and the next one snaps on any side. Struts and jacks are quick props.</li><li><b>Do not climb the piles.</b> The higher you go, the likelier the slope slides under you.</li><li>Buried? You have an air countdown. <kbd>R</kbd> or right click punches plush out of the way (hold <kbd>Space</kbd> to punch up). Run out of air or health and you die, then wake on the bay floor with your hands empty. <kbd>K</kbd> uses a medkit.</li><li>Dust builds in tunnels. A respirator, vent fans and clean air help.</li></ul></section>
-      <section><h3>Automate it</h3><p>Digging by hand is just the start. Hire <b>Scrapper Bots</b> (<kbd>V</kbd>) and send them digging (<kbd>T</kbd>). Build <b>belts, sorters, vaults, mechs and borers</b> on a generator and poles. Out of pole reach? Craft a <b>Power Cable</b>: take it out, click a generator or pole, then click the machine, and it runs on that grid (click empty air or <kbd>Q</kbd> to cancel, click the pair again or hammer the wire to remove it). Put <b>Detector Gates</b> on your lines: they beep green for ordinary plush and sound a red alarm, and stop the belt, if The One rolls through. Anything that reaches the bin without being scanned is sold, and The One cannot be bought back. Late in the run, build <b>Excavators, Bulldozers and Bucket-Wheel Excavators</b> to move whole faces of the pile, and <b>Haul Trucks</b> to carry their hoppers to the bin (<kbd>E</kbd> on one empties its hopper or parks it). They stop where the mountain is too heavy for your best frame and where the air is too stale. Then spend your own time building tunnels and conveyors.</p></section>
+      <section><h3>Digging and staying alive</h3><ul><li>Dig tunnels by grabbing plush straight ahead of you. A tunnel stands for about 7 m on its own; the deeper and heavier the pile above, the shorter. Past that the roof creaks and falls.</li><li><b>Frames</b> are hollow 4x4x4 cubes (2.4 m) that hold the roof around them. Dig the section out first; a frame never digs for you. Aim next to a frame and the next cube snaps on any side. Struts and jacks are quick props.</li><li><b>Do not climb the piles.</b> The higher you go, the likelier the slope slides under you.</li><li>Buried? You have an air countdown. <kbd>R</kbd> or right click punches plush out of the way (hold <kbd>Space</kbd> to punch up). Run out of air or health and you die, then wake at the nearest depot (the bay floor if you have built none) with your hands empty. <kbd>K</kbd> uses a medkit.</li><li>Dust builds in tunnels. A respirator, vent fans and clean air help.</li><li><b>The dials</b> either side of the hotbar are your gauges. Left: health, bag, cart, air, dust and power. Right: the sensors you own, depth, how far you are from the bay, the survey and the clock. A ring turns amber when something needs care and red and pulsing when it is urgent. Each dial also carries its full reading as a tooltip and for screen readers. The compass stays at the top of the screen.</li></ul></section>
+      <section><h3>Automate it</h3><p>Digging by hand is just the start. Hire <b>Scrapper Bots</b> (<kbd>V</kbd>) and send them digging (<kbd>T</kbd>). Build <b>belts, sorters, vaults, mechs and borers</b> on a generator and poles. Out of pole reach? Craft a <b>Power Cable</b>: take it out, click a generator or pole, then click the machine, and it runs on that grid (click empty air or <kbd>Q</kbd> to cancel, click the pair again or hammer the wire to remove it). A small <b>Portable Generator</b> comes with Power Grid; Turbine Upgrades and later unlocks bring bigger turbines and plants with bigger fuel hoppers. <b>Hanging Lanterns</b> clip under a frame's top beam and chain from a generator with cables (one 8 kW generator runs five). Put <b>Detector Gates</b> on your lines: they beep green for ordinary plush and sound a red alarm, and stop the belt, if The One rolls through. Anything that reaches the bin without being scanned is sold, and The One cannot be bought back. Late in the run, build <b>Excavators, Bulldozers and Bucket-Wheel Excavators</b> to move whole faces of the pile, and <b>Haul Trucks</b> to carry their hoppers to the bin (<kbd>E</kbd> on one empties its hopper or parks it). They stop where the mountain is too heavy for your best frame and where the air is too stale. A <b>Vehicle Scanner</b> (an arch set into the floor) checks every truck load on its way to the bin: if The One is aboard it dumps the load and sounds the alarm, and a truck holding The One will not leave without one. Then spend your own time building tunnels and conveyors.</p></section>
       <section><h3>Controls</h3><div id="howKeys"></div></section>
       <section><h3>Playing together</h3><p>Choose <b>Play Together</b>. The host gets a 4 digit code, the friend types it in. One shared warehouse, one shared company.</p></section>
     </div>
@@ -187,7 +176,7 @@
     <div class="menu" style="align-items:center;text-align:center">
       <canvas id="dossierCv" width="320" height="320" style="width:320px;height:320px"></canvas>
       <div style="font-size:22px;font-weight:900;letter-spacing:.06em;color:#fff3a0">IL ROTTO SUPREMO</div>
-      <div style="font-size:13px;color:var(--dim);line-height:1.6">Gold plush with a small crown and a floating halo ring.<br>Squeaks once, loudly, when picked up.<br>Somewhere in this warehouse. The pile is deeper than the maps say.<br>Facility records put it <b style="color:var(--ink)">more than four kilometers</b> from Sorting Bay 07, in a far corner. The EXIT is a mere three.</div>
+      <div style="font-size:13px;color:var(--dim);line-height:1.6">Gold plush with a small crown and a floating halo ring.<br>Squeaks once, loudly, when picked up.<br>Somewhere in this warehouse. The pile is deeper than the maps say.<br>Facility records put it <b style="color:var(--ink)">more than six kilometers</b> from Sorting Bay 07, in a far corner. The EXIT is a mere 4.9.</div>
       <div style="font-size:12px;color:var(--dim)">Better sensors in the Upgrade Terminal will narrow the search.</div>
       <div id="clueList" style="width:100%;text-align:left;font-size:12px;color:var(--dim);line-height:1.55"></div>
     </div>

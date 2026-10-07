@@ -109,7 +109,7 @@ export default async function (ctx) {
   });
   await bareTest('mp.support.guest-placing-a-frame-that-would-break-sees-it-break', async () => {
     fresh({ timber: 1 }); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); S().money = 1e12; g.craftItem('frame:timber', 1);
-    const e = { cx: cellX(i + 6), cz: cellZ(k + 1), y0: 0, w: 2.36, h: 2.38, kind: 'timber', axis: 'z', yaw: 0, clear: [] };
+    const e = g.machines.frameEnt('x', 'timber', i + 4, k - 1, 0); e.clear = [];   // a real 4x4x4 cube in the dug run
     role('host'); cap(); g.strainOf = () => ({ state: 'break', name: 'Timber Frame', pct: 150, d: 400, next: 'steel', kind: 'timber' });
     g.netCmd('place', { tool: { id: 'frame:timber', kind: 'frame', fk: 'timber' }, ent: e }); delete g.strainOf;
     const b = ofType('sbreak')[0]; if (!b) return 'no sbreak message: ' + JSON.stringify(sent.map((m) => m.t)); done(); role('guest'); const hints = []; const oh = g.ui.hint; g.ui.hint = (t) => hints.push(t); g.netMessage(b); g.ui.hint = oh;

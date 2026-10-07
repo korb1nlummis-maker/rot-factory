@@ -22,6 +22,10 @@
 //   tool: preview(g, tool, plan)                     draw the ghost (default: the generic cell ghost when plan.ent has i, j, k).
 //   tool: build(g, tool, planEnt) => fields          the fields of the new ent (must contain `type`); the id is added by placeEntity.
 //   tool: conflict(g, planEnt, tool) => reason | null  host re-check of a guest's placement.
+//   kw(ent, g) => kW                                 what this machine draws right now (default: its DEMAND row). Any type with a DEMAND row or a kw handler is a power consumer.
+//   pos(g, ent) => [x, y, z]                         where the cable clips on and where the grid reach is measured from (default: the ent's i,j,k or x,y,z).
+//   reach(g, ent) => metres                          extra pole reach for a wide machine (default 0).   wireName(ent) => the name a cable readout shows.
+//   stat: 'key' | ['key', ...]                       S.stats counters one placement of this tool kind adds to (achievements.js reads them).
 //   tick(g, dt)                                      host, once per frame per type (not per ent). guestTick(g, dt) on a guest.
 //   row(g) => payload | null                         host, every 0.5 s while a guest is connected, sent as { t:'xrow', k:type, d:payload }.
 //   guestRow(g, d)                                   the guest applies it.
@@ -35,8 +39,10 @@ import * as furnish from './catalog_furnish.js';
 import * as transit from './catalog_transit.js';
 import * as haul from './catalog_haul.js';
 import * as detector from './catalog_detector.js';
+import * as scan from './catalog_scan.js';
+import * as rail from './catalog_rail.js';
 
-export const PARTS = { belts, power, build, furnish, transit, haul, detector };
+export const PARTS = { belts, power, build, furnish, transit, haul, detector, scan, rail };
 // test and dev only: extra part-like objects { UPGRADES, RECIPES, DEMAND, TYPES } read by catalogRecipes (the static merges above run once at load)
 export const EXTRA = {};
 
@@ -81,6 +87,14 @@ for (const [name, part] of Object.entries(PARTS)) {
     for (const kind of h.kinds || []) { if (KIND_MAP[kind] || TYPES[kind]) CONFLICTS.push(`tool kind ${kind}: ${name}`); else KIND_MAP[kind] = k; }
   }
 }
+
+// does this entity type draw power? A catalog DEMAND row or a `kw` handler says so. power.js counts every such machine as a consumer and cables.js lets the cable tool wire it.
+export const drawsPower = (type) => {
+  if (!type) return false;
+  if (Object.prototype.hasOwnProperty.call(DEMAND, type)) return true;
+  for (const part of Object.values(EXTRA)) if (part && part.DEMAND && Object.prototype.hasOwnProperty.call(part.DEMAND, type)) return true;
+  const h = TYPES[type]; return !!h && typeof h.kw === 'function';
+};
 
 // the entity type or tool kind -> its handlers (or undefined)
 export const catalogType = (typeOrKind) => (typeOrKind ? TYPES[typeOrKind] || TYPES[KIND_MAP[typeOrKind]] : undefined);

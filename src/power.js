@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { C, cellX, cellZ } from './config.js';
 import { species } from './plushdata.js';
 import { isEarth, EARTH, EARTH_KW, earthDemand } from './earth.js';
-import { mergeDemand } from './catalog.js';
+import { mergeDemand, drawsPower, catalogType } from './catalog.js';
 import { beltKw } from './beltdata.js';
-import { isPart, collectParts, partDemand, attachY, battCap, battRate, cacheOf, Ring, tripAlert, PRIO_MAX, HIST_DT, TRIP_GRACE_S, AUTO_RESET_BREAKER_S, AUTO_RESET_SHED_S } from './powerparts.js';
+import { isPart, collectParts, partDemand, attachY, genKw, genHopper, genKindOf, battCap, battRate, cacheOf, Ring, tripAlert, PRIO_MAX, HIST_DT, TRIP_GRACE_S, AUTO_RESET_BREAKER_S, AUTO_RESET_SHED_S } from './powerparts.js';
 
 // ---------------------------------------------------------------------------------------------------
 // Power. Generators burn plush for energy, Power Poles carry it, machines must stand near a pole or
@@ -12,7 +12,25 @@ import { isPart, collectParts, partDemand, attachY, battCap, battRate, cacheOf, 
 // ---------------------------------------------------------------------------------------------------
 const NET = Symbol('net');
 export const DEMAND = { belt: 0.03, sorter: 1.2, mech: 3.5, borer: 12, claw: 2.5, fan: 2, beacon: 0.6, ...EARTH_KW };   // the earth movers draw tens of kW (a parked one draws nothing, Efficient Drives trims the rest)
-mergeDemand(DEMAND);   // catalog_*.js kW per type (new keys only; consumers still need the wiring each wave adds)
+mergeDemand(DEMAND);   // catalog_*.js kW per type (new keys only)
+// Every catalog machine that declares a demand (a catalog_*.js DEMAND row or a TYPES `kw` handler) is a consumer here: the rail station, the Leveling Pad, doors, lifts,
+// jump pads, lights, signs, the arches. The ones counted by name further down (power parts, earth movers, claw, borer, beacon, lantern, scanner) are left out.
+const OWN_CONSUMERS = new Set(['claw', 'borer', 'beacon', 'meter', 'hlamp', 'vscan', 'switch', 'pswitch', 'breaker', 'battery']);
+export const isCatalogConsumer = (type) => !OWN_CONSUMERS.has(type) && !isPart(type) && !isEarth(type) && drawsPower(type);
+// what a catalog machine draws now: its `kw` handler, else its DEMAND row
+// what a load is called in the grid readout (the Load Meter): core machines by a plural name, earth movers by their own, catalog machines by their cable name
+const CORE_LOAD = { belt: 'Belts', sorter: 'Sorting Boxes', mech: 'Mech Scoopers', fan: 'Fans', claw: 'Claw Rigs', borer: 'Tunnel Borers', beacon: 'Depot Beacons', charger: 'Charging Stations', hlamp: 'Hanging Lanterns', vscan: 'Vehicle Scanners', meter: 'Load Meters' };
+export function loadLabel(e) {
+  if (CORE_LOAD[e.type]) return CORE_LOAD[e.type];
+  if (isEarth(e.type)) return EARTH[e.type].name;
+  const h = catalogType(e.type); if (h && typeof h.wireName === 'function') { const n = h.wireName(e); if (n) return n; }
+  return e.type;
+}
+export function catalogKw(game, e) {
+  const h = catalogType(e.type);
+  if (h && typeof h.kw === 'function') { const v = h.kw(e, game); if (Number.isFinite(v)) return Math.max(0, v); }
+  return DEMAND[e.type] ?? 0;
+}
 // How long one plush burns at the base output of 8 kW. Turbine upgrades raise the output and burn each plush faster (energy / output).
 export const GEN_BASE_KW = 8;
 export const BURN_SECONDS = [90, 240, 600, 1500, 0, 0, 0];      // Common 1.5 min, Uncommon 4, Rare 10, Epic 25. Legendary and Mythic are too valuable to burn.
@@ -24,6 +42,7 @@ export class Power {
   constructor(game) {
     this.game = game;
     this.t = 0;
+    this.catalogConsumers = true;   // furnish.js and transit.js read this: the solver counts their loads, they no longer add kW to a grid themselves
     this.nets = [];          // { id, nodes:[ent], supply, demand, sat, cap, capEff, batts, breakers, tripped, bat, batMax, flow, hist } (power switches merge grids, breakers trip them, batteries cover deficits)
     this.rings = new Map(); this.netById = new Map(); this.parts = null; this.swRecs = [];
     this.line = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x7ad7ff, transparent: true, opacity: 0.55 }));
@@ -36,13 +55,16 @@ export class Power {
   markDirty() { this.dirty = true; }
 
   pos(e) {
+    { const h = catalogType(e.type); if (h && typeof h.pos === 'function') { const p = h.pos(this.game, e); if (p) return p; } }
     if (isPart(e.type)) return [e.x, (e.y ?? 0) + attachY(e), e.z];
+    if (e.type === 'hlamp') return [e.x, e.y + (e.h || 0.4) / 2, e.z];   // a hanging lantern: the wire clips to its middle
     if (e.i !== undefined && e.type !== 'claw' && e.type !== 'borer' && e.type !== 'beacon') return [cellX(e.i), e.j * C + 1.0, cellZ(e.k)];
     return [e.x ?? cellX(e.i), (e.y ?? e.j * C) + 1.0, e.z ?? cellZ(e.k)];
   }
 
   // supply of one generator right now (kW)
-  genOutput(g) { return g.burn > 0 ? this.game.T.genOutput : 0; }
+  // (the generator ladder: genKw scales T.genOutput by the rung of that generator, see powerparts.js)
+  genOutput(g) { return g.burn > 0 ? genKw(this.game.T, g) : 0; }
 
   // The history ring of one grid, kept across recomputes (a grid is the same grid while its lowest node id is the same).
   ringFor(id) { if (!this.rings) this.rings = new Map(); let r = this.rings.get(id); if (!r) this.rings.set(id, r = new Ring()); return r; }
@@ -61,7 +83,7 @@ export class Power {
     for (const t of tiles) if (t.type === 'belt' || t.type === 'sorter' || t.type === 'mech' || t.type === 'fan' || (t.type === 'charger' && cabled.has(t.id))) consumers.push(t);   // a charger needs no power: it only joins the grid when a cable asks it to
     for (const it of game.machines.items.values()) {
       const e = it.ent;
-      if (e.type === 'claw' || e.type === 'borer' || e.type === 'beacon' || e.type === 'meter' || isEarth(e.type)) consumers.push(e);
+      if (e.type === 'claw' || e.type === 'borer' || e.type === 'beacon' || e.type === 'meter' || e.type === 'hlamp' || e.type === 'vscan' || isEarth(e.type) || isCatalogConsumer(e.type)) consumers.push(e);
     }
     // union-find over nodes linked within pole range
     const parent = nodes.map((_, i) => i);
@@ -81,7 +103,7 @@ export class Power {
       const r = find(i);
       if (!nets.has(r)) nets.set(r, { nodes: [], supply: 0, demand: 0, sat: 1, cap: 0, batts: [], breakers: [], id: n.id });
       const net = nets.get(r); net.nodes.push(n); if (n.id < net.id) net.id = n.id;
-      if (n.type === 'gen') { net.cap += T.genOutput; net.supply += this.outage ? 0 : this.genOutput(n); }
+      if (n.type === 'gen') { net.cap += genKw(T, n); net.supply += this.outage ? 0 : this.genOutput(n); }
       else if (n.type === 'battery') net.batts.push(n);
       else if (n.type === 'breaker') net.breakers.push(n);
       n[NET] = net;
@@ -90,7 +112,8 @@ export class Power {
       c[NET] = null; c.pw = 0;
       const [x, y, z] = this.pos(c);
       let best = 1e12;
-      const rc = T.poleReach + (isEarth(c.type) ? EARTH[c.type].powerReach : 0), reach2 = rc * rc;   // a big machine reaches a pole from a little further off
+      const cat = isCatalogConsumer(c.type) ? catalogType(c.type) : null;
+      const rc = T.poleReach + (isEarth(c.type) ? EARTH[c.type].powerReach : 0) + (cat && typeof cat.reach === 'function' ? cat.reach(game, c) || 0 : 0), reach2 = rc * rc;   // a big machine reaches a pole from a little further off
       for (let i = 0; i < nodes.length; i++) {
         const dx = x - np[i][0], dz = z - np[i][2], dy = y - np[i][1];
         const d = dx * dx + dz * dz + dy * dy * 0.5;
@@ -115,7 +138,7 @@ export class Power {
         if (!moved) break;
       }
     }
-    const demandOf = (c) => (c.type === 'charger' ? 0 : isEarth(c.type) ? earthDemand(T, c, DEMAND[c.type]) : c.type === 'belt' ? beltKw(c) : (DEMAND[c.type] ?? 1));   // a belt draws its mark's kW (lifts: per cell of height), see beltdata.js
+    const demandOf = (c) => (c.type === 'charger' ? 0 : c.type === 'hlamp' ? (c.on === false ? 0 : DEMAND.hlamp ?? 1.6) : isEarth(c.type) ? earthDemand(T, c, DEMAND[c.type]) : c.type === 'belt' ? beltKw(c) : isCatalogConsumer(c.type) ? catalogKw(game, c) : (DEMAND[c.type] ?? 1));   // a belt draws its mark's kW (lifts: per cell of height), see beltdata.js
     for (const c of consumers) if (c[NET]) c[NET].demand += demandOf(c);
     for (const n of nodes) if (n.type === 'battery' || n.type === 'breaker') n[NET].demand += partDemand(n);
 
@@ -194,10 +217,13 @@ export class Power {
       for (const c of G.fed) c[NET] = net;
     }
     for (const c of consumers) { const b = c[NET]; if (b && finalOf.has(b)) c[NET] = finalOf.get(b); }
+    for (const net of finals) net.loads = {};
+    for (const c of consumers) { const n = c[NET]; if (!n || !n.loads) continue; const kw = demandOf(c); if (kw > 1e-9) { const lb = loadLabel(c); n.loads[lb] = (n.loads[lb] || 0) + kw; } }   // the grid readout lists the loads by kind
     for (const c of consumers) c.pw = c[NET] ? c[NET].sat : 0;
     for (const t of tiles) if (t.type === 'charger' && !cabled.has(t.id)) t.pw = undefined;   // a charger without a cable is off the grid again
     for (const r of swRecs) { const h = r.sw[NET] ? finalOf.get(r.sw[NET]) : null; r.sw[NET] = h || null; r.sw.pw = h ? h.sat : 0; r.na = r.a ? r.a[NET] || null : null; r.nb = r.b ? r.b[NET] || null : null; }
     this.swRecs = swRecs;
+    for (const c of consumers) if (c.type === 'hlamp') { const n = c[NET], k = cacheOf(c); if (n) { k.sup = n.supply; k.dem = n.demand; k.cap = n.cap; k.tr = n.tripped ? 1 : 0; } else { k.sup = 0; k.dem = 0; k.cap = 0; k.tr = 0; } }   // what the lantern readout says about its grid
     for (const [id] of [...this.rings]) if (!finals.some((n) => n.id === id)) this.rings.delete(id);
     this.nets = finals;
     this.netById = new Map(finals.map((n) => [n.id, n]));
@@ -223,19 +249,38 @@ export class Power {
     const T = this.game.T;
     for (const g of this.game.logi.tiles.values()) {
       if (g.type !== 'gen') continue;
-      g.fuelCap = T.genBuffer;
+      g.fuelCap = genHopper(T, g);
       if (g.burn > 0) g.burn -= dt;
-      if (g.burn <= 0 && g.q.length) {
-        const it = g.q.shift();
-        const r = species[it.sp] ? species[it.sp].rarity : 0;
-        g.burn = burnTime(Math.min(3, r), T.genOutput) || ENERGY_KJ[0] / T.genOutput;
-        g.burnMax = g.burn; g.cur = { sp: it.sp, vr: it.vr };
-        this.dirty = true;
+      if (g.burn <= 0 && g.q.length && !this.holdsFuel(g)) {
+        // the next plush goes in. A plush that outlasts a frame is the normal case. A big plant can burn one in less than a frame, so it takes
+        // as many as it needs to cover this frame and carries the overshoot (g.burn is at most 0 here) into the next one.
+        const out = genKw(T, g), lead = g.lit ? Math.min(0, g.burn) : 0;   // the part of the last plush that ran past this frame is not given away twice (a Titan Common lasts 0.11 s: rounding every plush up to whole frames made 4 to 18% free power)
+        let tot = 0;
+        for (let guard = 0; g.q.length && guard < 256; guard++) {
+          const it = g.q.shift();
+          const r = species[it.sp] ? species[it.sp].rarity : 0;
+          const bt = burnTime(Math.min(3, r), out) || ENERGY_KJ[0] / out;
+          if (guard === 0) tot = lead;
+          tot += bt;
+          g.cur = { sp: it.sp, vr: it.vr };
+          if (tot >= dt) break;
+        }
+        g.burn = tot; g.burnMax = g.burn;
+        if (tot >= 1 || !g.lit) this.dirty = true;   // (a plant that burns many plush a second would otherwise re-solve the grid every frame)
       }
       if (g.burn <= 0 && g.lit) { g.lit = false; g.cur = null; this.dirty = true; }
       if (g.burn > 0 && !g.lit) { g.lit = true; this.dirty = true; }
     }
     this.tickParts(dt);
+  }
+
+  // A reserve generator (mode 'reserve') keeps its fuel in the hopper until it is needed: a battery of its grid is under 30% charge, or the grid wants more than the generators
+  // that burn give and no charged battery covers the gap. An ordinary generator (mode 'auto') burns whenever it has fuel. The plush it already burns is always finished.
+  holdsFuel(g) {
+    if (g.mode !== 'reserve') return false;
+    const net = g[NET]; if (!net) return false;
+    if ((net.batts || []).some((b) => battCap(b) > 0 && (b.charge || 0) < 0.3 * battCap(b))) return false;
+    return !(!net.charged && net.demand > net.gen + 1e-6);
   }
 
   // ---------------------------------------------------------------- storage, breakers, history, shed resets (host, every frame)
@@ -294,7 +339,7 @@ export class Power {
     if (this.isOver(net, tr.at)) {
       c.over = (c.over || 0) + dt;
       const need = c.rearm > 0 ? Math.min(tr.delay, TRIP_GRACE_S) : tr.delay;
-      if (c.over >= need) { pb.tripped = true; c.over = 0; c.cool = 0; c.rearm = 0; this.dirty = true; tripAlert(this.game, pb); }
+      if (c.over >= need) { pb.tripped = true; c.over = 0; c.cool = 0; c.rearm = 0; this.dirty = true; this.game.S.stats.pwTrips = (this.game.S.stats.pwTrips || 0) + 1; tripAlert(this.game, pb); }
     } else { c.over = 0; if (c.rearm > 0) c.rearm = Math.max(0, c.rearm - dt); }
   }
 
@@ -311,7 +356,7 @@ export class Power {
     const T = this.game.T, na = r.na, nb = r.nb;
     const nets = new Set([na, nb].filter(Boolean)); if (!nets.size) return false;
     let sup = 0, dem = 0; for (const n of nets) { sup += n.gen; dem += n.demand; }
-    for (const o of [r.a, r.b]) if (o && !o[NET] && o.type !== 'switch') { dem += o.type === 'charger' ? 0 : isEarth(o.type) ? earthDemand(T, o, DEMAND[o.type]) : (DEMAND[o.type] ?? 1); }
+    for (const o of [r.a, r.b]) if (o && !o[NET] && o.type !== 'switch') { dem += o.type === 'charger' ? 0 : isEarth(o.type) ? earthDemand(T, o, DEMAND[o.type]) : isCatalogConsumer(o.type) ? catalogKw(this.game, o) : (DEMAND[o.type] ?? 1); }
     const charged = [...nets].some((n) => n.charged);
     return sup + 1e-9 >= dem || charged;
   }
@@ -331,7 +376,7 @@ export class Power {
     if (!n) { if (!this._rowHad) return null; this._rowHad = false; return { n: [], e: [] }; }
     this._rowHad = true;
     const r2 = (v) => Math.round(v * 100) / 100;
-    const nets = this.nets.map((t) => [t.id, r2(t.supply), r2(t.demand), r2(t.cap), Math.round(t.sat * 100), t.tripped ? 1 : 0, Math.round(t.bat || 0), Math.round(t.batMax || 0), r2(t.flow || 0), t.nodes.map((x) => x.id)]);
+    const nets = this.nets.map((t) => [t.id, r2(t.supply), r2(t.demand), r2(t.cap), Math.round(t.sat * 100), t.tripped ? 1 : 0, Math.round(t.bat || 0), Math.round(t.batMax || 0), r2(t.flow || 0), t.nodes.map((x) => x.id), Object.entries(t.loads || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, r2(v)]), Object.keys(t.loads || {}).length]);   // [10] the biggest eight loads, [11] how many kinds there are in all (the readout says "and N more kinds")
     const ents = [];
     for (const e of [...P.switches, ...P.batteries, ...P.breakers, ...P.meters]) {
       const c = e.cache || {};
@@ -348,7 +393,7 @@ export class Power {
       if (!Array.isArray(a) || a.length < 10) continue;
       const nodes = (Array.isArray(a[9]) ? a[9] : []).map(entOf).filter(Boolean);
       const net = { id: a[0], supply: a[1], demand: a[2], cap: a[3], sat: a[4] / 100, tripped: !!a[5], bat: a[6], batMax: a[7], flow: a[8], nodes, batts: nodes.filter((n) => n.type === 'battery'), breakers: nodes.filter((n) => n.type === 'breaker'), charged: a[6] > 0.01 };
-      net.capEff = net.charged ? Infinity : net.cap; net.gen = net.supply;
+      net.capEff = net.charged ? Infinity : net.cap; net.gen = net.supply; net.loads = Object.create(null); if (Array.isArray(a[10])) for (const q of a[10]) if (Array.isArray(q) && typeof q[0] === 'string' && Number.isFinite(q[1])) net.loads[q[0]] = q[1]; net.loadKinds = Number.isInteger(a[11]) && a[11] >= 0 && a[11] < 1000 ? a[11] : Object.keys(net.loads).length;
       net.hist = this.ringFor(net.id); net.hist.push(net.supply, net.demand);
       nets.push(net);
     }

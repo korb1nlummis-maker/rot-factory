@@ -15,6 +15,11 @@ export const OB = 14;           // every 14 cells of plush above the roof costs 
 export const MIN_SAFE = 3;      // never less than 1.8 m
 export const MIN_CAVITY = 14;   // a sealed pocket smaller than this (cells at one level) never counts as unsupported roof
 export const ARCH = 4;          // a collapse can only climb 4 cells (2.4 m) above the original roof before the pile above arches and holds
+// How many cells the search for the nearest anchor may visit before it gives up (and the roof counts as unsupported). One number for every room was wrong: the
+// cells within reach of an anchor grow with the width of the room (about 2 x width x reach), so a 24 wide giant tunnel with Pile Tamping at the top level ran out
+// of cells at 16 cells of safe length while a 2 wide tunnel got all 27. The allowance now grows with the reach asked for: the same safe length at any width.
+export const CAVITY_CAP = 500;
+export const CAVITY_PER_STEP = 70;
 
 // The hall is a huge lattice of plush cells (0.6 m). Storage is lazy: 16x16 column chunks are generated from the
 // seed on first touch, and only modified columns are kept forever. Everything else can be evicted and regenerated.
@@ -358,7 +363,7 @@ export class World {
     const wall = (a, b) => { const q = this.get(a, j, b); return q === BULK || q === PAD; };   // a bulkhead or a floor pad cell at this height holds the roof edge (build shell: a pad is never a roof itself, see stress)
     const anchored = (ci, ck) => open(ci, ck) || this.supportBonus(cellX(ci), cellY(j), cellZ(ck)) > 0 || wall(ci + 1, ck) || wall(ci - 1, ck) || wall(ci, ck + 1) || wall(ci, ck - 1);
     if (anchored(i, k)) return 0;
-    const seen = new Set([k * 16384 + i]);
+    const seen = new Set([k * 16384 + i]), cap = CAVITY_CAP + (this.capPerStep ?? CAVITY_PER_STEP) * maxD;   // capPerStep: a test sets 0 to measure the old fixed allowance
     let frontier = [[i, k]], visited = 1;
     for (let d = 1; d <= maxD; d++) {
       const next = [];
@@ -370,7 +375,7 @@ export class World {
           if (seen.has(key)) continue;
           seen.add(key);
           if (this.solid(ni, j, nk)) continue;      // the cavity continues only through empty cells at this height
-          if (++visited > 500) return Infinity;
+          if (++visited > cap) return Infinity;
           if (anchored(ni, nk)) return d;
           next.push([ni, nk]);
         }

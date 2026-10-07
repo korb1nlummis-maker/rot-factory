@@ -3,6 +3,7 @@ export default async function (ctx) {
   const { T, g, S, w, p, fresh, adv, stepSim, tune, toI, toK, cellX, cellY, cellZ, cfg } = ctx;
   const VEIN_T = 0.8;
   const el = (id) => document.getElementById(id);
+  const rd = (id) => g.ui.dials.read(id), dialEl = (id) => document.getElementById('dial-' + id);
   const withRandom = (v, fn) => { const o = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = o; } };
   const high = () => { const k = toK(0) + 10; let d0 = 0; for (let d = 30; d < 90; d++) if (w().topAt(toI(0) + d, k) >= 36) { d0 = d; break; } const i = toI(0) + d0 + 4, t = w().topAt(i, k); p().pos.set(cellX(i), 25, cellZ(k)); p().footCell = { i, j: t - 1, k }; p().onGround = true; p().vel.set(0, 0, 0); return { i, k, t }; };
 
@@ -28,40 +29,40 @@ export default async function (ctx) {
 
   await T('qa.assay.pointer-turns-the-right-way-and-reads-the-distance', async () => {
     fresh({ assay: 3 }); tune({ assay: 3 }); g.T.assayRange = 150; const v0 = w().nearestVein(300, 20, 0, 150); if (!v0) return 'no vein near the test spot in this world (not a failure of the game)';
-    const aim = (face) => { p().pos.set(v0.x - 25, v0.y - 1, v0.z); g.T.assayRange = 150; p().vel.set(0, 0, 0); p().yaw = face; g._veinNext = 0; g.hudT = 0; g.updateHud(0.016); return { rel: +/rotate\((-?[\d.]+)deg\)/.exec(el('assayArrow').style.transform)[1], txt: el('assayTxt').textContent }; };
+    const aim = (face) => { p().pos.set(v0.x - 25, v0.y - 1, v0.z); g.T.assayRange = 150; p().vel.set(0, 0, 0); p().yaw = face; g._veinNext = 0; g.hudT = 0; g.updateHud(0.016); return { rel: +/rotate\((-?[\d.]+)deg\)/.exec(dialEl('vein').querySelector('.ar').style.transform)[1], txt: rd('vein').val }; };
     aim(0); const vn = g._vein; if (!vn) return 'the game found no vein to point at'; const toward = Math.atan2(vn.x - p().pos.x, vn.z - p().pos.z);
     const ahead = aim(toward), left = aim(toward - Math.PI / 2), right = aim(toward + Math.PI / 2), behind = aim(toward + Math.PI);   // the player's right hand is yaw - 90 degrees: facing toward + 90 puts the vein on the right
     const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) < 4;
     if (!near(ahead.rel, -90)) return 'ahead should point up (-90), got ' + ahead.rel; if (!near(right.rel, 0)) return 'vein on the right should point right (0), got ' + right.rel; if (!near(left.rel, 180)) return 'vein on the left should point left (180), got ' + left.rel; if (!near(behind.rel, 90)) return 'behind should point down (90), got ' + behind.rel;
     if (!/^\d+ m/.test(ahead.txt)) return 'distance text: ' + ahead.txt;
-    g.T.assayRange = 0.5; g._veinNext = 0; g.hudT = 0; g.updateHud(0.016); return /no vein in range/.test(el('assayTxt').textContent) || 'out of range still points somewhere: ' + el('assayTxt').textContent;
+    g.T.assayRange = 0.5; g._veinNext = 0; g.hudT = 0; g.updateHud(0.016); return /no vein in range/.test(rd('vein').val) || 'out of range still points somewhere: ' + rd('vein').val;
   });
 
   await T('qa.assay.meter-reads-higher-in-a-vein-than-in-barren-pile-and-hides-without-the-upgrade', async () => {
     fresh({ assay: 1 }); tune({ assay: 1 }); const v0 = w().nearestVein(300, 20, 0, 150); if (!v0) return 'no vein near the test spot in this world';
-    const bar = (x, y, z) => { p().pos.set(x, y, z); g.hudT = 0; g.updateHud(0.016); return +/scaleX\(([\d.]+)\)/.exec(el('assayBar').style.transform)[1]; };
+    const bar = (x, y, z) => { p().pos.set(x, y, z); g.hudT = 0; g.updateHud(0.016); return rd('vein').frac; };
     // a barren spot: nowhere around it does the vein noise get high
     let bare = null; const ci = cfg.toI(v0.x), ck = cfg.toK(v0.z), cj = cfg.toJ(v0.y);
     for (let d = 20; d < 400 && !bare; d += 6) { let m = 0; for (const [a, b, c] of [[0, 0, 0], [4, 0, 0], [-4, 0, 0], [0, 0, 4], [0, 0, -4], [0, 3, 0]]) m = Math.max(m, w().veinAt(ci + d + a, cj + b, ck + c)); if (m < 0.45) bare = { x: cfg.cellX(ci + d), z: cfg.cellZ(ck) }; }
     if (!bare) return 'no barren spot found near the test vein';
     const inVein = bar(v0.x, v0.y, v0.z), away = bar(bare.x, v0.y, bare.z); if (!(inVein > away + 0.2)) return `meter in the vein ${inVein} vs barren pile ${away}`;
-    fresh({}); tune({}); g.hudT = 0; g.updateHud(0.016); return el('assay').classList.contains('hidden') || 'assay readout shows without the upgrade';
+    fresh({}); tune({}); g.hudT = 0; g.updateHud(0.016); return !rd('vein').on || 'assay readout shows without the upgrade';
   });
 
   await T('qa.survey.colours-and-wording-follow-the-load', async () => {
     fresh({ survey: 1 }); tune({ survey: 1 }); const { i, k, t } = high(); p().pos.set(cellX(i), 0.2, cellZ(k)); const bad = [];
     const sup = { id: 'qa-s', x: p().pos.x + 1, y: 1.2, z: p().pos.z, r: 3.4, kind: 'steel', cap: 1 }; w().supports.push(sup); const base = ctx.loadOn(w(), sup); sup.cap = base > 0 ? base / 0.5 : 1;
-    const read = (ratio) => { sup.cap = base > 0 ? base / ratio : 1e9; g._svNext = 0; g.updateSurvey(); return { txt: el('svLoad').textContent, cls: el('svLoad').className }; };
+    const read = (ratio) => { sup.cap = base > 0 ? base / ratio : 1e9; g._svNext = 0; g.updateSurvey(); return { txt: rd('support').info.load, cls: ({ crit: 'red', warn: 'amber' })[rd('support').state] || '' }; };
     if (base > 0) { const a = read(0.5), b = read(0.9), c = read(0.99); if (a.cls !== '' || !/50%/.test(a.txt)) bad.push('50% -> ' + JSON.stringify(a)); if (b.cls !== 'amber') bad.push('90% -> ' + JSON.stringify(b)); if (c.cls !== 'red') bad.push('99% -> ' + JSON.stringify(c)); }
-    sup.cap = Infinity; g._svNext = 0; g.updateSurvey(); if (/NaN|Infinity/.test(el('svLoad').textContent)) bad.push('infinite capacity shows ' + el('svLoad').textContent);
-    w().supports = w().supports.filter((s) => s !== sup); p().pos.set(cellX(i + 400), 0.2, cellZ(k)); g._svNext = 0; g.updateSurvey(); if (!/no support within 8 m/.test(el('svLoad').textContent)) bad.push('far from any support: ' + el('svLoad').textContent);
-    tune({}); g.updateSurvey(); if (!el('survey').classList.contains('hidden')) bad.push('survey shows without the upgrade');
+    sup.cap = Infinity; g._svNext = 0; g.updateSurvey(); if (/NaN|Infinity/.test(rd('support').info.load + rd('support').val)) bad.push('infinite capacity shows ' + rd('support').info.load);
+    w().supports = w().supports.filter((s) => s !== sup); p().pos.set(cellX(i + 400), 0.2, cellZ(k)); g._svNext = 0; g.updateSurvey(); if (!/no support within 8 m/.test(rd('support').info.load)) bad.push('far from any support: ' + rd('support').info.load);
+    tune({}); g.updateSurvey(); if (['frame', 'support', 'stale'].some((id) => rd(id).on)) bad.push('survey shows without the upgrade');
     return bad.length === 0 || bad.join('; ');
   });
 
   await T('qa.survey.always-finite-depth-and-pressure-text', async () => {
     fresh({ survey: 1 }); tune({ survey: 1 }); const bad = [];
-    for (const [x, y, z] of [[0, 0, 0], [-20, 0, 5], [3000, 0, 0], [-3100, 0, 0], [0, 40, 0], [0, -5, 0], [2990, 0, 2990]]) { p().pos.set(x, y, z); g._svNext = 0; g.updateSurvey(); const t = el('svDepth').textContent + el('svPress').textContent + el('svBest').textContent; if (/NaN|Infinity|undefined/.test(t)) bad.push(`${x},${y},${z}: ${t}`); }
+    for (const [x, y, z] of [[0, 0, 0], [-20, 0, 5], [3000, 0, 0], [-3100, 0, 0], [0, 40, 0], [0, -5, 0], [2990, 0, 2990]]) { p().pos.set(x, y, z); g._svNext = 0; g.updateSurvey(); const t = rd('frame').info.depth + rd('frame').info.press + rd('frame').info.best + rd('frame').sub + rd('frame').val; if (/NaN|Infinity|undefined/.test(t)) bad.push(`${x},${y},${z}: ${t}`); }
     tune({}); return bad.length === 0 || bad.join('; ');
   });
 

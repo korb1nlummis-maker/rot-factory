@@ -108,6 +108,7 @@ export function probeOf(g, ent) {
 
 // ---------- power: a pole or generator in reach with some power. No power is fine for the player scan (battery); lamps need it ----------
 export function powerOf(g, ent) {
+  if (ent.pw !== undefined) return ent.pw > 0.05;   // the grid solver counts an arch as a consumer (power.js) and sets .pw; a cable can wire it too
   const reach = (g.T && g.T.poleReach || 0) + ent.w / 2, r2 = reach * reach, y = ent.y0 + 1.0;
   for (const net of g.power.nets || []) for (const n of net.nodes) {
     const [nx, ny, nz] = g.power.pos(n); const dx = ent.cx - nx, dz = ent.cz - nz, dy = y - ny;
@@ -172,6 +173,7 @@ function cross(g, ent, s) {
   const probe = probeOf(g, ent), hits = probe.filter((x) => matchItem(g, ent, x));
   const kind = !probe.length ? 'tick' : hits.length ? 'ok' : 'bad', first = hits[0];
   g.S.stats.scans = (g.S.stats.scans || 0) + probe.length;
+  if (kind === 'ok') g.S.stats.archHits = (g.S.stats.archHits || 0) + 1;   // achievement counter: a crossing that matched the arch's target
   react(g, ent, kind, { mine: true, n: probe.length, sp: first ? first.sp : 0, hits: hits.length });
   const d = { id: ent.id, k: kind, n: Math.min(2000, probe.length), sp: first ? first.sp : 0 };
   if (g.isGuest()) g.cmd('arch', d);
@@ -254,6 +256,7 @@ export function layout(g, size, axis, m, lo, j0) {
   if (n) return { ok: false, why: `Dig this section out first: ${n} plush in the way (it needs ${S.w} wide and ${S.h} high)`, ent };
   for (const a of [0, S.w - 1]) { const [i, j, k] = cell(a, 0); if (j0 > 0 && !w.solid(i, j0 - 1, k)) return { ok: false, why: 'Both legs need solid floor under them', ent }; }
   if (overlapsArch(g, ent)) return { ok: false, why: 'Another arch is already here', ent };
+  for (const a of [0, S.w - 1]) for (let b = 0; b < S.h; b++) { const [i, j, k] = cell(a, b); const why = g.logi.cellTaken(i, j, k); if (why) return { ok: false, why: 'A leg would stand on something (a belt, a rail piece or a shaft)', ent }; }   // the two legs need their cells; the middle may carry a belt or a track under the span
   return { ok: true, ent };
 }
 
@@ -274,9 +277,10 @@ export function plan(g, tool, eye, dir, yaw) {
       const f = it.ent; if (f.type !== 'frame' || f.turned) continue;
       const b = M.frameBlock(f), al = b.axis === 'x' ? i : k, la = b.axis === 'x' ? k : i;
       if (la < b.lo - 1 || la > b.lo + 4 || j < b.j0 - 1 || j > b.j0 + 4) continue;
-      const d = Math.abs(al - b.m); if (d < bd) { bd = d; best = { b, al }; }
+      const d = al < b.m ? b.m - al : al > b.m + b.n - 1 ? al - (b.m + b.n - 1) : 0; if (d < bd) { bd = d; best = { b, al }; }
     }
-    if (best) { axis = best.b.axis; lo = best.b.lo; j0 = best.b.j0; m = best.al === best.b.m ? best.b.m + 1 : best.al; snap = 'in line with the frames'; }
+    // a frame is a hollow cube 4 cells deep: the arch stands just outside it, on the side you aim at (an old one cell deep frame: right after it)
+    if (best) { const bb = best.b; axis = bb.axis; lo = bb.lo; j0 = bb.j0; m = best.al >= bb.m && best.al < bb.m + bb.n ? (bb.n === 1 ? bb.m + 1 : (best.al - bb.m) * 2 < bb.n ? bb.m - 1 : bb.m + bb.n) : best.al; snap = 'in line with the frames'; }
   }
   const L = layout(g, size, axis, m, lo, j0);
   if (L.ent && snap) L.ent.snap = snap;

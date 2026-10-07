@@ -13,6 +13,11 @@ export const UG_MIN = 2;                                         // the nearest:
 export const UG_END_COST = 40;                                   // per end at Mk1 (scales with the mark like belts)
 export const LIFT_MIN = 2, LIFT_MAX = 24, LIFT_FREE = 8;         // lift height in cells; above LIFT_FREE one Lift Frame per started 8 cells
 export const LIFT_FRAME_PRICE = 400;
+// mergers and splitters with rules (wave 2B): item ids, bench prices before the K=3, and kW (the design's 0.2, 0.3, 1.5 and 3.0)
+export const PART_PRICE = { merger: 60, pmerger: 400, ssplit: 4000, psplit: 60000 };
+export const PART_KW = { merger: 0.2, pmerger: 0.3, ssplit: 1.5, psplit: 3.0 };
+// which part a belt tile is (the item id the hammer hands back), or null for a plain belt, lift or underground end. A plain splitter is 'splitter'.
+export const partOf = (t) => (!t ? null : t.merger ? (t.merger === 'prio' ? 'pmerger' : 'merger') : t.smart ? (t.smart === 2 ? 'psplit' : 'ssplit') : t.splitter ? 'splitter' : null);
 export const FRAME_REACH = 1.3;                                  // a Lift Frame holds the lifts whose column is within this many metres
 export const PLAN_MAX = 64;                                      // tiles in one planned line (about 38 m)
 export const CRANK = 0.35;                                       // an unpowered belt creeps at this share of its speed (HAND_CRANK in logistics.js; a test keeps them equal)
@@ -24,7 +29,7 @@ export const markOn = (T, tier) => tier === 0 || (Number.isInteger(tier) && tier
 export const topMark = (T) => { const m = (T && T.beltMarks) | 0; for (let k = TIER_MUL.length - 1; k > 0; k--) if ((m >> k) & 1) return k; return 0; };
 export const mulOf = (t) => TIER_MUL[tierOf(t)];
 // power draw of one belt piece: the mark's kW, times the height for a lift (a lift is h tiles of belt standing up)
-export const beltKw = (t) => TIER_KW[tierOf(t)] * (t.lift ? Math.abs(t.lift.h) : 1);
+export const beltKw = (t) => { const kw = TIER_KW[tierOf(t)] * (t.lift ? Math.abs(t.lift.h) : 1), p = PART_KW[partOf(t)]; return p ? Math.max(kw, p) : kw; };   // a merger or a ruled splitter needs power for its rules (never less than its mark's belt)
 export const speedOf = (T, tier) => (T.beltSpeed || 1.6) * TIER_MUL[tier | 0];                // tiles per second at full power
 export const rateOf = (T, tier) => speedOf(T, tier) / SPACING * 60;                          // items per minute: speed / spacing
 export const priceOf = (tier) => TIER_COST[tier | 0] * K;                                    // bench price of one Mk tile

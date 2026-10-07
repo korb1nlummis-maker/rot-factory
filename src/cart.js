@@ -63,6 +63,7 @@ export class Cart {
     this.builtTier = 0;
     this.vy = 0;
     this.wheelSpin = 0;
+    this.support = null; this.followFix = null; this.liftId = 0;   // support: (x, z, feet, cart) => the height of a platform under the cart, or null; followFix: (who, cart) => { x, z } or null while the person it trails rides a lift; both installed by transit.js
   }
 
   get key() { return this.slot === 'other' ? this.game.otherCartKey() : 'cart'; }
@@ -129,6 +130,7 @@ export class Cart {
         tx = px - fx * 1.8 + fz * 0.5; tz = pz - fz * 1.8 - fx * 0.5;
         if (w.solid(toI(tx), toJ(p.pos.y + 0.5), toK(tz))) { tx = px - fx * 1.0; tz = pz - fz * 1.0; }
       }
+      if (this.followFix) { const f = this.followFix(p, this); if (f) { tx = f.x; tz = f.z; } }   // you stand on a lift car: the cart goes to a corner of it (transit.js)
       if (dist > 45) { // it catches up when you have left it far behind
         c.x = tx; c.z = tz; c.y = p.pos.y; this.vy = 0;
         g.fx.sparkle(c.x, c.y + 0.5, c.z, 10, 0.8, 0.9, 1);
@@ -155,6 +157,7 @@ export class Cart {
       }
     }
     if (pos.y - r < 0) { pos.y = r; if (this.vy < 0) this.vy = 0; }
+    if (this.support) { const sy = this.support(pos.x, pos.z, pos.y - r, this); if (sy !== null && sy !== undefined) { pos.y = sy + r; if (this.vy < 0) this.vy = 0; } }   // a lift car under the cart carries it (transit.js)
     c.x = clamp(pos.x, -HALL_HX + 1, HALL_HX - 1); c.z = clamp(pos.z, -HALL_HZ + 1, HALL_HZ - 1); c.y = pos.y - r;
     if (blocked && Math.abs(this.vy) < 0.5) this.vy = 3.6;
     this.wheelSpin += Math.hypot(vx, vz) * dt / 0.16;

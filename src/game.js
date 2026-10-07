@@ -19,7 +19,7 @@ import { Radio } from './radio.js';
 import { Net, RemotePlayer } from './net.js';
 import { Slides } from './slide.js';
 import { recipes, craft, craftGear, gearRecipes, MATERIALS } from './crafting.js';
-import { ghostify } from './machines.js';
+import { ghostify, frameRay } from './machines.js';
 import { Dust } from './dust.js';
 import { U } from './shaders.js';
 import { newState, saveGame, loadSaved, applyDiff, clearSave } from './state.js';
@@ -29,9 +29,18 @@ import { FUEL_MAX_RARITY, BURN_SECONDS, ENERGY_KJ, burnTime } from './power.js';
 import { findInfoRef, infoFor } from './info.js';
 import * as EXT from './ext.js';
 import * as BUILD from './build.js';   // wave 3: floor pads, catwalks, walls, ramps, stairs
+import * as TRANSIT from './transit.js';   // wave 5: doors, platform lifts, jump pads
 import * as PWP from './powerparts.js';
+import * as HL from './hanglamp.js';   // powered hanging lanterns (lights them into glowSources)
 import * as DETECTOR from './detector.js';
+import * as VSCAN from './vehiclescan.js';
+import * as ARCH from './arches.js';
+import * as HAUL from './haul.js';   // wave 6: giant arches and the Portal (supports for trucks, the hammer's pick)
+import { parseArch } from './loadtrace.js';
+import { partOf as beltPartOf } from './beltdata.js';
+import { PARTS as BELT_PARTS } from './splitparts.js';   // names of the mergers and ruled splitters (wave 2B)
 import * as BP from './beltplan.js';   // belt tiers, lifts, underground pairs and the line planner (wave 1A)
+import * as RAIL from './rail.js';   // Mine Rail shuttle: track, stations, carts (the rush key, the hammer and readout pick)
 import { capacityOf, loadOn, WARN_AT } from './loadtrace.js';
 import { UPGRADES, FRAME_TYPES, STRUT_DEPTH, supportDepth, betterThan, GEAR, computeTuning, effLevels, upgradeById, isUnlocked } from './upgrades.js';
 import { Cart, CART_CAP, CART_NAMES, dims as cartDims } from './cart.js';
@@ -187,7 +196,7 @@ export class Game {
       onKick: (i, j, k, vx, vy, vz, sp, en) => this.onKick(i, j, k, vx, vy, vz, sp, en),
       onPlayerHit: (v, remote) => this.onPlayerHit(v, remote),
     };
-    this.player.events.land = (v) => { if (v > 12) this.hurtPlayer((v - 12) * 5, 'fell too far'); this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
+    this.player.events.land = (v, safe) => { if (v > 12 && !safe) this.hurtPlayer((v - 12) * 5, 'fell too far'); this.landDip = Math.min(0.28, v * 0.025); this.treadOn(3.2, true); this.sound.thump(Math.min(0.35, v * 0.04), 110); this.fx.dust(this.player.pos.x, this.player.pos.y + 0.1, this.player.pos.z, 6, 0.8, 1); this.shake = Math.max(this.shake, Math.min(0.5, v * 0.03)); };
     this.player.events.step = (sp) => {
       this.treadOn(1.0 + (sp > 5 ? 0.5 : 0), false);
       if (this.player.pos.y > 0.45) { this.sound.step(0.06 + Math.min(0.06, sp * 0.01)); if (Math.random() < 0.12) this.sound.squeak(0.7 + Math.random() * 0.5, 0.04); }
@@ -200,6 +209,7 @@ export class Game {
     this.dust.clear();
     this.crew.clear();
     this.world.onRemove = (i, j, k) => { this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006 * (1 + Math.hypot(cellX(i), cellZ(k)) / 300)); }; // the deeper the pile, the dustier it is to cut
+    { const up = this.machines.upgradeOldFrames(S); if (up.converted || up.absorbed) this._frameUpgrade = up; }   // frames saved one cell deep become 4x4x4 cubes
     for (const e of S.entities) this.addEntity(e);
     { const ids = new Set(S.entities.map((e) => e.id)); for (const e of [...S.entities]) if (e.type === 'fan' && e.mounted && !ids.has(e.frameId)) { const t = this.logi.byId.get(e.id); if (t) this.logi.remove(t); S.entities = S.entities.filter((x) => x.id !== e.id); } }   // a Support Fan whose frame is gone cannot hang in the air
     this.ensureFreeGate();
@@ -218,6 +228,7 @@ export class Game {
     // nothing from the last game may leak into this one: lit Razzo fuses, queued loads, a turned frame in hand, warnings on screen
     this.fuses = []; this.guestFuses = []; this._fuseTxt = ''; this.ui.setWarn(''); this.loadQ = new Set(); this.frameYaw = null; this._lastFrameYaw = undefined;
     this._lungPrev = undefined; this._lungRate = 0; this._lungWarned = false; this.ui.setLungWarn(0, '', '', 0, false);
+    this.hpMax = 100 + (this.T.hpBonus || 0); this.hp = this.hpMax; this.hurtT = 0; this.dmgCd = 0; this.suffocating = false; this.trapOn = false; this.airLeft = undefined; this.trapFree = 0; this.ui.setTrap(false);   // the new shift's health and air gauges start full too
     this.wasOpen = undefined; this._dayShown = this.dayNumber(); this._shift = null;
     this.golden = 0; this.outage = 0; this.closingGrace = 0; this.syncLights();
     this.grab = { key: '', p: 0, latch: false };
@@ -257,7 +268,7 @@ export class Game {
     $('btnNew').onclick = () => { start(true); };
     $('btnContinue').onclick = () => { this.sound.init(); this.sound.resume(); start(false); };
     $('btnResume').onclick = () => this.ui.closeModals();
-    $('btnSave').onclick = () => { const ok = this.save(); this.ui.toast(ok ? { icon: '💾', title: 'Saved', text: 'Your shift is safe.' } : { icon: '⚠️', title: 'Save failed', text: 'Browser storage is full.' }); };
+    $('btnSave').onclick = () => { const ok = this.save(); this.ui.toast(this.noSave ? { icon: '💾', title: 'Not saved', text: 'You are in a friend\'s warehouse. Only the host keeps the save.' } : ok ? { icon: '💾', title: 'Saved', text: 'Your shift is safe.' } : { icon: '⚠️', title: 'Save failed', text: 'Browser storage is full.' }); };
     $('btnShop').onclick = () => this.ui.open('shop');
     $('btnDex').onclick = () => this.ui.open('dex');
     $('btnAch').onclick = () => this.ui.open('ach');
@@ -288,7 +299,7 @@ export class Game {
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
       this.clearKeys();
-      if (!locked && this.mode === 'play' && !this.ui.isModalOpen() && !this.suppressPause) { this.crewDeselect(); this.ui.open('pause'); }
+      if (!locked && this.mode === 'play' && !this.ui.isModalOpen() && !this.suppressPause) { this.crewDeselect(); if (this.cables.wiring) this.cables.cancel('Wire cancelled.'); this.ui.open('pause'); }   // Esc while the mouse is captured only reaches the page as this unlock: it lets go of the bot and the wire too
     });
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.ui.isModalOpen() && document.pointerLockElement !== this.canvas) this.requestLock(); });
     document.addEventListener('visibilitychange', () => { this.clearKeys(); if (document.hidden) this.save(); });
@@ -297,7 +308,7 @@ export class Game {
   }
 
   requestLock() {
-    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ }
+    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => { if (this.mode === 'play' && !this.ui.isModalOpen() && document.pointerLockElement !== this.canvas) this.ui.hint('Click the game to take the mouse back.', 3); }); } catch (e) { /* ignore */ }   // after Esc the browser wants a click before it hands the mouse over again
   }
 
   onModalClosed() {
@@ -367,16 +378,22 @@ export class Game {
 
   // ======================= input =======================
   onKey(e, down) {
-    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return; // typing in a box
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) { if (down && e.code === 'Escape' && this.mode === 'play' && this.ui.isModalOpen()) { e.target.blur(); this.ui.closeModals(); } return; } // typing in a box (Esc still closes the window it is in)
     if (down && e.code === 'Enter' && this.mode === 'play' && this.net.open && !this.ui.isModalOpen()) { const c = document.getElementById('chatIn'); c.classList.remove('hidden'); c.value = ''; c.focus(); e.preventDefault(); return; }
     if (e.code === 'KeyG') return; // G is retired: left click grabs, and clicking again throws. F is the flashlight.
     if (e.repeat && down) { if (e.code === 'Tab') e.preventDefault(); return; }
     if (e.code === 'Tab') e.preventDefault();
     this.keys[e.code] = down;
     if (!down) return;
+    if (e.code === 'F3') { e.preventDefault(); this.toggleFps(); return; }   // not the browser's find bar
+    if (e.code === 'Escape' && this.mode === 'title' && this.ui.isModalOpen()) { this.ui.closeModals(); return; }   // How to Play and Play Together, opened from the title
     if (this.mode !== 'play') return;
     if (e.code === 'Escape' && this.crewSel) this.crewDeselect();
     if (e.code === 'Escape' && this.cables.wiring) this.cables.cancel('Wire cancelled.');
+    if (e.code === 'Escape') {   // the window says "Esc closes" and the title says "Esc pause": with the mouse free (no capture to give up) Esc has to do both itself
+      if (this.ui.isModalOpen()) { this.ui.closeModals(); return; }
+      if (document.pointerLockElement !== this.canvas && !this.ui.justClosed()) { this.openModal('pause'); return; }   // not when a panel's own Esc handler closed it on this same key press
+    }
     if (this.ui.isModalOpen()) {
       if (this.ui.openModal === 'inv') {
         // inventory: a number puts the selected item into that hotbar slot, X clears it from the bar, I or Esc closes
@@ -409,19 +426,21 @@ export class Game {
     else if (e.code === 'KeyK') this.useMedkit();
     else if (e.code === 'KeyP') this.punch();
     else if (e.code === 'KeyQ' && this.cables.wiring) this.cables.cancel('Wire cancelled. <kbd>Q</kbd> again puts the cable away.');
-    else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.plan = null; this.rebuildTools(); const t = this.curTool(); this.ui.hint(this.stowed ? 'Put away. Hands free. <kbd>Q</kbd> takes it out again.' : (t.kind === 'hammer' ? 'Hammer out. <kbd>B</kbd> removes what you aim at. <kbd>Q</kbd> puts it away.' : 'Tool out. <kbd>B</kbd> places it. <kbd>Q</kbd> puts it away.'), 2.5); }
+    else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.plan = null; this.rebuildTools(); const t = this.curTool(); this.ui.hint(this.stowed ? 'Put away. Hands free. <kbd>Q</kbd> takes it out again.' : (t.kind === 'hammer' ? 'Hammer out. <kbd>B</kbd> removes what you aim at. <kbd>Q</kbd> puts it away.' : t.kind === 'hands' ? 'Nothing in that slot: your hands are free. Pick a tool with <kbd>1-9</kbd>.' : 'Tool out. <kbd>B</kbd> or click uses it. <kbd>Q</kbd> puts it away.'), 2.5); }
     else if (e.code === 'KeyX') this.deconstruct(e.shiftKey);   // Shift+X takes down a whole zoop group
     else if (e.code === 'KeyU') this.useCart();
-    else if (e.code === 'Minus' || e.code === 'Equal') BUILD.zoopKey(this, this.curTool(), e.code === 'Equal' ? 1 : -1, e.shiftKey);   // zoop length (width with Shift) of the pad in hand
+    else if (e.code === 'Minus' || e.code === 'Equal') { if (!BUILD.zoopKey(this, this.curTool(), e.code === 'Equal' ? 1 : -1, e.shiftKey)) TRANSIT.zoopKey(this, this.curTool(), e.code === 'Equal' ? 1 : -1); }   // a pad's zoop length; a jump pad's angle (transit.js)   // zoop length (width with Shift) of the pad in hand
     else if (e.code === 'KeyR') {
       // R punches (laptop friendly); with a ramp in hand it flips the ramp instead
       const t = this.curTool();
       if (BUILD.rotateKey(this, t, e.shiftKey)) { /* a build shell piece turned (R) or nudged (Shift+R) */ }
+      else if (TRANSIT.rotateKey(this, t, e.shiftKey)) { /* a door turned, or a jump pad's heading (transit.js) */ }
       else if (t.kind === 'belt' && t.ramp) { this.rampMode = (this.rampMode + 1) % 2; this.machines.setGhost(null); }
       else if (BP.rKey(this, t)) { /* a lift flips up/down, the line planner picks the next route shape (beltplan.js) */ }
       else this.punch();
     }
     else if (e.code === 'Period' || e.code === 'Comma') BP.key(this, e.code);   // lift height down/up, line planner on/off and route shape (beltplan.js)
+    else if (e.code === 'Backspace') { e.preventDefault(); RAIL.rushKey(this); }   // Mine Rail: sit in the nearest cart and rush home, or call one (rail.js)
   }
 
   // A key whose release was missed (alt-tab, a menu that took focus, the pointer lock dropping) would keep walking you forever. Every way the
@@ -463,7 +482,7 @@ export class Game {
   // ---- inventory: everything you hold that can be used, and the hotbar slots you put it in
   inventoryList() {
     const S = this.S, out = [];
-    out.push({ id: 'hammer', kind: 'hammer', icon: '🔨', name: 'Hammer', count: null, desc: 'Removes what you built and gives it back.', use: 'Take it out (its number, or Q), aim at a frame, prop, belt, machine or bulkhead and click (F) or press B. One piece per hit.', tool: true });
+    out.push({ id: 'hammer', kind: 'hammer', icon: '🔨', name: 'Hammer', count: null, desc: 'Removes what you built and gives it back.', use: 'Take it out (its number, or Q), aim at a frame, prop, belt, machine or bulkhead and click or press B. One piece per hit.', tool: true });
     for (const r of recipes(this)) {
       if (r.kind === 'mat') { const n = (S.mats || {})[r.mk] || 0; if (n > 0) out.push({ id: r.id, kind: 'mat', icon: r.icon, name: r.name, count: n, desc: r.desc, use: r.use, tool: false }); continue; }
       const n = S.items[r.id] || 0;
@@ -491,7 +510,7 @@ export class Game {
   }
   beaconCost() { return Math.round(4000 * Math.pow(2.6, this.beaconList().length - 1)); }
   chargerCost() { return Math.round(260 * Math.pow(1.3, this.logi ? this.logi.count('charger') : 0)); }
-  genCost() { return Math.round(350 * Math.pow(1.35, this.logi ? this.logi.count('gen') : 0)); }
+  genCost() { let n = 0; if (this.logi) for (const t of this.logi.tiles.values()) if (t.type === 'gen' && PWP.genKindOf(t) === PWP.GEN_STD) n++; return Math.round(350 * Math.pow(1.35, n)); }   // only the ordinary Generator counts: each rung of the ladder (powerparts.js) prices itself
   sorterCost() { return Math.round(90 * Math.pow(1.18, this.logi ? this.logi.count('sorter') : 0)); }
   mechCost() { return Math.round(2500 * Math.pow(1.55, this.logi ? this.logi.count('mech') : 0)); }
   rigCost() { return Math.round(150 * Math.pow(1.4, this.machines ? this.machines.count('claw') : 0)); }
@@ -562,13 +581,13 @@ export class Game {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  // F3 flips on the key press itself: a tap shorter than one frame (the slow frames F3 exists to show) used to be missed
+  toggleFps() { this.showFps = !this.showFps; document.getElementById('fps').classList.toggle('hidden', !this.showFps); }
   // frame-time governor: keep the game near 60 fps by trading resolution, and an F3 readout
   perf(raw) {
     if (raw > 250) return; // tab was hidden
     this.msAvg = this.msAvg ? this.msAvg * 0.94 + raw * 0.06 : raw;
     this.perfT = (this.perfT || 0) + raw;
-    if (this.keys.F3 && !this._f3) { this._f3 = true; this.showFps = !this.showFps; document.getElementById('fps').classList.toggle('hidden', !this.showFps); }
-    if (!this.keys.F3) this._f3 = false;
     if (this.showFps && this.perfT > 400) {
       const r = this.renderer.renderer.info.render;
       document.getElementById('fps').textContent = `${(1000 / this.msAvg).toFixed(0)} fps · ${this.msAvg.toFixed(1)} ms · res ${(this.renderer.dynScale * 100).toFixed(0)}% · ${r.calls} calls · ${(r.triangles / 1e6).toFixed(1)}M tris`;
@@ -629,11 +648,12 @@ export class Game {
   glowSources(camPos, n) {
     const out = [];
     for (const e of this.machines.lights(camPos, n)) out.push(e.lc ? { x: e.x, y: e.y, z: e.z, r: e.lr, cr: e.lc[0], cg: e.lc[1], cb: e.lc[2], d: -1 } : { x: e.x, y: e.y, z: e.z, r: e.glow ? 6 : 9, cr: e.glow ? 0.5 : 2.2, cg: e.glow ? 1.9 : 1.7, cb: e.glow ? 0.9 : 0.9, d: -1 });   // furnish.js lights carry their own radius (lr) and colour (lc)
+    HL.lampSources(this, camPos, Math.min(4, n - out.length), out);   // powered hanging lanterns: they dim with their grid
     if (out.length < n) {
       const cand = [];
       for (const t of this.logi.tiles.values()) {
         let c = null;
-        if (t.type === 'gen' && t.burn > 0) c = { y: t.j * C + 1.1, r: 8, cr: 1.7, cg: 0.8, cb: 0.25 };
+        if (t.type === 'gen' && t.burn > 0) { const gk = PWP.genKindOf(t); c = { y: t.j * C + 0.5 + 0.6 * gk.scale, r: gk.glow, cr: 1.7, cg: 0.8, cb: 0.25 }; }
         else if (t.type === 'pole' && (t.pw ?? 0) > 0.05) c = { y: t.j * C + 1.6, r: 4.5, cr: 0.25, cg: 0.8, cb: 0.4 };
         else if (t.type === 'charger' && (t.reserve || 0) > 0.02) c = { y: t.j * C + 0.7, r: 5, cr: 0.3, cg: 0.7, cb: 1.6 };
         if (!c) continue;
@@ -658,7 +678,7 @@ export class Game {
     const k = this.keys;
     const input = {
       fwd: locked && !modal && k.KeyW ? 1 : 0, back: locked && !modal && k.KeyS ? 1 : 0, left: locked && !modal && k.KeyA ? 1 : 0, right: locked && !modal && k.KeyD ? 1 : 0,
-      sprint: !!k.ShiftLeft, jump: !!k.Space && locked && !modal, crouch: !!(k.KeyC || k.ControlLeft) && locked,
+      sprint: !!(k.ShiftLeft || k.ShiftRight), jump: !!k.Space && locked && !modal, crouch: !!(k.KeyC || k.ControlLeft || k.ControlRight) && locked,   // either Shift sprints and either Ctrl crouches (the controls table says "Shift" and "Ctrl")
     };
     const stats = { walk: T.walk * (this.lungSlow ?? 1), crouchMul: T.crouchMul, jump: T.jump };
     const pb = p.pos.clone();
@@ -870,7 +890,7 @@ export class Game {
     const s = species[tg.sp];
     const r = RARITY[s.rarity];
     const shiny = !!(tg.vr & 128);
-    let val = tg.sp === CACHE ? 'open it' : tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? (BUILD.ownerAt(this, tg.i, tg.j, tg.k) ? 'hammer takes the wall down' : 'F to take down') : tg.sp === PAD ? 'hammer or X takes it down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
+    let val = tg.sp === CACHE ? 'open it' : tg.sp === REMAINS ? 'search it' : tg.sp === BULK ? (BUILD.ownerAt(this, tg.i, tg.j, tg.k) ? 'hammer takes the wall down' : TRANSIT.doorAt(this, tg.i, tg.j, tg.k) ? 'hammer takes the door down' : 'hammer or X takes it down') : tg.sp === PAD ? 'hammer or X takes it down' : tg.sp === NEEDLE ? 'priceless' : '◈ ' + fmt(this.valueOf(tg.sp, tg.vr, 0));
     return { name: s.name, rarity: tg.sp === PAD ? 'Built' : r.name, rid: s.rarity, shiny, value: val, volatile: !!s.volatile };   // a floor pad is not a plush: it is not graded
   }
 
@@ -938,7 +958,8 @@ export class Game {
     const tp = this.hall.termPos, bp = this.hall.binPos, pp = this.player.pos;
     const dTerm = Math.hypot(pp.x - tp.x, pp.z - tp.z), dBin = Math.hypot(pp.x - bp.x, pp.z - bp.z);
     if (!tg && !building) {
-      if (dTerm < 3.2 && !this._termHint) { this._termHint = true; this.ui.hint('<kbd>E</kbd> opens the upgrade terminal. <kbd>Tab</kbd> works anywhere.', 5); }
+      if (dTerm < 3.2 && dTerm <= Math.hypot(pp.x - this.hall.craftPos.x, pp.z - this.hall.craftPos.z) && !this._termHint) {   // (E answers at the station you stand nearest to, so only say it where it is true)
+        this._termHint = true; this.ui.hint('<kbd>E</kbd> opens the upgrade terminal. <kbd>Tab</kbd> works anywhere.', 5); }
       if (dBin < 3.2 && S.carry.length && !this._binHint) { this._binHint = true; this.ui.hint('Plush you carry get sucked into the bin when you stand close. <kbd>Z</kbd> throws one in for a streak bonus.', 5); }
     }
   }
@@ -948,6 +969,7 @@ export class Game {
     let item = null, pos;
     if (tg.type === 'cell' && tg.sp === REMAINS) return this.openRemains(tg.i, tg.j, tg.k);
     if (tg.type === 'cell' && tg.sp === CACHE) return this.openCache(tg.i, tg.j, tg.k);
+    if (tg.type === 'cell' && tg.sp === BULK && TRANSIT.doorAt(this, tg.i, tg.j, tg.k)) { this.ui.hint('That panel belongs to a door. Use the hammer (or X) to take the whole door down.', 2.5); return false; }   // the leaf of a door is not loose bulkhead (audit, wave 5)
     if (tg.type === 'cell' && tg.sp === BULK && BUILD.ownerAt(this, tg.i, tg.j, tg.k)) { this.ui.hint('That panel belongs to a wall section. Use the hammer (or X) to take the whole section down.', 2.5); return false; }
     if (tg.type === 'cell' && tg.sp === BULK) {
       if (this.isGuest()) { this.cmd('bulk', { i: tg.i, j: tg.j, k: tg.k }); this.sound.thump(0.15, 150); return true; }
@@ -1185,7 +1207,7 @@ export class Game {
   }
 
   bPress() {
-    if (this.stowed) { this.stowed = false; this.rebuildTools(); this.ui.hint('Tool out. <kbd>B</kbd> or click uses it, <kbd>Q</kbd> puts it away.', 2); return; }
+    if (this.stowed) { this.stowed = false; this.rebuildTools(); this.ui.hint(this.curTool().kind === 'hands' ? 'Nothing in that slot: your hands are free. Pick a tool with <kbd>1-9</kbd>.' : 'Tool out. <kbd>B</kbd> or click uses it, <kbd>Q</kbd> puts it away.', 2); return; }
     this.useTool(this.curTool());
   }
 
@@ -1195,7 +1217,7 @@ export class Game {
     if (t.kind === 'hammer') { this.hammerHit(); return; }
     if (t.kind === 'cable') { this.cables.click(t); return; }
     if (t.kind === 'cart') { this.useCart(); return; }
-    if (t.kind === 'supply') { if (t.id === 'medkit') this.useMedkit(); else this.ui.hint('Air Canisters work by themselves: one kicks in when you run out of air while trapped.', 3); return; }
+    if (t.kind === 'supply') { if (t.id === 'medkit') this.useMedkit(); else if (t.id === 'doorkey') this.ui.hint('The Door Key works by itself: doors set to key lock open for you while it is in your pack.', 3); else this.ui.hint('Air Canisters work by themselves: one kicks in when you run out of air while trapped.', 3); return; }
     this.placeCurrent(t);
   }
 
@@ -1203,8 +1225,8 @@ export class Game {
   describeRef(ref) {
     if (!ref) return null;
     if (ref.kind === 'cart') return 'your cart';
-    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : t.splitter ? 'Belt Splitter' : t.mounted ? 'Support Fan' : t.type === 'charger' ? 'Charging Station' : t.type) : null; }
-    if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; if (BUILD.isBuildType(e.type)) return BUILD.nameOf(e); return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4)${(() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })()}` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.dyn ? 'Dynamite' : e.type; }
+    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : BELT_PARTS[beltPartOf(t)] ? BELT_PARTS[beltPartOf(t)].name : t.splitter ? 'Belt Splitter' : t.mounted ? 'Support Fan' : t.type === 'charger' ? 'Charging Station' : t.type) : null; }
+    if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; if (BUILD.isBuildType(e.type)) return BUILD.nameOf(e); if (TRANSIT.isTransit(e.type)) return TRANSIT.nameOf(e); if (e.type === 'garch') return ARCH.nameOf(e.span, e.mat) + (() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })(); return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4x4)${(() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })()}` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.dyn ? 'Dynamite' : e.type === 'road' ? 'Haul Road Plate' : e.type === 'dock' ? 'Truck Dock' : (RAIL.nameOf(e) || e.type); }
     if (ref.kind === 'cable') { const c = this.cables.rec(ref.id); return c ? `Power Cable, ${this.cables.length(c).toFixed(1)} m` : null; }
     if (ref.kind === 'bulk') return 'Bulkhead Panel';
     return null;
@@ -1237,7 +1259,7 @@ export class Game {
   }
 
   layBelt(i, j, k, dir) {
-    if (this.logi.tileAt(i, j, k)) return false;
+    if (this.logi.tileAt(i, j, k) || this.logi.cellTaken(i, j, k)) return false;   // a belt, a rail piece, a shaft or a door already holds the cell
     const b = { id: this.nextId(), type: 'belt', i, j, k, dir, rise: 0, items: [] };
     this.S.entities.push(b);
     this.addEntity(b);
@@ -1371,8 +1393,13 @@ export class Game {
   useTile(t, guestData) {
     const T = this.T, S = this.S;
     if (t.type === 'belt' && t.detector && !this.isGuest()) {
-      if (t.alarm && t.held) { const it = t.held; t.held = null; t.alarm = false; this.logi.setGate(t, false); this.logi.recomputeHalt(); this.alarmGate = null; this.pickedUp(it, new THREE.Vector3(cellX(t.i), t.j * C + 0.8, cellZ(t.k))); return true; }
+      if (t.alarm && t.held) { const it = t.held; t.held = null; t.alarm = false; this.logi.setGate(t, false); this.logi.recomputeHalt(); this.alarmGate = VSCAN.otherAlarm(this, t); this.pickedUp(it, new THREE.Vector3(cellX(t.i), t.j * C + 0.8, cellZ(t.k))); return true; }
       this.ui.hint('Detector gate: all clear so far.', 2); return true;
+    }
+    if (t.type === 'gen' && !guestData && !S.carry.length) {   // empty hands: switch between AUTO (burn all the time) and RESERVE (burn only when a battery is low or the grid is overloaded)
+      const next = t.mode === 'reserve' ? 'auto' : 'reserve', r = this.setCfg(t, { mode: next });
+      if (r.ok) { this.sound.place(); this.ui.hint(next === 'reserve' ? 'RESERVE: this generator holds its fuel until a battery on its grid is under 30% or the grid is overloaded.' : 'AUTO: this generator burns whenever it has fuel.', 3.5); } else { this.sound.error(); this.ui.hint(r.why || 'Could not change that', 2.5); }
+      return true;
     }
     if (this.isGuest()) {
       if (t.type === 'pole' || t.type === 'fan') { this.ui.hint(`${t.type === 'pole' ? 'Pole' : 'Fan'}: ${(t.pw ?? 0) > 0.05 ? 'powered' : 'no power'} (${Math.round((t.pw ?? 0) * 100)}%)`, 2.5); return true; }
@@ -1383,14 +1410,14 @@ export class Game {
       return true;
     }
     if (t.type === 'gen') {
-      let n = 0;
+      let n = 0; const hop = PWP.genHopper(T, t);
       for (let q = S.carry.length - 1; q >= 0; q--) {
         const it = S.carry[q];
-        if (species[it.sp].rarity <= FUEL_MAX_RARITY && t.q.length < T.genBuffer) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
+        if (species[it.sp].rarity <= FUEL_MAX_RARITY && t.q.length < hop) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
       }
       this.ui.setCarry(S.carry, T.carry); this.power.markDirty();
       const tooGood = S.carry.some((c) => species[c.sp].rarity > FUEL_MAX_RARITY);
-      this.ui.hint(n ? `Fed ${n} plush to the generator (${t.q.length}/${T.genBuffer}).` : t.q.length >= T.genBuffer ? `The fuel hopper is full (${t.q.length}/${T.genBuffer}).` : `Nothing to burn. It takes Common to Epic plush${tooGood ? ' (Legendary and Mythic are too valuable to burn)' : ''}.`, 3);
+      this.ui.hint(n ? `Fed ${n} plush to the ${PWP.genKindOf(t).key === 'std' ? 'generator' : PWP.genKindOf(t).name.toLowerCase()} (${t.q.length}/${hop}).` : t.q.length >= hop ? `The fuel hopper is full (${t.q.length}/${hop}).` : `Nothing to burn. It takes Common to Epic plush${tooGood ? ' (Legendary and Mythic are too valuable to burn)' : ''}.`, 3);
       return true;
     }
     if (t.type === 'charger') {
@@ -1499,7 +1526,7 @@ export class Game {
       const d = Math.hypot(c.x - fp.x, c.z - fp.z);
       if (d > 5) { c.mode = 'follow'; this.cartSay('Your cart is on its way.', 2); return; }
       c.mode = c.mode === 'follow' ? 'stay' : 'follow';
-      this.cartSay(c.mode === 'follow' ? 'Cart follows you. <kbd>U</kbd> parks it, <kbd>X</kbd> stows it when empty.' : 'Cart parked. <kbd>U</kbd> makes it follow again.', 3);
+      this.cartSay(c.mode === 'follow' ? 'Cart follows you. <kbd>U</kbd> parks it, <kbd>X</kbd> next to it stows it when empty.' : 'Cart parked. <kbd>U</kbd> makes it follow again.', 3);
       if (this._actor !== 'g') this.sound.tone('triangle', 500, 700, 0.08, 0.06);
       return;
     }
@@ -1557,34 +1584,40 @@ export class Game {
     if ($$('btnHow')) $$('btnHow').onclick = () => { this.sound.init(); this.ui.open('howto'); };
     if ($$('btnHow2')) $$('btnHow2').onclick = () => this.ui.open('howto');
     const hideAll = () => { for (const id of ['mpHostBox', 'mpJoinBox', 'mpHostShort', 'mpJoinShort']) $$(id).classList.add('hidden'); };
+    let busyUntil = 0;   // a double click must not open two connections (the second would replace the first one's code); a hung request frees the buttons after 8 s
+    const begin = () => { if (Date.now() < busyUntil) return false; busyUntil = Date.now() + 8000; return true; }, end = () => { busyUntil = 0; };
     $$('mpHost').onclick = async () => {
       if (this.mode !== 'play') { status('Start or continue your game first, then open Play Together from the pause menu.'); return; }
+      if (!begin()) return;
       this.S.settings.name = this.myName();
       hideAll(); $$('mpHostShort').classList.remove('hidden'); $$('mpCode').textContent = '····';
       status('Getting a code…');
-      try { $$('mpCode').textContent = await this.net.hostShort(); status('Waiting for your friend…'); } catch (e) { status('Could not make a short code (' + e.message + '). Try the long codes below.'); }
+      try { $$('mpCode').textContent = await this.net.hostShort(); status('Waiting for your friend…'); } catch (e) { status('Could not make a short code (' + e.message + '). Try the long codes below.'); } finally { end(); }
     };
     $$('mpHostManual').onclick = async () => {
       if (this.mode !== 'play') { status('Start or continue your game first, then open Play Together from the pause menu.'); return; }
+      if (!begin()) return;
       this.S.settings.name = this.myName();
       hideAll(); $$('mpHostBox').classList.remove('hidden');
       status('Making a code…');
-      try { $$('mpOffer').value = await this.net.host(); status('Send the code to your friend, then paste their reply below.'); } catch (e) { status('Could not make a code: ' + e.message); }
+      try { $$('mpOffer').value = await this.net.host(); status('Send the code to your friend, then paste their reply below.'); } catch (e) { status('Could not make a code: ' + e.message); } finally { end(); }
     };
-    $$('mpCopyOffer').onclick = () => { $$('mpOffer').select(); document.execCommand('copy'); status('Copied.'); };
+    const copyBox = (id, none) => { const t = $$(id); if (!t.value) { status(none); return; } t.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* ignore */ } status(ok ? 'Copied.' : 'Could not copy by itself. The code is selected: press Ctrl+C (Cmd+C).'); };
+    $$('mpCopyOffer').onclick = () => copyBox('mpOffer', 'No code yet: press Host (long codes) first.');
     $$('mpConnect').onclick = async () => { try { await this.net.finishHost($$('mpAnswerIn').value); status('Connecting…'); } catch (e) { status('That reply code did not work.'); } };
     $$('mpJoin').onclick = () => { hideAll(); $$('mpJoinShort').classList.remove('hidden'); status(''); $$('mpCodeIn').focus(); };
     $$('mpGo').onclick = async () => {
+      if (!begin()) return;
       status('Connecting…');
-      try { await this.net.joinShort($$('mpCodeIn').value); status('Connected. Loading your friend\'s world…'); } catch (e) { status('Could not join: ' + e.message); }
+      try { await this.net.joinShort($$('mpCodeIn').value); status('Connected. Loading your friend\'s world…'); } catch (e) { status('Could not join: ' + e.message); } finally { end(); }
     };
-    $$('mpCodeIn').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $$('mpGo').click(); });
+    $$('mpCodeIn').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $$('mpGo').click(); else if (e.key === 'Escape' && this.mode === 'play') { e.target.blur(); this.ui.closeModals(); } });
     $$('mpJoinManual').onclick = () => { hideAll(); $$('mpJoinBox').classList.remove('hidden'); status(''); };
     $$('mpMakeReply').onclick = async () => {
       status('Making a reply…');
       try { $$('mpReply').value = await this.net.join($$('mpOfferIn').value); status('Send the reply back. When your friend connects you will drop into their world.'); } catch (e) { status('That code did not work.'); }
     };
-    $$('mpCopyReply').onclick = () => { $$('mpReply').select(); document.execCommand('copy'); status('Copied.'); };
+    $$('mpCopyReply').onclick = () => copyBox('mpReply', 'No reply code yet: paste your friend\'s code and press Make reply code first.');
   }
 
   netOpened() {
@@ -1656,7 +1689,8 @@ export class Game {
       case 'spawn': { const a = m.a; this.sim.spawn(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 1); break; }
       case 'take': { const i = this.sim.indexOfId(m.id); if (i >= 0) this.sim.remove(i); break; }
       case 'lost': this.S.needleLost = true; this.ui.toast({ icon: '🔥', title: 'THE ONE is gone', text: 'It was thrown away without passing a gate.', cls: 'ach', ms: 12000 }); break;
-      case 'sale': if (m.sp === NEEDLE) { this.needleLost('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
+      case 'sale': if (m.fb) { if (this.isGuest() && this.coinCd <= 0) { this.coinCd = 0.12; this.sound.coin(0); } break; }   // host to guest: only the sound of an automatic sale (the host sold it, the money is shared)
+        if (m.sp === NEEDLE) { this.needleLost('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
       case 'bodies': {
         const seen = new Set();
         const a = m.a;
@@ -1725,18 +1759,19 @@ export class Game {
   placeConflict(tool, e) {
     if (!tool || !e) return 'Nothing to place';
     const k = tool.kind, T = this.T;
+    if ((k === 'gen') !== (tool.id === 'gen' || !!PWP.GEN_BY_ITEM[tool.id])) return 'That item does not make that machine';   // the generator ladder: a generator comes only from a generator item, and a generator item makes nothing else
     if (EXT.isCatalogTool(k)) return EXT.conflictTool(this, tool, e);   // catalog tools: TYPES[kind].conflict
     if (k === 'belt') { const why = BP.conflict(this, tool, e); if (why) return why; if (e.type === 'tierbelt') return null; }   // belt marks (beltplan.js)
-    if ((k === 'splitter' && e.type === 'splitbelt') || (k === 'gate' && e.type === 'gatebelt')) { const t = this.logi.byId.get(e.id); return !t ? 'That belt is gone' : (t.splitter || t.detector) ? 'That piece is already converted' : null; }
+    if ((k === 'splitter' && e.type === 'splitbelt') || (k === 'gate' && e.type === 'gatebelt')) { const t = this.logi.byId.get(e.id); return !t ? 'That belt is gone' : (t.splitter || t.detector || t.merger) ? 'That piece is already converted' : null; }
     if (['belt', 'sorter', 'vault', 'mech', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(k)) {
       const why = this.logi.canPlace(e.i, e.j, e.k); if (why && why !== 'Too close') return why;
       if (k === 'mech' && this.logi.count('mech') >= T.mechMax) return `Mech limit reached (${T.mechMax})`;
       return null;
     }
-    if (k === 'bulk') return this.world.solid(e.i, e.j, e.k) || this.logi.tiles.has(idx(e.i, e.j, e.k)) ? 'Occupied' : null;
-    if (k === 'frame') { for (const it of this.machines.items.values()) { const f = it.ent; if (f.type === 'frame' && Math.hypot(f.cx - e.cx, f.cz - e.cz) < 0.3 && Math.abs(f.y0 - e.y0) < 0.3) return 'A frame is already here'; } return null; }
+    if (k === 'bulk') return this.world.solid(e.i, e.j, e.k) ? 'Occupied' : this.logi.cellTaken(e.i, e.j, e.k);
+    if (k === 'frame') return this.machines.frameConflict(tool.fk, e);   // the host recomputes the 4x4x4 section itself: a guest's list of cells to clear is never believed
     if (k === 'mfan') { if (!this.machines.items.has(e.frameId)) return 'That frame is gone'; for (const t of this.logi.tiles.values()) if (t.type === 'fan' && t.mounted && t.frameId === e.frameId) return 'This frame already has a fan'; return null; }
-    if (k === 'beacon') { for (const it of this.machines.items.values()) if (it.ent.type === 'beacon' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 1.0) return 'A depot beacon is already here'; return null; }
+    if (k === 'beacon') { { const why = Number.isInteger(e.i) ? this.logi.cellTaken(e.i, e.j, e.k) : null; if (why) return why; } for (const it of this.machines.items.values()) if (it.ent.type === 'beacon' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 1.0) return 'A depot beacon is already here'; return null; }
     if (k === 'claw') { for (const it of this.machines.items.values()) if (it.ent.type === 'claw' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 2.2) return 'Too close to another rig'; return this.machines.count('claw') >= T.rigMax ? `Rig limit reached (${T.rigMax})` : null; }
     if (k === 'borer') return this.machines.count('borer') >= T.borerMax ? `Borer limit reached (${T.borerMax})` : null;
     if (isEarth(k)) return earthConflict(this, k, e);
@@ -1784,9 +1819,11 @@ export class Game {
       case 'decon': this.doDecon(d); break;
       case 'cfg': EXT.runCfgCmd(this, d); break;
       case 'bplan': BP.runCmd(this, d); break;   // a guest's planned belt line: the host validates every tile and lays it
+      case 'rail': RAIL.runCmd(this, d); break;   // a guest's Mine Rail command: rush, sit, leave, load (rail.js re-checks everything)
+      case 'vscan': VSCAN.guestTake(this, d); break;   // a friend pressed E on a Vehicle Scanner that holds The One (vehiclescan.js re-checks they stand there)
       case 'arch': DETECTOR.guestCross(this, d); break;   // a friend walked through a detector arch (detector.js re-checks they stand there)
       case 'cable': this.cables.report(this.cables.connect(d.a, d.b), false); break;
-      case 'earth': { const eit = this.machines.items.get(d.id); if (eit && isEarth(eit.ent.type)) { const r = useEarth(this, eit, Math.max(0, Math.min(5000, +d.room || 0))); if (r.took) { const items = []; for (let q = 0; q < r.took.length; q += 2) items.push({ sp: r.took[q], vr: r.took[q + 1] }); this.netSend({ t: 'give', items }); } else this.power.markDirty(); } break; }
+      case 'earth': { const eit = this.machines.items.get(d.id); if (eit && isEarth(eit.ent.type) && VSCAN.guestReach(this, eit.ent, eit.ent.hop || eit.ent.cargo)) { const r = useEarth(this, eit, Math.max(0, Math.min(5000, +d.room || 0))); if (r.took) { const items = []; for (let q = 0; q < r.took.length; q += 2) items.push({ sp: r.took[q], vr: r.took[q + 1] }); this.netSend({ t: 'give', items }); } else this.power.markDirty(); } break; }
       case 'tile': {
         const t = this.logi.byId.get(d.id);
         if (!t) break;
@@ -1807,7 +1844,7 @@ export class Game {
       case 'cart': this.useCart(d); break;
       case 'spend': if ((S.items[d.id] || 0) > 0) { S.items[d.id]--; if (S.items[d.id] <= 0) delete S.items[d.id]; } break;
       case 'cartload': { const gc = this.myCart(); if (gc && gc.load.length < CART_CAP[gc.tier]) gc.load.push({ sp: d.sp, vr: d.vr }); break; }
-      case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK && !BUILD.ownerAt(this, d.i, d.j, d.k)) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); } break; }
+      case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK && !BUILD.ownerAt(this, d.i, d.j, d.k) && !TRANSIT.doorAt(this, d.i, d.j, d.k)) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); } break; }
       case 'open': {
         const r = d.k === 'remains' ? this.openRemains(d.i, d.j, d.kk, true) : this.openCache(d.i, d.j, d.kk, true);
         if (r && r.text !== undefined) this.netSend({ t: 'toast', icon: '📦', title: 'Supply cache', text: r.text });
@@ -1885,7 +1922,7 @@ export class Game {
       if (t.type === 'belt') {
         if ((t.halt || (t.pw ?? 0) > 0.005) && near(cellX(t.i), cellZ(t.k))) bpw.push(t.id, Math.round((t.pw ?? 0) * 100), t.halt ? 1 : 0);   // belt power and line halts: the guest's items must crawl or run at the host's speed, and its hover text must be right
         if (t.items.length && near(cellX(t.i), cellZ(t.k))) { const a = [t.id]; for (const it of t.items) a.push(it.sp, it.vr, Math.round(it.t * 100)); belts.push(a); }
-      } else { const row = [t.id, Math.round((t.pw ?? 0) * 100), Math.round(t.burn || 0), t.mode || 0, t.off ? 1 : 0, t.i, t.k, t.q ? t.q.length : 0, t.filter ?? 7]; if (t.type === 'gen') { const rc = [0, 0, 0, 0]; for (const it of t.q) rc[Math.min(3, species[it.sp] ? species[it.sp].rarity : 0)]++; row.push(t.cur ? t.cur.sp : 0, Math.round(t.burnMax || 0), rc); } else if (t.type === 'charger') row.push(Math.round((t.reserve || 0) * 100)); tiles.push(row); }
+      } else { const row = [t.id, Math.round((t.pw ?? 0) * 100), t.type === 'gen' ? Math.round((t.burn || 0) * 100) / 100 : Math.round(t.burn || 0), t.mode || 0, t.off ? 1 : 0, t.i, t.k, t.q ? t.q.length : t.type === 'vault' ? t.stored.length : 0, t.filter ?? 7]; if (t.type === 'gen') { const rc = [0, 0, 0, 0]; for (const it of t.q) rc[Math.min(3, species[it.sp] ? species[it.sp].rarity : 0)]++; row.push(t.cur ? t.cur.sp : 0, Math.round((t.burnMax || 0) * 100) / 100, rc); } else if (t.type === 'charger') row.push(Math.round((t.reserve || 0) * 100)); tiles.push(row); }
     }
     const movers = [];
     for (const it of this.machines.items.values()) if (it.ent.type === 'borer') movers.push([it.ent.id, it.ent.i, it.ent.k, Math.round((it.ent.pw ?? 0) * 100)]); else if (isEarth(it.ent.type)) movers.push(earthRow(it)); else if (it.ent.type === 'claw') movers.push([it.ent.id, 0, 0, Math.round((it.ent.pw ?? 0) * 100), +(it.phase || 0).toFixed(2), it.target ? it.target.i : -1, it.target ? it.target.j : 0, it.target ? it.target.k : 0, +(it.idle || 0).toFixed(1)]);
@@ -1896,7 +1933,7 @@ export class Game {
     const packCart = (c) => (c ? { tier: c.tier, mode: c.mode, x: +c.x.toFixed(2), y: +c.y.toFixed(2), z: +c.z.toFixed(2), yaw: +c.yaw.toFixed(2), n: c.load.length, load: c.load.slice(-60).flatMap((x) => [x.sp, x.vr]) } : null);
     const cart = packCart(this.S.cart), gcart = packCart(this.S.gcart);   // cart: the host's own, gcart: the guest's own
     let grid = null;
-    if (rp) { const net = this.power.nearest(rp.x, rp.y + 1, rp.z); if (net) grid = { supply: net.supply, demand: net.demand, sat: net.sat, tripped: net.tripped ? 1 : 0 }; }
+    if (rp) { const net = this.power.nearest(rp.x, rp.y + 1, rp.z); if (net) grid = { supply: net.supply, demand: net.demand, sat: net.sat, tripped: net.tripped ? 1 : 0, cap: net.cap, loads: PWP.packLoads(net), kinds: PWP.countLoads(net) }; }   // (the guest's M readout falls back on this when the world has no power part to send a grid row)
     const dust = rp ? this.dust.at(rp.x, rp.y + 1.2, rp.z) : 0;
     const alarms = []; for (const t of L.tiles.values()) if (t.type === 'belt' && t.detector && t.alarm) alarms.push(t.id);
     this.netSend({ t: 'dyn', belts, bpw, tiles, movers, crew, cart, gcart, grid, dust, alarms, cpw: this.cables.pwRows() });
@@ -1917,7 +1954,8 @@ export class Game {
       const t = L.byId.get(a[0]); if (!t) continue;
       t.pw = a[1] / 100; t.burn = a[2];
       if (t.type === 'charger') { if (a.length > 9) t.reserve = a[9] / 100; while (t.q.length < a[7]) t.q.push({ sp: 1, vr: 0 }); t.q.length = a[7]; }
-      if (t.type === 'gen') { while (t.q.length < a[7]) t.q.push({ sp: 1, vr: 0 }); t.q.length = a[7]; }   // only the hopper's size is known here (the mix is in rc)
+      if (t.type === 'gen') { while (t.q.length < a[7]) t.q.push({ sp: 1, vr: 0 }); t.q.length = a[7]; t.mode = a[3] === 'reserve' ? 'reserve' : 'auto'; }   // only the hopper's size is known here (the mix is in rc); the mode rides the row
+      if (t.type === 'vault') { t.stored = t.stored || []; if (t.stored.length > a[7]) t.stored.length = a[7]; else if (t.stored.length < a[7]) { const ph = { sp: 1, vr: 0 }; while (t.stored.length < a[7]) t.stored.push(ph); } }   // only how many are stored is known here (the hover readout reads the count)
       if (t.type === 'gen' && a.length > 9) { t.cur = a[9] ? { sp: a[9], vr: 0 } : null; t.burnMax = a[10]; t.rc = a[11]; }
       if (t.type === 'sorter' && (t.mode !== a[3] || t.filter !== a[8])) { t.mode = a[3]; t.filter = a[8]; L.setSorterLook(t); }
       t.off = !!a[4];
@@ -2018,7 +2056,7 @@ export class Game {
   // a short note from management on the early mornings, each one a real tip about something you have probably not tried yet
   dayTip(n) {
     return ({
-      2: 'Memo, Day 2: a frame is a hollow 4x4 box. Dig the section out first, then set it. It never digs for you.',
+      2: 'Memo, Day 2: a frame is a hollow cube, 4 cells (2.4 m) each way. Dig the section out first, then set it. It never digs for you.',
       3: 'Memo, Day 3: dust builds up in a long tunnel. A cough means leave. A Vent Fan or a Support Fan under a frame moves it.',
       4: 'Memo, Day 4: left and right arrows turn a frame you are holding. Turn each one a little and the tunnel bends.',
       5: 'Memo, Day 5: every support has a depth rating. Wood stops being enough a long way before the east wall.',
@@ -2184,6 +2222,7 @@ export class Game {
   useKey() {
     if (this.crewUseKey()) return;
     if (EXT.useKey(this)) return;   // catalog types: paste a copied config, or the type's own use()
+    if (TRANSIT.useKey(this)) return;   // doors, the lift car and its call buttons, jump pads (transit.js)
     {
       const tile = this.logi.pick(this.renderer.camera.position, this.player.forward(_fwd), 3.4);
       if (tile && this.useTile(tile)) return;
@@ -2192,18 +2231,11 @@ export class Game {
     for (const it of this.machines.items.values()) {
       if (it.ent.type === 'beacon' && Math.hypot(it.ent.x - this.player.pos.x, it.ent.z - this.player.pos.z) < 3.2) { this.openModal('travel'); return; }
     }
-    { const cp = this.hall.craftPos, pp2 = this.player.pos; if (Math.hypot(pp2.x - cp.x, pp2.z - cp.z) < 3.6) { this.openModal('craft'); return; } }
-    {
-      const pp = this.player.pos, kp = this.hall.kioskPos;
-      if (Math.hypot(pp.x - kp.x, pp.z - kp.z) < 3.0) { this.openModal('dossier'); return; }
-    }
-    const S = this.S;
-    const pp = this.player.pos, tp = this.hall.termPos, bp = this.hall.binPos;
-    if (Math.hypot(pp.x - tp.x, pp.z - tp.z) < 3.4) { this.openModal('shop'); return; }
-    if (Math.hypot(pp.x - bp.x, pp.z - bp.z) < 3.6) {
-      if (S.carry.length) this.sellAll();
-      else this.ui.hint('Nothing to sell. Grab some plush first.', 2);
-      return;
+    {   // the desk, the bench, the kiosk and the bin: the one you stand nearest to answers (the desk and the bench are only 4 m apart, so a fixed order made E at the desk open the bench)
+      const S = this.S, pp = this.player.pos, h = this.hall, dist = (q) => Math.hypot(pp.x - q.x, pp.z - q.z);
+      const at = [[dist(h.craftPos), 3.6, () => this.openModal('craft')], [dist(h.kioskPos), 3.0, () => this.openModal('dossier')], [dist(h.termPos), 3.4, () => this.openModal('shop')],
+        [dist(h.binPos), 3.6, () => { if (S.carry.length) this.sellAll(); else this.ui.hint('Nothing to sell. Grab some plush first.', 2); }]].filter((c) => c[0] < c[1]).sort((x, y) => x[0] - y[0]);
+      if (at.length) { at[0][2](); return; }
     }
     this.ui.hint('Nothing to use here.', 1.5);
   }
@@ -2226,8 +2258,9 @@ export class Game {
     const room = Math.max(0, this.T.carry - this.S.carry.length);
     if (this.isGuest()) { this.cmd('earth', { id: it.ent.id, room }); this.sound.place(); return; }
     const r = useEarth(this, it, room), name = EARTH[it.ent.type].name;
+    if (r.took && r.took[0] === NEEDLE) { this.foundNeedle(`the ${name.toLowerCase()}`); return; }   // The One comes out of a hopper or a truck bed first: taking it is the win, like a gate
     if (r.took) { for (let q = 0; q < r.took.length; q += 2) this.S.carry.push({ sp: r.took[q], vr: r.took[q + 1] }); this.ui.setCarry(this.S.carry, this.T.carry); this.sound.coin(0); this.ui.hint(`Took ${r.took.length / 2} plush out of the ${name}'s hopper.`, 2.5); }
-    else { this.sound.place(); this.ui.hint(r.off ? `${name} parked. E runs it again.` : `${name} back to work.`, 2.5); this.power.markDirty(); }
+    else { this.sound.place(); this.ui.hint(r.msg || (r.off ? `${name} parked. E runs it again.` : `${name} back to work.`), 2.5); this.power.markDirty(); }
   }
 
   sellAll() {
@@ -2351,7 +2384,10 @@ export class Game {
     S.money += v; S.totalEarned += v; S.stats.sold++;
     this.contracts.onSale(sp, vr);
     this.ui.setMoney(S.money); this.ui.gain(v);
-    if (this.coinCd <= 0) { this.coinCd = 0.12; this.sound.coin(0); }
+    if (this.coinCd <= 0) {
+      this.coinCd = 0.12; this.sound.coin(0);
+      if (this.net.open && this.net.role === 'host') this.netSend({ t: 'sale', fb: 1 });   // the friend hears the coin too (belts, carts, bots and salvage sell on the host): one message per 0.12 s, like the host's own sound
+    }
   }
 
   // ======================= fliers =======================
@@ -2396,7 +2432,7 @@ export class Game {
     const yaw = this.player.yaw;
     if (tool.kind === 'cart' || tool.kind === 'supply') {
       this.plan = null; this.machines.setGhost(null); this.machines.showPreview(null, null); this.ui.setCross(false);
-      this.ui.hint(tool.kind === 'cart' ? '<kbd>B</kbd> roll the cart out / park it · <kbd>Q</kbd> put away' : (tool.id === 'medkit' ? '<kbd>B</kbd> use a medkit · <kbd>Q</kbd> put away' : 'Air canister: automatic · <kbd>Q</kbd> put away'), 0.4);
+      this.ui.hint(tool.kind === 'cart' ? '<kbd>B</kbd> roll the cart out / park it · <kbd>Q</kbd> put away' : (tool.id === 'medkit' ? '<kbd>B</kbd> use a medkit · <kbd>Q</kbd> put away' : tool.id === 'doorkey' ? 'Door Key: automatic, keep it in your pack · <kbd>Q</kbd> put away' : tool.id === 'chargepack' ? 'Charge Pack: press <kbd>E</kbd> on a Haul Truck that ran out of battery · <kbd>Q</kbd> put away' : 'Air canister: automatic · <kbd>Q</kbd> put away'), 0.4);
       return;
     }
     if (tool.kind === 'hammer') {
@@ -2440,8 +2476,8 @@ export class Game {
     if (catPlan) EXT.previewTool(this, tool, plan);
     else if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
-    if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk') && !BP.plannerOn(this, tool)) {
-      const key = `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
+    if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk' || tool.kind === 'rail' || tool.kind === 'road') && !BP.plannerOn(this, tool)) {
+      const key = tool.kind === 'road' ? `${plan.ent.i0},${plan.ent.j},${plan.ent.k0}` : `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
       if (key !== this.lastPaint) { this.lastPaint = key; this.placeCurrent(tool); }
     }
     if (!this.keys.KeyB) this.lastPaint = '';
@@ -2450,7 +2486,7 @@ export class Game {
       else if (plan.hintText) this.ui.hint(plan.hintText, 0.4);   // a tool that explains itself (planner, lift, underground, upgrade in place)
       else if (this.strainOf(tool, plan).state === 'break') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>Too much weight for ${st.name}: ${st.pct}% load.</b> It will break the moment you set it (${Math.round(st.d)} m deep, rated ${isFinite(st.max) ? st.max + ' m' : 'any depth'}). ${st.next && FRAME_TYPES[st.next] ? 'Use ' + FRAME_TYPES[st.next].name + ' or better, or hold the roof up with more supports.' : 'Add more supports to share the load.'}`, 0.4); }
       else if (this.strainOf(tool, plan).state === 'creak') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>${st.name} would carry ${st.pct}% load.</b> It holds, but it is creaking under the mountain. More supports nearby share the weight. <kbd>B</kbd> set down`, 0.4); }
-      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.turned ? ` · ${plan.ent.snap} · <kbd>◄</kbd> <kbd>►</kbd> turn (hold Shift for fine) · <kbd>▼</kbd> back to the grid` : plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4 square, dig the section out first · place the next one on any side to snap · <kbd>◄</kbd> <kbd>►</kbd> turn it free of the grid (curves)`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' || (isEarth(tool.kind) && EARTH[tool.kind].dig) ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
+      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.turned ? ` · ${plan.ent.snap} · <kbd>◄</kbd> <kbd>►</kbd> turn (hold Shift for fine) · <kbd>▼</kbd> back to the grid` : plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4x4 cube (2.4 m), dig the section out first · place the next one on any side to snap · <kbd>◄</kbd> <kbd>►</kbd> turn it free of the grid (curves)`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' || (isEarth(tool.kind) && EARTH[tool.kind].dig) ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
   }
@@ -2474,18 +2510,19 @@ export class Game {
       if (!last) return { plan: { ok: false, why: 'Aim at an empty cell' }, cost: 10 };
       const p = this.player.pos;
       const near = Math.abs(cellX(last.i) - p.x) < 0.65 && Math.abs(cellZ(last.k) - p.z) < 0.65 && p.y < cellY(last.j) + 0.45 && p.y + 1.75 > cellY(last.j) - 0.3;
-      const bad = this.logi.tiles.has(idx(last.i, last.j, last.k)) || near;
-      return { plan: { ok: !bad, why: bad ? 'Too close' : null, ent: { type: 'bulk', ...last, dir: 0 } }, cost: 10 };
+      const taken = this.logi.cellTaken(last.i, last.j, last.k);   // a belt, a rail piece, a shaft or a machine already stands in that cell
+      const bad = !!taken || near;
+      return { plan: { ok: !bad, why: bad ? (taken || 'Too close') : null, ent: { type: 'bulk', ...last, dir: 0 } }, cost: 10 };
     }
     if (kind === 'splitter') {
       const bt = this.logi.pick(eye, dir, 4.5);
-      if (bt && bt.type === 'belt' && !bt.splitter && !bt.detector) return { plan: { ok: true, ent: { type: 'splitbelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: 0 } }, cost: 0 };
+      if (bt && bt.type === 'belt' && !bt.splitter && !bt.detector && !bt.merger) return { plan: { ok: true, ent: { type: 'splitbelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: 0 } }, cost: 0 };
       return { plan: this.logi.plan('belt', eye, dir, yaw, 0), cost: 0 };
     }
     if (kind === 'gate') {
       const bt = this.logi.pick(eye, dir, 4.5);
       let pl;
-      if (bt && bt.type === 'belt' && !bt.detector && !bt.splitter) pl = { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } };
+      if (bt && bt.type === 'belt' && !bt.detector && !bt.splitter && !bt.merger) pl = { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } };
       else pl = this.logi.plan('belt', eye, dir, yaw, 0);
       // a gate has to scan before anything reaches a bin: keep it out of every bin's pull
       if (pl && pl.ok && pl.ent) {
@@ -2550,12 +2587,12 @@ export class Game {
   feedGensFromThrows() {
     const sim = this.sim; if (!sim || !sim.n) return;
     for (const t of this.logi.tiles.values()) {
-      if (t.type !== 'gen' || t.q.length >= this.T.genBuffer) continue;
+      if (t.type !== 'gen' || t.q.length >= PWP.genHopper(this.T, t)) continue;
       const gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
       for (let i = sim.n - 1; i >= 0; i--) {
         if (sim.flag[i] !== 1) continue; const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 1.3) continue; if (sim.y[i] > gy + 2.2) continue;
         const sp = sim.sp[i], r = species[sp] ? species[sp].rarity : 9; if (r > FUEL_MAX_RARITY) continue;
-        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.power.markDirty(); this.fx.fluff(gx, gy + 1.0, gz, 1, 0.6, 0.2, 5); this.sound.tone('triangle', 500, 700, 0.08, 0.06); if (t.q.length >= this.T.genBuffer) break; }
+        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.power.markDirty(); this.fx.fluff(gx, gy + 1.0, gz, 1, 0.6, 0.2, 5); this.sound.tone('triangle', 500, 700, 0.08, 0.06); if (t.q.length >= PWP.genHopper(this.T, t)) break; }
       }
     }
   }
@@ -2587,7 +2624,7 @@ export class Game {
 
   // what a generator is doing, for the hover readout
   genInfo(t) {
-    const T = this.T, lit = t.burn > 0, out = T.genOutput; const q = t.q || [];
+    const T = this.T, lit = t.burn > 0, kind = PWP.genKindOf(t), out = PWP.genKw(T, t), hop = PWP.genHopper(T, t); const q = t.q || [];
     const cur = t.cur ? species[t.cur.sp] : null;
     const names = ['Common', 'Uncommon', 'Rare', 'Epic'];
     const counts = [0, 0, 0, 0]; let queued = 0;
@@ -2595,16 +2632,20 @@ export class Game {
     if (t.rc) for (let r = 0; r < 4; r++) { counts[r] = t.rc[r] || 0; }
     if (t.rc) { queued = 0; for (let r = 0; r < 4; r++) queued += counts[r] * burnTime(r, out); }
     const left = Math.max(0, t.burn || 0), total = left + queued;
-    const fmt = (sec) => (sec >= 90 ? `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s` : `${Math.round(sec)} s`);
+    const fmt = (sec) => (sec >= 90 ? `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s` : sec >= 10 ? `${Math.round(sec)} s` : sec >= 1 ? `${sec.toFixed(1)} s` : sec >= 0.01 ? `${sec.toFixed(2)} s` : `${(sec * 1000).toFixed(1)} ms`);   // (a Titan on a Common with every upgrade burns one in about 2 ms: never "0.00 s")
     const net = this.power.nets.find((n) => n.nodes.includes(t)) || null;
     const lines = [];
     lines.push(lit && cur ? `Burning: ${cur.name} (${RARITY[cur.rarity].name}), ${fmt(left)} left of ${fmt(t.burnMax || left)}` : 'Not burning: out of fuel');
-    lines.push(`Output ${out.toFixed(1)} kW${net ? `  ·  grid ${net.supply.toFixed(1)} of ${net.demand.toFixed(1)} kW wanted` : ''}`);
+    lines.push(`Output ${out < 1000 ? out.toFixed(1) + ' kW' : PWP.kwText(out)}${net ? `  ·  grid ${net.supply.toFixed(1)} of ${net.demand.toFixed(1)} kW wanted` : ''}`);
     lines.push(`Burn rate: 1 plush per ${fmt(burnTime(0, out))} (Common), ${fmt(burnTime(1, out))} (Uncommon), ${fmt(burnTime(2, out))} (Rare), ${fmt(burnTime(3, out))} (Epic)`);
     const mix = counts.map((c, r) => (c ? `${c} ${names[r]}` : '')).filter(Boolean).join(', ');
-    lines.push(`Hopper ${q.length}/${T.genBuffer}${mix ? ': ' + mix : ' (empty)'}${total > 0 ? `  ·  runs ${fmt(total)}` : ''}`);
+    lines.push(`Hopper ${q.length}/${hop}${mix ? ': ' + mix : ' (empty)'}${total > 0 ? `  ·  runs ${fmt(total)}` : ''}`);
+    if (kind.key !== 'std') lines.push(`${kind.name}: ${kind.mul < 1 ? 'a quarter of' : kind.mul + ' times'} the base ${(T.genOutput).toFixed(1)} kW, takes ${kind.ports} cables`);
+    lines.push(t.mode === 'reserve'
+      ? `RESERVE: ${lit ? 'burning now because it is needed' : q.length ? 'holding its fuel' : 'no fuel'}. It burns only when a battery on its grid is under 30% or the grid is overloaded. E with empty hands switches it to AUTO.`
+      : 'AUTO: it burns whenever it has fuel. E with empty hands switches it to RESERVE (it saves plush while the batteries are full).');
     lines.push('Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable to burn.');
-    return { title: 'GENERATOR', lit, lines };
+    return { title: kind.key === 'std' ? 'GENERATOR' : kind.name.toUpperCase(), lit, lines };
   }
 
   // gate scan beeps share one limiter so a busy belt or a crowd of bots never turns into a machine-gun of dings
@@ -2617,9 +2658,10 @@ export class Game {
     if (BP.ghost(this, tool, plan)) return;   // a planned line draws all its tiles
     if (!plan || !plan.ent) { this.machines.setGhost(null); return; }
     const e = plan.ent;
-    const key = `${tool.kind}${plan.ok}${e.dir}${e.rise || 0}`;
+    const gsc = tool.kind === 'gen' && PWP.GEN_BY_ITEM[tool.id] ? PWP.GEN_BY_ITEM[tool.id].scale : 1;   // the generator ladder: a bigger rung shows a bigger ghost
+    const key = `${tool.kind}${plan.ok}${e.dir}${e.rise || 0}${gsc}`;
     if (this.machines.ghostKey !== key) {
-      const g = new THREE.Group();
+      const g = new THREE.Group(); g.scale.setScalar(gsc);
       const mat = new THREE.MeshBasicMaterial({ color: plan.ok ? 0x5dffa0 : 0xff5a4a, transparent: true, opacity: 0.4, depthWrite: false });
       const flat = tool.kind === 'belt' || tool.kind === 'gate' || tool.kind === 'splitter';
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.56, flat ? 0.08 : 0.55, 0.56), mat);
@@ -2667,7 +2709,7 @@ export class Game {
     }
     if (tool.kind === 'splitter' && e.type === 'splitbelt') {
       const tile = this.logi.byId.get(e.id);
-      if (tile && !tile.splitter && !tile.detector) {
+      if (tile && !tile.splitter && !tile.detector && !tile.merger) {
         tile.splitter = true; this.logi.buildSplitter(tile);
         this.netSend({ t: 'ent-', id: tile.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(tile) });
         this.sound.place(); this.S.stats.splitters = (this.S.stats.splitters || 0) + 1; this.rebuildTools();
@@ -2676,7 +2718,7 @@ export class Game {
     }
     if (tool.kind === 'gate' && e.type === 'gatebelt') {
       const tile = this.logi.byId.get(e.id);
-      if (tile && !tile.detector) {
+      if (tile && !tile.detector && !tile.merger && !tile.splitter) {
         tile.detector = true; this.logi.buildGate(tile);
         this.netSend({ t: 'ent-', id: tile.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(tile) });
         this.sound.place(); this.S.stats.gates = (this.S.stats.gates || 0) + 1; this.rebuildTools();
@@ -2686,6 +2728,7 @@ export class Game {
     if (['belt', 'sorter', 'vault', 'mech', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) {
       ent = { id, type: tool.kind === 'gate' || tool.kind === 'splitter' ? 'belt' : tool.kind, i: e.i, j: e.j, k: e.k, dir: e.dir, rise: e.rise || 0 };
       if (tool.hose) ent.hose = true;
+      if (tool.kind === 'gen') { const gk = PWP.GEN_BY_ITEM[tool.id]; if (gk && gk.key !== 'std') ent.gk = gk.key; }   // the generator ladder: the host reads the rung from the item id, never from what a guest sent
       BP.stamp(this, tool, ent);   // a Mk2 to Mk6 belt item makes a belt of that mark
       if (e.turnPrev && tool.kind === 'belt') { const pt = this.logi.byId.get(e.turnPrev.id); if (pt && pt.type === 'belt' && !this.logi.nextOf(pt)) { pt.dir = e.turnPrev.dir; this.logi.dirty = true; } }
       if (tool.kind === 'splitter') { ent.splitter = true; S.stats.splitters = (S.stats.splitters || 0) + 1; }
@@ -2701,11 +2744,8 @@ export class Game {
       return;
     }
     if (tool.kind === 'frame') {
-      ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, gm: e.gm, glo: e.glo, gj: e.gj, yaw: e.yaw }; if (e.turned) { ent.turned = true; S.stats.turnedFrames = (S.stats.turnedFrames || 0) + 1; } S.stats.props++;
-      // building a frame carves out its 4x4 section; the crew salvages the plush
-      let carved = 0;
-      for (const [ci, cj, ck] of e.clear || []) { const rm = this.world.removeCell(ci, cj, ck, true); if (rm) { carved++; S.stats.cells++; this.sellAuto(rm.sp, rm.vr, 0.6); } }
-      if (carved) { this.fx.dust(e.cx, e.y0 + 1.2, e.cz, 8, 1, 1); this.ui.hint(`Frame built: carved a 4x4 section, salvaged ${carved} plush.`, 3); }
+      ent = { id, type: 'frame', kind: e.kind, axis: e.axis, cx: e.cx, cz: e.cz, y0: e.y0, w: e.w, h: e.h, d: e.d, gm: e.gm, glo: e.glo, gj: e.gj, yaw: e.yaw }; if (e.turned) { ent.turned = true; S.stats.turnedFrames = (S.stats.turnedFrames || 0) + 1; } S.stats.props++;
+      // a frame never digs: the 4x4x4 section was already dug out when the plan said ok
     }
     else if (tool.kind === 'mfan') {
       ent = { id, type: 'fan', mounted: true, frameId: e.frameId, px: e.px, py: e.py, pz: e.pz, fx: e.fx, fz: e.fz, fyaw: e.fyaw, dir: 0, i: e.i, j: e.j, k: e.k };
@@ -2736,7 +2776,7 @@ export class Game {
     this.fx.dust(e.cx ?? e.x, (e.y0 ?? e.y) + 0.3, e.cz ?? e.z, 8, 0.7, 0.8);
     if (tool.kind === 'frame') {
       // re-evaluate nearby roof: creaking cells may now be safe
-      if (this._strainNote) { this.ui.hint(this._strainNote, 5); this._strainNote = null; } else this.ui.hint(`${FRAME_TYPES[e.kind].name} set. It holds the roof within ${FRAME_TYPES[e.kind].radius} m of it, and the unsafe stretch starts again at the edge of that reach. Place the next one on any side to extend.`, 4);
+      if (this._strainNote) { this.ui.hint(this._strainNote, 5); this._strainNote = null; } else this.ui.hint(`${FRAME_TYPES[e.kind].name} set. It holds the roof within ${FRAME_TYPES[e.kind].radius} m of it, and the unsafe stretch starts again at the edge of that reach. Place the next one on any side, a whole cube further, to extend.`, 4);
     }
     this.trackDepth();
   }
@@ -2751,7 +2791,8 @@ export class Game {
     let best = null, bd = 3.2;
     for (const it of this.machines.items.values()) {
       const e = it.ent;
-      if ((e.type === 'borer' && !e.done) || (e.type === 'frame' && e.auto)) continue;
+      if ((e.type === 'borer' && !e.done) || (e.type === 'frame' && e.auto) || e.type === 'garch') continue;   // a giant arch is picked by its ribs below
+      if (e.type === 'frame') { const fr = frameRay(e, eye, dir, 3.6); if (!fr) continue; const fd = fr.through ? fr.t + 2.5 : fr.t; if (fd < bd) { bd = fd; best = it; } continue; }   // a pillar or beam, or the hollow inside it
       const em = isEarth(e.type);
       const x = em ? it.obj.position.x : (e.cx ?? e.x), y = em ? it.obj.position.y + e.hy : (e.y0 ?? e.y) + (e.h ? e.h / 2 : 0.5), z = em ? it.obj.position.z : (e.cz ?? e.z);
       if (x === undefined || z === undefined) continue;   // floor pads, catwalks, walls, ramps and stairs have no centre point: BUILD.pickBuilt finds them by the cells and slopes under the crosshair
@@ -2761,13 +2802,24 @@ export class Game {
       if (v.normalize().dot(dir) < 0.9) continue;
       bd = d; best = it;
     }
-    { const pb = BUILD.pickBuilt(this, eye, dir, 3.6); if (pb && (!best || pb.t < bd)) return { kind: 'mach', id: pb.ent.id }; }
+    { let pb = BUILD.pickBuilt(this, eye, dir, 3.6), pt = TRANSIT.pick(this, eye, dir, 3.6);   // pt: a door, the lift car, a call button, a jump pad or a cushion pad (transit.js)
+      if (pb && pt) { if (pb.t <= pt.t) pt = null; else pb = null; }
+      if (pb && (!best || pb.t < bd)) return { kind: 'mach', id: pb.ent.id };
+      if (pt && (!best || pt.t < bd)) return { kind: 'mach', id: pt.ent.id }; }
+    { const rp = RAIL.pickRail(this, eye, dir, 3.6); if (rp && (!best || rp.t < bd)) return { kind: 'mach', id: rp.ent.id }; }   // a piece of Mine Rail (no centre point, found by the cell under the crosshair)
+    { const fp = HAUL.pickFlat(this, eye, dir, 3.6); if (fp && (!best || fp.t < bd)) return { kind: 'mach', id: fp.ent.id }; }   // a road plate or a dock: found by the ray reaching its slab
+    { const ap = ARCH.pick(this, eye, dir, 3.6); if (ap && (!best || (ap.t < bd && !ARCH.holds(ap.ent, best)))) return { kind: 'mach', id: ap.ent.id }; }   // a giant arch: a rib, a pillar or the hollow inside it
     return best ? { kind: 'mach', id: best.ent.id } : null;
   }
 
   deconstruct(group) {
     const ref = this.findDeconRef();
-    if (!ref) return;
+    if (!ref) {
+      { const bk = this.hammerTarget(); if (bk && bk.kind === 'bulk') { this.collect({ type: 'cell', i: bk.i, j: bk.j, k: bk.k, sp: BULK, vr: 0 }); this.sound.thump(0.25, 120); return; } }   // X takes a bulkhead down like the hammer does
+      // X next to your cart stows it even when you are not looking right at it (the hint says so)
+      if (this.S.cart && this.cartDist() < 4.5) { if (this.isGuest()) { this.cmd('decon', { kind: 'cart' }); return; } this.stowCart(); }
+      return;
+    }
     if (group && ref.kind === 'mach') ref.group = true;   // Shift+X: the whole zoop group of the piece you aim at
     if (this.isGuest()) { this.cmd('decon', ref); this.sound.thump(0.12, 140); return; }
     this.doDecon(ref);
@@ -2815,8 +2867,8 @@ export class Game {
     if (isEarth(e.type)) { spillEarth(this, e, e.px ?? e.x, e.y ?? 0, e.pz ?? e.z); this.ui.setCarry(this.S.carry, this.T.carry); this.power.markDirty(); }
     // taking a support away puts the roof it was holding back under the tunnel rule
     if (e.type === 'frame' || e.type === 'strut' || e.jack) {
-      const w = this.world, ci = toI(e.cx ?? e.x), ck = toK(e.cz ?? e.z), cj = toJ(e.y0 ?? e.y ?? 0), R = e.type === 'frame' ? 6 : 4;
-      for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: ci + a, j: cj + dj, k: ck + b });
+      const w = this.world, ci = toI(e.cx ?? e.x), ck = toK(e.cz ?? e.z), cj = toJ(e.y0 ?? e.y ?? 0), R = e.type === 'frame' ? 8 : 4;
+      for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5, 8]) w.stabQueue.push({ i: ci + a, j: cj + dj, k: ck + b });
       this.queueLoad(e.cx ?? e.x, (e.y0 ?? e.y ?? 0) + 1, e.cz ?? e.z);
     }
   }
@@ -2863,7 +2915,7 @@ export class Game {
   }
 
   // an overloaded support does not drop at once: it creaks, sheds dust and groans for 3 to 5 seconds so there is time to run or prop it up
-  supName(s) { return s.kind === 'jack' ? 'jack' : s.kind === 'strut' ? 'strut' : (FRAME_TYPES[s.kind] || { name: 'frame' }).name.toLowerCase(); }
+  supName(s) { const a = parseArch(s.kind); if (a) return ARCH.nameOf(a.span, a.mat).toLowerCase(); return s.kind === 'jack' ? 'jack' : s.kind === 'strut' ? 'strut' : (FRAME_TYPES[s.kind] || { name: 'frame' }).name.toLowerCase(); }
 
   tickPending(dt) {
     const w = this.world;
@@ -2897,7 +2949,7 @@ export class Game {
         continue;
       }
       if (this.pendFail && this.pendFail.has(id) && ratio <= 1) this.pendFail.delete(id);
-      if (ratio > WARN_AT) { if (!s.warned) { s.warned = true; const nm = s.kind === 'jack' ? 'jack' : s.kind === 'strut' ? 'strut' : (FRAME_TYPES[s.kind] || { name: 'frame' }).name.toLowerCase(); this.supportWarnFx(s.x, s.z, nm, ratio); this.netSend({ t: 'swarn', x: s.x, z: s.z, name: nm, ratio }); } }
+      if (ratio > WARN_AT) { if (!s.warned) { s.warned = true; const nm = this.supName(s); this.supportWarnFx(s.x, s.z, nm, ratio); this.netSend({ t: 'swarn', x: s.x, z: s.z, name: nm, ratio }); } }
       else if (ratio < 0.7) s.warned = false;
     }
   }
@@ -2925,12 +2977,12 @@ export class Game {
   failSupport(s, ratio) {
     const w = this.world, S = this.S;
     const ent = S.entities.find((e) => e.id === s.id); const it = this.machines.items.get(s.id);
-    w.supports = w.supports.filter((q) => q.id !== s.id);
+    w.supports = w.supports.filter((q) => q.id !== s.id && q.id !== 'shield' + s.id);   // (a Portal's arch takes the shield that follows its cutter with it)
     this.dropMountedFans(s.id, false);
     if (it) { this.machines.disposeObj(it.obj); this.machines.root.remove(it.obj); this.machines.items.delete(s.id); }
     S.entities = S.entities.filter((e) => e.id !== s.id); this.netSend({ t: 'ent-', id: s.id });
     S.stats.brokenSupports = (S.stats.brokenSupports || 0) + 1;
-    const fname = ent && ent.type === 'frame' ? (FRAME_TYPES[ent.kind] || { name: 'A frame' }).name : s.kind === 'jack' ? 'A jack' : 'A strut';
+    const fname = ent && ent.type === 'garch' ? ARCH.nameOf(ent.span, ent.mat) : ent && ent.type === 'frame' ? (FRAME_TYPES[ent.kind] || { name: 'A frame' }).name : s.kind === 'jack' ? 'A jack' : 'A strut';
     this.supportFailFx(s.x, s.y, s.z, fname, ratio);
     this.netSend({ t: 'sfail', x: s.x, y: s.y, z: s.z, name: fname, ratio });
     // the roof it was holding comes back under the tunnel rule, and the supports that shared its load are re-weighed
@@ -2964,7 +3016,7 @@ export class Game {
     let near = null, nd = 8; for (const s of w.supports) if (s.cap !== undefined) { const dd = Math.hypot(s.x - p.pos.x, s.y - (p.pos.y + 1), s.z - p.pos.z); if (dd < nd) { nd = dd; near = s; } }
     let load = 'no support within 8 m', cls = '';
     if (near) { const r = isFinite(near.cap) ? loadOn(w, near) / near.cap : 0; near.load = r; load = `nearest support: ${Math.round(r * 100)}% load`; cls = r > 0.97 ? 'red' : r > WARN_AT ? 'amber' : ''; }
-    const fs = fanSpacing(d); this.ui.setSurvey(true, { depth: `${Math.round(d)} m DEEP`, best: bestTxt, press: `${(over * 0.6).toFixed(0)} m of pile above · weight x${(1 + d / 150).toFixed(1)}`, air: isFinite(fs) ? `stale air ${Math.round(staleAt(d) * 100)}%: a Support Fan every ${Math.floor(fs)} m` : 'air still fresh at this depth', load, cls });
+    const fs = fanSpacing(d); this.ui.setSurvey(true, { depth: `${Math.round(d)} m DEEP`, best: bestTxt, press: `${(over * 0.6).toFixed(0)} m of pile above · weight x${(1 + d / 150).toFixed(1)}`, air: isFinite(fs) ? `stale air ${Math.round(staleAt(d) * 100)}%: a Support Fan every ${Math.floor(fs)} m` : 'air still fresh at this depth', load, cls, n: { depth: d, best: best ? { name: FRAME_TYPES[best].name, max: FRAME_TYPES[best].maxDepth, flag: d > FRAME_TYPES[best].maxDepth ? 'weak' : d > FRAME_TYPES[best].maxDepth * 0.85 ? 'near' : '' } : null, pile: `pile ${(over * 0.6).toFixed(0)} m, x${(1 + d / 150).toFixed(1)}`, loadR: near ? (isFinite(near.cap) ? near.load : 0) : null, stale: staleAt(d), fan: isFinite(fs) ? Math.floor(fs) : null } });
   }
 
   // ======================= abandoned gear =======================
@@ -3047,9 +3099,9 @@ export class Game {
     document.getElementById('travelMoney').textContent = fmt(this.S.money);
     const p = this.player.pos;
     box.innerHTML = '';
-    const mk = (title, sub, label, fn, dis) => {
+    const mk = (title, sub, label, fn, dis, cost) => {
       const row = document.createElement('div'); row.className = 'trow';
-      row.innerHTML = `<b>${title}</b><span>${sub}</span><button ${dis ? 'disabled' : ''}>${label}</button>`;
+      row.innerHTML = `<b>${title}</b><span>${sub}</span><button ${cost === undefined ? '' : `data-cost="${cost}"`} ${dis ? 'disabled' : ''}>${label}</button>`;
       row.querySelector('button').onclick = fn;
       box.appendChild(row);
     };
@@ -3063,7 +3115,7 @@ export class Game {
         if (this.isGuest()) this.cmd('pay', { n: cost });   // the wallet is the host's: a guest's fare comes out of it too
         this.teleport(b);
         this.ui.closeModals();
-      }, dist < 6 || this.S.money < cost);
+      }, dist < 6 || this.S.money < cost, dist < 6 ? undefined : cost);
     }
   }
 
@@ -3544,9 +3596,9 @@ export class Game {
       this.ui.setCarry(S.carry, this.T.carry);
       this.hp = this.hpMax; this.airLeft = undefined; this.trapOn = false; this.suffocating = false; this.dust.lung = 0.2;
       this.player.buried = 0;
-      this.recall();
+      const woke = this.recall();
       S.stats.deaths = (S.stats.deaths || 0) + 1;
-      this.ui.toast({ icon: '💀', title: 'You died', text: `You ${why}. You woke up on the floor of the sorting bay. Whatever you carried spilled where it happened.`, ms: 8000 });
+      this.ui.toast({ icon: '💀', title: 'You died', text: `You ${why}. You woke up ${woke && !woke.bay ? 'at ' + woke.name : 'on the floor of the sorting bay'}. Whatever you carried spilled where it happened.`, ms: 8000 });
       setTimeout(() => { this.ui.blackout(false); this.blacking = false; this.dead = false; }, 800);
     }, 1400);
   }
@@ -3559,7 +3611,7 @@ export class Game {
     if (this.mode === 'play' && !this.dead && this.hp < this.hpMax && this.hurtT > 7 && !this.suffocating) this.hp = Math.min(this.hpMax, this.hp + 2.2 * dt);
     const max = 60 + 30 * (this.T.airTank || 0);
     const air = this.airLeft === undefined ? 1 : Math.max(0, this.airLeft / max);
-    this.ui.setVitals(this.hp / this.hpMax, air, this.trapOn, this.suffocating, this.dust.lung);
+    this.ui.setVitals(this.hp / this.hpMax, air, this.trapOn, this.suffocating, this.dust.lung, this.hp, this.hpMax, this.airLeft === undefined ? undefined : this.airLeft);
     void p;
   }
 
@@ -3648,7 +3700,7 @@ export class Game {
     } else this.recallHold = 0;
     if (this.keys.Space && (p.embedded || p.buried > 0.3)) this.punch(true, true);
     if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>R</kbd> (or hold <kbd>Space</kbd>) to punch your way out.', 8); }
-    if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the sorting bay.', 8); }
+    if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the nearest depot (or the sorting bay).', 8); }
 
     if (this.S.stats && this.T.scan > 0) this.sound.geiger(dt, this.sigLevel > 0 ? Math.pow(this.sigLevel, 0.7) : 0);
     // carried held plush bob
@@ -3664,11 +3716,11 @@ export class Game {
       // BURIED is how far under the pile surface you are (it cannot pass the 43 m ceiling); FROM BAY is how far you have really come
       const parts = []; if (depth > 0.3) parts.push(`BURIED ${depth.toFixed(1)} m`); else if (p.pos.y > 6) parts.push(`ALTITUDE ${p.pos.y.toFixed(0)} m`);
       if (out > 30) parts.push(`${out >= 1000 ? (out / 1000).toFixed(2) + ' km' : Math.round(out) + ' m'} FROM BAY`); if (out > 300) parts.push(`EXIT ${left >= 1000 ? (left / 1000).toFixed(2) + ' km' : Math.round(left) + ' m'}`);
-      this.ui.setDepth(parts.join('  ·  ')); }
+      this.ui.setDepth(parts.join('  ·  '), { depth, alt: p.pos.y, out, left }); }
     { const ct = this.stowed ? null : this.curTool(); const inf = ct && ct.kind !== 'hammer' && ct.kind !== 'cable' ? (this._xInfo && this._xInfo.t > this.time ? this._xInfo : null) : infoFor(this, findInfoRef(this)); if (inf) this.ui.setTileInfo(true, inf.title, inf.lines.filter(Boolean), inf.lit); else this.ui.setTileInfo(false); }
     {
-      const net = this.isGuest() ? this.guestGrid : (this.hasGen() ? this.power.nearest(p.pos.x, p.pos.y + 1, p.pos.z) : null);
-      if (net) { const used = Math.min(net.demand, net.supply); this.ui.setPower(true, net.supply > 0 ? Math.min(1, net.demand / Math.max(0.01, net.supply)) : 1, net.tripped ? `TRIPPED · ${net.demand.toFixed(1)} kW wanted` : net.supply <= 0 ? 'NO FUEL' : `${net.demand.toFixed(1)} / ${net.supply.toFixed(1)} kW${net.sat < 0.99 ? ' BROWNOUT' : ''}`); void used; }
+      const net = this.isGuest() ? PWP.gridFromDyn(this.guestGrid) : (this.hasGen() ? this.power.nearest(p.pos.x, p.pos.y + 1, p.pos.z) : null);
+      if (net) { const used = Math.min(net.demand, net.supply); this.ui.setPower(true, net.supply > 0 ? Math.min(1, net.demand / Math.max(0.01, net.supply)) : 1, net.tripped ? `TRIPPED · ${net.demand.toFixed(1)} kW wanted` : net.supply <= 0 ? 'NO FUEL' : `${net.demand.toFixed(1)} / ${net.supply.toFixed(1)} kW${net.sat < 0.99 ? ' BROWNOUT' : ''}`, { demand: net.demand, supply: net.supply, tripped: !!net.tripped, sat: net.sat === undefined ? 1 : net.sat }); void used; }
       else this.ui.setPower(false);
       const dd = this.dust;
       { const dep = Math.hypot(p.pos.x, p.pos.z), sp = fanSpacing(dep); this.ui.setAir(T.airmon && (dd.level > 0.03 || dd.lung > 0.03 || staleAt(dep) > 0.1), dd.level, dd.lung, dd.lung > 0.6 ? 'COUGHING' : dd.level > 0.3 ? (staleAt(dep) > dd.level * 0.8 ? 'STALE AIR' : 'DUSTY') : isFinite(sp) && staleAt(dep) > 0.1 ? `FAN EVERY ${Math.floor(sp)} M` : 'CLEAR'); }
@@ -3682,6 +3734,7 @@ export class Game {
       const ex = EXIT_X - p.pos.x, ez = 0 - p.pos.z;
       { const ms = []; for (const it of this.machines.items.values()) if (it.ent.type === 'marker') { const d = Math.hypot(it.ent.x - p.pos.x, it.ent.z - p.pos.z); if (d < 700) ms.push([d, it.ent]); } ms.sort((a, b) => a[0] - b[0]); for (const [, e2] of ms.slice(0, 8)) markers.push({ b: deg(Math.atan2(e2.x - p.pos.x, -(e2.z - p.pos.z))), label: 'M', color: '#ff9bd0' }); }
       for (const t2 of this.logi.tiles.values()) if (t2.type === 'belt' && t2.detector && t2.alarm) markers.push({ b: deg(Math.atan2(cellX(t2.i) - p.pos.x, -(cellZ(t2.k) - p.pos.z))), label: '!!', color: '#ff4d4d' });
+      for (const it of this.machines.items.values()) if (it.ent.type === 'vscan' && it.ent.alarm) markers.push({ b: deg(Math.atan2(it.ent.cx - p.pos.x, -(it.ent.cz - p.pos.z))), label: '!!', color: '#ff4d4d' });   // a Vehicle Scanner holds The One
       if (T.exitMarker) markers.push({ b: deg(Math.atan2(ex, -ez)), label: 'EXIT', color: '#7ef0c4' });
       const np2 = this.needlePos();
       if (T.scan >= 3 && np2 && Math.hypot(np2.x - p.pos.x, np2.z - p.pos.z) <= T.scanRange) markers.push({ b: deg(Math.atan2(np2.x - p.pos.x, -(np2.z - p.pos.z))), label: 'ONE', color: '#fff3a0' });
@@ -3765,7 +3818,8 @@ export class Game {
       if (it && it.sp === NEEDLE) { this.sim.spawn(it.sp, it.vr, cellX(ci + di), cellY(j) + 0.2, cellZ(ck + dk), 0, 2, 0, 2); }
     }
     this.sound.whoosh(0.2);
-    this.ui.hint('Recalled to the sorting bay.', 2);
+    this.ui.hint(`Recalled to ${best.bay ? 'the sorting bay' : best.name}.`, 2);
+    return best;
   }
 
   // ======================= dynamic render feed =======================

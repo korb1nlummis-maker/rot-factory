@@ -25,8 +25,8 @@ export default async function (ctx) {
     return out.length === 0 || out.join('; ');
   });
   await T('world.the-hud-shows-distance-from-the-bay-and-the-exit-not-just-burial', async () => {
-    fresh({}); p().pos.set(1500, 0, 0); p().vel.set(0, 0, 0); g.hudT = 0; g.updatePlay(0.05); let t = document.getElementById('depth').textContent;
-    p().pos.set(200, 0, 0); g.hudT = 0; g.updatePlay(0.05); const near = document.getElementById('depth').textContent; p().pos.set(0, 0, -1.4); g.hudT = 0; g.updatePlay(0.05); const start = document.getElementById('depth').textContent;
+    fresh({}); p().pos.set(1500, 0, 0); p().vel.set(0, 0, 0); g.hudT = 0; g.updatePlay(0.05); const dt = () => g.ui._depthTxt || ''; let t = dt();
+    p().pos.set(200, 0, 0); g.hudT = 0; g.updatePlay(0.05); const near = dt(); p().pos.set(0, 0, -1.4); g.hudT = 0; g.updatePlay(0.05); const start = dt();
     return (/1\.50 km FROM BAY/.test(t) && new RegExp('EXIT 3\\.4\\d km').test(t) && /\b20\d m FROM BAY/.test(near) && !/EXIT/.test(near) && !/FROM BAY/.test(start)) || `1.5 km: "${t}"; 200 m: "${near}"; start: "${start}"`;
   });
   await T('world.far-achievements-exist-in-order', async () => {

@@ -102,10 +102,11 @@ export default async function (ctx) {
     e.hop = []; e.hn = 0; g.useEarthIt(it); const off = e.off === true; g.useEarthIt(it); return (off && !e.off) || 'E did not park and unpark';
   });
 
-  await T('earth.diggers-never-take-the-one', async () => {
+  await T('earth.diggers-scoop-the-one-and-keep-it-in-the-hopper', async () => {
+    // the Vehicle Scanner wave: a digger now takes The One like any plush, but it stays in the hopper (never sold, belted or lost); the full rules are in vscan_haul.js
     await world(); fresh(up()); const a = arena({ deep: 6 }); const ni = a.i0 + 4, nk = a.k0, nj = 1; w().setCell(ni, nj, nk, NEEDLE, 0); const e = mk('excavator', a.i0, a.k0); run(120);
-    const still = w().get(ni, nj, nk) === NEEDLE; const lost = S().needleLost; const dug = a.count(); a.clear(); w().setCell(ni, nj, nk, 0, 0);
-    return (still && !lost && S().dex[NEEDLE] === undefined && e.dug > 30) || `needle still ${still} lost ${lost} dug ${e.dug} left ${dug}`;
+    const taken = w().get(ni, nj, nk) !== NEEDLE; const lost = S().needleLost; const aboard = e.hop.some((x, q) => q % 2 === 0 && x === NEEDLE); const dug = a.count(); a.clear(); w().setCell(ni, nj, nk, 0, 0);
+    return (taken && aboard && !lost && e.dug > 30) || `needle taken ${taken} aboard ${aboard} lost ${lost} dug ${e.dug} left ${dug}`;
   });
 
   await T('earth.excavator-walks-up-to-a-face-and-moves-forward-when-its-reach-is-clear', async () => {

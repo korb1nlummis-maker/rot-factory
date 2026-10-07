@@ -81,10 +81,11 @@ export const TYPES = {
   wramp: shellType({ plan: (g, tool, eye, dir, yaw) => B.planSlope(g, tool, eye, dir, yaw) }),
   stair: shellType({ plan: (g, tool, eye, dir, yaw) => B.planSlope(g, tool, eye, dir, yaw) }),
   levelpad: shellType({
-    cfg: { on: bool }, onCfg: (g, e, clean) => B.onLevelCfg(g, e, clean),
+    stat: 'levelPads', cfg: { on: bool }, onCfg: (g, e, clean) => B.onLevelCfg(g, e, clean),
     info: (g, e) => B.infoLevel(g, e), use: (g, e) => B.useLevel(g, e),
     plan: (g, tool, eye, dir, yaw) => B.planLevel(g, tool, eye, dir, yaw),
     tick: (g, dt) => B.tickLevels(g, dt),
+    kw: (e) => B.levelKw(e), pos: (g, e) => B.levelAt(e), wireName: () => 'Leveling Pad',   // the grid solver and the cable tool read these
     row: (g) => B.levelRow(g), guestRow: (g, d) => B.applyLevelRow(g, d),
   }),
 };

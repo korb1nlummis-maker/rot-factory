@@ -79,7 +79,7 @@ export default async function (ctx) {
   });
 
   await T('qa.intro.a-guest-follows-the-host-clock-and-day', async () => {
-    fresh({}); S().gameMin = 10; g.wasOpen = true; g._dayShown = 1; g.netMessage({ t: 'time', gameMin: 1440 * 6 + 20 }); const d = g.dayNumber(); g.updateClock(0.1); g.ui.setDay(g.dayNumber()); const txt = ($('clockDay') || {}).textContent;
+    fresh({}); S().gameMin = 10; g.wasOpen = true; g._dayShown = 1; g.netMessage({ t: 'time', gameMin: 1440 * 6 + 20 }); const d = g.dayNumber(); g.updateClock(0.1); g.ui.setDay(g.dayNumber()); const txt = g.ui.dials.read('clock').label;
     g.netMessage({ t: 'time', gameMin: 5 }); const back = g.dayNumber(); g.updateClock(0.1);   // the host went back (a fresh game): must not throw or show nonsense
     S().gameMin = 0; return (d === 7 && /DAY 7/.test(txt || 'DAY 7') && back === 1) || `day ${d} clock "${txt}" after a reset ${back}`;
   });

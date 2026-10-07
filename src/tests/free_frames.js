@@ -26,8 +26,8 @@ export default async function (ctx) {
     return (across.length === 0 && along.length > 8 && slant.length > 0) || `blocking cells: across ${across.length}, along ${along.length}, slanted ${slant.length}`;
   });
   await T('mining.free-frames-chain-into-a-curve-without-snapping', async () => {
-    const { i, k } = tunnel(10, 4, 40); const ids = []; let yaw = 0;
-    for (let n = 0; n < 5; n++) { g.frameYaw = yaw; look(cellX(i + 6 + n * 3), cellZ(k + 2)); const pl = await plan(); if (!pl.ok) return `frame ${n}: ${pl.why}`; placeNow(); ids.push(S().entities[S().entities.length - 1]); yaw += 0.12; }
+    const { i, k } = tunnel(10, 4, 50); const ids = []; let yaw = 0;
+    for (let n = 0; n < 5; n++) { g.frameYaw = yaw; look(cellX(i + 6 + n * 5), cellZ(k + 2)); const pl = await plan(); if (!pl.ok) return `frame ${n}: ${pl.why}`; placeNow(); ids.push(S().entities[S().entities.length - 1]); yaw += 0.12; }
     const ys = ids.map((e) => e.yaw); const free = ids.every((e) => e.turned); const cur = ys.every((v, n) => n === 0 || v > ys[n - 1]);
     return (free && cur && new Set(ids.map((e) => e.id)).size === 5) || 'curve ' + ys.map((v) => v.toFixed(2));
   });

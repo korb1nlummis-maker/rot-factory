@@ -59,8 +59,8 @@ export default async function (ctx) {
       S().carry.pop(); if (!g.storeRoom()) { finish(); return 'storeRoom false with room at level ' + l; }
     }
     // the HUD says so
-    g.ui.setCarry(S().carry, g.T.carry); const hud = document.getElementById('carryMax').textContent; finish();
-    return hud === '1120' || 'HUD shows ' + hud;
+    g.ui.setCarry(S().carry, g.T.carry); const hud = g.ui.dials.read('carry').unit; finish();
+    return hud === '/ 1120' || 'HUD shows ' + hud;
   });
 
   // ---------------------------------------------------------------- crane arms: plush just inside the new reach can be grabbed

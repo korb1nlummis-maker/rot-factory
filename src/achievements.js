@@ -1,6 +1,7 @@
 // Achievements. check(S) returns true when earned. S is the game state.
 import { SPECIAL_MIN, DECOYS, speciesCount } from './plushdata.js';
 import { UPGRADES, CATS } from './upgrades.js';
+import { UPGRADES as CATALOG_UPGRADES } from './catalog.js';
 const A = (id, name, desc, check, icon = '★', secret = false) => ({ id, name, desc, check, icon, secret });
 
 export const ACHIEVEMENTS = [
@@ -276,6 +277,71 @@ stat('hauls', '🚛', [
 ]);
 stat('earthPress', '🛑', [['press1', 1, 'Hard Hat Area', 'Have an earth mover halted because the mountain was too heavy for your best frame.']]);
 stat('earthChoke', '😮‍💨', [['choke1', 1, 'Need a Fan', 'Have an earth mover choke on stale air.']]);
+
+// ---- The Satisfactory waves: rail, power parts, belt marks, lifts and undergrounds, the generator ladder, the build shell, furnishing, transit, the arches, the vehicle scanner and cables.
+// Their unlock lines are not 'fresh' upgrades (no per line Maxed achievement, the wave tests pin that), so each wave has counters and these tables instead.
+stat('railLaid', '🛤️', [
+  ['rail1', 1, 'First Spike', 'Lay a piece of Mine Rail.'], ['rail100', 100, 'Track Gang', 'Lay {n} pieces of Mine Rail.'],
+  ['rail1k', 1e3, 'Railroad Builder', 'Lay {n} pieces of Mine Rail.'], ['rail10k', 1e4, 'Transcontinental', 'Lay {n} pieces of Mine Rail.'],
+]);
+stat('railRides', '🚃', [
+  ['ride1', 1, 'All Aboard', 'Ride a Mine Rail cart to the end of the line.'], ['ride25', 25, 'Commuter Line', 'Finish {n} rides on a Mine Rail cart.'], ['ride250', 250, 'Season Ticket', 'Finish {n} rides on a Mine Rail cart.'],
+]);
+stat('railHomes', '🏠', [
+  ['rushhome1', 1, 'Rush Home', 'Rush home to the base on a Mine Rail cart.'], ['rushhome25', 25, 'Express Service', 'Rush home on a Mine Rail cart {n} times.'], ['rushhome250', 250, 'Last Train Home', 'Rush home on a Mine Rail cart {n} times.'],
+]);
+stat('railMeters', '📏', [
+  ['railm1k', 1e3, 'Ticket Punched', 'Ride {n} meters on Mine Rail carts.'], ['railm10k', 1e4, 'Long Line', 'Ride {n} meters on Mine Rail carts.'], ['railm100k', 1e5, 'Grand Tour', 'Ride {n} meters on Mine Rail carts.'],
+]);
+stat('railHauled', '🧸', [
+  ['railhaul100', 100, 'Cart Load', 'Haul {n} plush to the bin by Mine Rail cart.'], ['railhaul10k', 1e4, 'Ore Train', 'Haul {n} plush to the bin by Mine Rail cart.'], ['railhaul1m', 1e6, 'Plush Freight', 'Haul {n} plush to the bin by Mine Rail cart.'],
+]);
+stat('pwSwitches', '🔌', [['pwsw1', 1, 'Flip It', 'Build a Power Switch.'], ['pwsw10', 10, 'Panel Board', 'Build {n} Power Switches.'], ['pwsw100', 100, 'Switchyard', 'Build {n} Power Switches.']]);
+stat('pwBreakers', '⚡', [['pwbrk1', 1, 'Breaker Box', 'Build a Breaker Box.'], ['pwbrk10', 10, 'Fuse Board', 'Build {n} Breaker Boxes.'], ['pwbrk100', 100, 'Relay Hall', 'Build {n} Breaker Boxes.']]);
+stat('pwTrips', '🚨', [['pwtrip1', 1, 'Overcurrent', 'Trip a breaker with too much load.'], ['pwtrip25', 25, 'Short Fuse', 'Trip a breaker {n} times.'], ['pwtrip250', 250, 'Brownout Veteran', 'Trip a breaker {n} times.']]);
+stat('pwBatteries', '🔋', [['pwbat1', 1, 'Stored Energy', 'Build a Battery.'], ['pwbat10', 10, 'Battery Bank', 'Build {n} Batteries.'], ['pwbat100', 100, 'Grid Storage', 'Build {n} Batteries.']]);
+stat('beltLifts', '🛗', [['lift1', 1, 'Going Up', 'Build a Belt Lift.'], ['lift25', 25, 'Vertical Integration', 'Build {n} Belt Lifts.'], ['lift250', 250, 'Skyline Conveyor', 'Build {n} Belt Lifts.']]);
+stat('beltUgs', '🕳️', [['ug1', 1, 'Under the Floor', 'Build an Underground Belt end.'], ['ug25', 25, 'Subway Lines', 'Build {n} Underground Belt ends.'], ['ug250', 250, 'Mole Tunnels', 'Build {n} Underground Belt ends.']]);
+stat('shellPieces', '🧱', [
+  ['shell1', 1, 'Foundations', 'Set down a floor pad, catwalk, wall, ramp or stair.'], ['shell100', 100, 'Floor Plan', 'Set down {n} pads, catwalks, walls, ramps and stairs.'],
+  ['shell1k', 1e3, 'General Contractor', 'Set down {n} pads, catwalks, walls, ramps and stairs.'], ['shell10k', 1e4, 'Master Builder', 'Set down {n} pads, catwalks, walls, ramps and stairs.'],
+]);
+stat('levelPads', '🏗️', [['lvlpad1', 1, 'Leveled Ground', 'Set down a Leveling Pad.'], ['lvlpad10', 10, 'Site Foreman', 'Set down {n} Leveling Pads.']]);
+stat('furnPieces', '🪑', [
+  ['furn1', 1, 'Moving In', 'Set down a locker, crate, silo, sign or light.'], ['furn25', 25, 'Interior Decorator', 'Set down {n} lockers, crates, silos, signs and lights.'],
+  ['furn250', 250, 'Facilities Manager', 'Set down {n} lockers, crates, silos, signs and lights.'], ['furn2500', 2500, 'Hall Designer', 'Set down {n} lockers, crates, silos, signs and lights.'],
+]);
+stat('furnLights', '💡', [['furnlit1', 1, 'Mood Lighting', 'Set down a lamp, floodlight, strip light or warning beacon.'], ['furnlit100', 100, 'Light Show Crew', 'Set down {n} lamps, floodlights, strip lights and warning beacons.']]);
+stat('doorsBuilt', '🚪', [['door1', 1, 'Open Door Policy', 'Build a Door.'], ['door25', 25, 'Doorman', 'Build {n} Doors.'], ['door250', 250, 'Airlock Engineer', 'Build {n} Doors.']]);
+stat('platformLifts', '🛗', [['plift1', 1, 'Going Down', 'Build a Platform Lift.'], ['plift10', 10, 'Elevator Operator', 'Build {n} Platform Lifts.']]);
+stat('jumpPads', '🦘', [['jump1', 1, 'Spring in Your Step', 'Build a Jump Pad.'], ['jump25', 25, 'Trampoline Park', 'Build {n} Jump Pads.']]);
+stat('archBuilt', '⛩️', [['arch1', 1, 'Gatekeeper', 'Build a Detector Arch.'], ['arch10', 10, 'Checkpoint Network', 'Build {n} Detector Arches.']]);
+stat('archHits', '✅', [
+  ['archhit1', 1, 'Match!', 'Walk through a Detector Arch that matches what you carry.'], ['archhit100', 100, 'Sharp Eyes', 'Match what you carry at a Detector Arch {n} times.'],
+  ['archhit1k', 1e3, 'Never Misses', 'Match what you carry at a Detector Arch {n} times.'], ['archhit10k', 1e4, 'Customs Legend', 'Match what you carry at a Detector Arch {n} times.'],
+]);
+stat('vscans', '🚛', [
+  ['vscan1', 1, 'Heavy Inspection', 'Have a truck scanned at a Vehicle Scanner.'], ['vscan100', 100, 'Weigh Station', 'Scan {n} truck loads at Vehicle Scanners.'],
+  ['vscan1k', 1e3, 'Fleet Inspector', 'Scan {n} truck loads at Vehicle Scanners.'], ['vscan10k', 1e4, 'Port Authority', 'Scan {n} truck loads at Vehicle Scanners.'],
+]);
+stat('vscanAlarms', '🚨', [['vsalarm1', 1, 'Caught in the Beam', 'Have a Vehicle Scanner catch The One on a truck.'], ['vsalarm10', 10, 'Stop That Truck', 'Have a Vehicle Scanner catch The One {n} times.']]);
+const owned = (S, ids) => ids.filter((id) => ((S.up || {})[id] || 0) >= 1).length;
+const setOwned = (ids) => (S, v) => { S.up = S.up || {}; ids.forEach((id, n) => { if (n < v) S.up[id] = 1; else delete S.up[id]; }); };
+const MARKS = ['beltMk2', 'beltMk3', 'beltMk4', 'beltMk5', 'beltMk6'], RUNGS = ['genTurbine', 'genPlant', 'genStation', 'genTitan'];
+const LINES = CATALOG_UPGRADES.map((u) => u.id);   // every unlock line the Satisfactory waves added (the rail shuttle, the shell, transit, furnish, the arches, the scanner, the marks, the ladder ...)
+calc('🛤️', (S) => owned(S, MARKS), setOwned(MARKS), [
+  ['beltmk1', 1, 'Mark Up', 'Buy a belt mark above Mk1.'], ['beltmk3', 3, 'Express Lines', 'Own {n} belt marks above Mk1.'], ['beltmk5', 5, 'Top of the Line', 'Own all {n} belt marks above Mk1.'],
+]);
+calc('🔥', (S) => owned(S, RUNGS), setOwned(RUNGS), [
+  ['genrung1', 1, 'Turbine Hall', 'Unlock the Turbine Generator.'], ['genrung2', 2, 'Power Plant Row', 'Unlock {n} rungs of the generator ladder.'], ['genrung4', 4, 'Titan Tamer', 'Unlock all {n} rungs of the generator ladder.'],
+]);
+calc('🔓', (S) => owned(S, LINES), setOwned(LINES), [
+  ['lines1', 1, 'First Blueprint', 'Buy an unlock from the builder tree: belt marks, power parts, the build shell, furnishing, doors, arches, the scanner or the Mine Rail.'],
+  ['lines8', 8, 'Wing Two', 'Buy {n} builder unlocks.'], ['lines16', 16, 'Industrial Park', 'Buy {n} builder unlocks.'], ['lines25', 25, 'Master Plan', 'Buy {n} builder unlocks.'],
+]);
+stat('cables', '🔌', [
+  ['cable1', 1, 'Wired In', 'Wire a Power Cable.'], ['cable10', 10, 'Electrician', 'Wire {n} Power Cables.'], ['cable100', 100, 'Cable Management', 'Wire {n} Power Cables.'], ['cable1k', 1e3, 'Spaghetti Junction', 'Wire {n} Power Cables.'],
+]);
 
 // ---- Every new upgrade line, and every category: take each to its top
 export const MAXED = [];

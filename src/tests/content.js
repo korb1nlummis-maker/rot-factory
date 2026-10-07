@@ -3,16 +3,16 @@ export default async function (ctx) {
   const { T, g, S, w, p, fresh, craft, selectTool, plan, placeNow, aimPoint, spot, dig, adv, UPGRADES, FRAME_TYPES, loadOn, capacityOf, cellX, cellZ, newWorld, realSleep, tune } = ctx;
   const ach = (id) => ACHIEVEMENTS.find((a) => a.id === id);
   await T('content.structural-survey-shows-depth-best-frame-pile-and-load', async () => {
-    fresh({ timber: 1, steel: 1 }); S().up.survey = 0; g.T = g.tune(); g._svNext = 0; g.updateSurvey(); if (!document.getElementById('survey').classList.contains('hidden')) return 'shown without the upgrade';
+    fresh({ timber: 1, steel: 1 }); S().up.survey = 0; g.T = g.tune(); g._svNext = 0; g.updateSurvey(); if (['frame', 'support', 'stale'].some((id) => g.ui.dials.read(id).on)) return 'shown without the upgrade';
     S().up.survey = 1; g.T = g.tune(); p().pos.set(200, 0, 30); p().vel.set(0, 0, 0); g._svNext = 0; g.updateSurvey();
-    const txt = (id) => document.getElementById(id).textContent; const d = Math.round(Math.hypot(200, 30));
+    const di = (id, k) => g.ui.dials.read(id).info[k]; const txt = (id) => ({ svDepth: di('frame', 'depth'), svBest: di('frame', 'best'), svPress: di('frame', 'press'), svLoad: di('support', 'load') })[id]; const d = Math.round(Math.hypot(200, 30));
     if (txt('svDepth') !== `${d} m DEEP`) return 'depth ' + txt('svDepth'); if (!/Steel Frame \(rated 380 m\)/.test(txt('svBest'))) return 'best frame ' + txt('svBest'); if (!/m of pile above/.test(txt('svPress'))) return 'pile ' + txt('svPress'); if (txt('svLoad') !== 'no support within 8 m') return 'load ' + txt('svLoad');
     p().pos.set(500, 0, 0); g._svNext = 0; g.updateSurvey(); if (!/too weak here/.test(txt('svBest'))) return 'no warning past the rating: ' + txt('svBest'); return true;
   });
   await T('content.structural-survey-load-matches-the-trace', async () => {
     fresh({ timber: 1, survey: 1 }); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const e = { id: g.nextId(), type: 'frame', kind: 'timber', axis: 'x', cx: cellX(i + 6), cz: cellZ(k + 1), y0: 0, w: 2.36, h: 2.38, gm: i + 6, glo: k - 1, gj: 0 }; S().entities.push(e); g.addEntity(e);
     p().pos.set(e.cx - 2, 0, e.cz); g._svNext = 0; g.updateSurvey(); const sup = w().supports.find((s) => s.id === e.id); const want = Math.round(loadOn(w(), sup) / capacityOf('timber') * 100);
-    return (document.getElementById('svLoad').textContent === `nearest support: ${want}% load`) || `${document.getElementById('svLoad').textContent} vs ${want}%`;
+    const sl = g.ui.dials.read('support'); return (sl.info.load === `nearest support: ${want}% load` && sl.val === want + '%') || `${sl.info.load} / ${sl.val} vs ${want}%`;
   });
   await T('content.new-achievements-trigger-only-when-earned', async () => {
     fresh({}); const bad = []; const st = S();
@@ -23,8 +23,8 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
   await T('content.fan-and-curve-achievements-count-real-placements', async () => {
-    fresh({ timber: 1, power: 1, fans: 1, mfan: 1 }); S().stats.turnedFrames = 0; S().stats.mfans = 0; const { i, k } = spot(); dig(i, k - 5, 30, 13, 8, false); craft('frame:timber', 6); craft('mfan', 1);
-    selectTool('frame:timber'); let yaw = 0; for (let n = 0; n < 5; n++) { g.frameYaw = yaw; aimPoint(cellX(i + 6 + n * 3), 0, cellZ(k + 2), 2.4); const pl = await plan(); if (!pl.ok) return `frame ${n}: ${pl.why}`; placeNow(); yaw += 0.1; }
+    fresh({ timber: 1, power: 1, fans: 1, mfan: 1 }); S().stats.turnedFrames = 0; S().stats.mfans = 0; const { i, k } = spot(); dig(i, k - 5, 40, 13, 8, false); craft('frame:timber', 6); craft('mfan', 1);
+    selectTool('frame:timber'); let yaw = 0; for (let n = 0; n < 5; n++) { g.frameYaw = yaw; aimPoint(cellX(i + 6 + n * 5), 0, cellZ(k + 2), 2.4); const pl = await plan(); if (!pl.ok) return `frame ${n}: ${pl.why}`; placeNow(); yaw += 0.1; }
     if ((S().stats.turnedFrames || 0) !== 5 || !ach('curve5').check(S())) return 'turned frames counted ' + S().stats.turnedFrames;
     const f = S().entities.filter((e) => e.type === 'frame').pop(); selectTool('mfan'); p().pos.set(f.cx - 2.5 * Math.sin(f.yaw), 0, f.cz - 2.5 * Math.cos(f.yaw)); p().yaw = f.yaw; aimPoint(f.cx, f.y0 + f.h - 0.3, f.cz, 2.4); const pl = await plan(); if (!pl.ok) return pl.why; placeNow();
     return (S().stats.mfans === 1 && ach('fan1').check(S())) || 'mfans ' + S().stats.mfans;

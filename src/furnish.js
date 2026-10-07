@@ -54,7 +54,7 @@ const SHOW = { locker: 600, pcrate: 4000, silo: 150000, ovault: 600, dimdepot: 8
 const base = (id) => Math.max(1, Math.round(SHOW[id] / 3));
 const DEPOT_GROWTH = 1.55;
 const ICON = { locker: '🗄️', pcrate: '📦', silo: '🛢️', ovault: '📤', dimdepot: '🌌', sign: '🪧', dsign: '➡️', psign: '📏', clamp: '💡', flood: '🔦', strip: '🔆', wbeacon: '🚨' };
-const NAME = { locker: 'Locker', pcrate: 'Parts Crate', silo: 'Plush Silo', ovault: 'Output Vault', dimdepot: 'Dimensional Depot', sign: 'Sign Board', dsign: 'Direction Sign', psign: 'Depth Sign', clamp: 'Ceiling Lamp', flood: 'Floodlight', strip: 'Strip Light', wbeacon: 'Warning Beacon' };
+export const NAME = { locker: 'Locker', pcrate: 'Parts Crate', silo: 'Plush Silo', ovault: 'Output Vault', dimdepot: 'Dimensional Depot', sign: 'Sign Board', dsign: 'Direction Sign', psign: 'Depth Sign', clamp: 'Ceiling Lamp', flood: 'Floodlight', strip: 'Strip Light', wbeacon: 'Warning Beacon' };
 const USE = {
   locker: 'Take it out and aim at a wall. E opens it: move loose items (dynamite, medkits, flares, tools) between your pack and the locker. Holds 24.',
   pcrate: 'Aim at the floor and press B. E opens it: move building material between your stock and the crate. Holds 100 stacks of 100.',
@@ -218,12 +218,12 @@ function placeCheck(g, kind, s) {
   if (s.mount === 'floor' && s.j > 0 && !w.solid(s.i, s.j - 1, s.k)) return 'Needs a floor';
   if (s.mount === 'ceiling' && !w.solid(s.i, s.j + 1, s.k)) return 'Needs a roof above';
   if (s.mount === 'wall' && !w.solid(s.i - DX[s.face], s.j, s.k - DZ[s.face])) return 'Needs a wall';
+  { const why = g.logi.cellTaken(s.i, s.j, s.k); if (why) return why; }   // a belt, a rail piece, a shaft, a pad or a door already stands in that cell
   if (s.mount === 'floor') {
-    if (g.logi.tiles.has(idx(s.i, s.j, s.k))) return 'Occupied';
     const p = g.player.pos;   // never set one down inside the player
     if (Math.abs(cellX(s.i) - p.x) < 0.5 && Math.abs(cellZ(s.k) - p.z) < 0.5 && p.y < (s.j + 1) * C && p.y + 1.7 > s.j * C) return 'Too close';
   }
-  if (kind === 'silo' || kind === 'dimdepot') { for (let h = 1; h < 4; h++) if (w.solid(s.i, s.j + h, s.k)) return 'Needs 2.4 m of room above'; }
+  if (kind === 'silo' || kind === 'dimdepot') { for (let h = 1; h < 4; h++) { if (w.solid(s.i, s.j + h, s.k)) return 'Needs 2.4 m of room above'; if (g.logi.cellTaken(s.i, s.j + h, s.k)) return 'Something is in the way above'; } }
   if (occupied(g, kind, s)) return 'Something is already there';
   return null;
 }
@@ -477,6 +477,7 @@ function resolvePower(g) {
   for (const it of L.list) {
     const e = it.ent; if (KW[e.type] === undefined) continue;
     const ex = e.x, ey = e.y + (e.h || 0.5) / 2, ez = e.z;
+    if (P.catalogConsumers) { it.net = P.netOfEnt(e); if (e.type === 'wbeacon') it.trip = tripped(it); continue; }   // the solver counts lights and signs itself (furnKw): it already set .pw
     let best = null, bd = 1e12;
     for (const net of P.nets) for (const n of net.nodes) { const [px, py, pz] = P.pos(n); const dx = ex - px, dz = ez - pz, dy = ey - py, d = dx * dx + dz * dz + dy * dy * 0.5; if (d <= reach2 && d < bd) { bd = d; best = net; } }
     it.net = best; if (e.type === 'wbeacon') it.trip = tripped(it);
@@ -491,7 +492,7 @@ function resolvePower(g) {
     net.supply = net.tripped ? 0 : (net.charged && net.demand > gen ? net.demand : gen);
     net.sat = net.demand <= 1e-6 ? (net.supply > 0 ? 1 : 0) : Math.min(1, net.supply / net.demand);
   }
-  for (const it of L.list) { const e = it.ent; if (KW[e.type] === undefined) continue; const pw = it.net ? it.net.sat : 0; if (Math.abs((e.pw ?? -1) - pw) > 0.004) e.pw = pw; }
+  for (const it of L.list) { const e = it.ent; if (KW[e.type] === undefined) continue; const pw = it.net && !it.net.tripped ? it.net.sat : 0; if (Math.abs((e.pw ?? -1) - pw) > 0.004) e.pw = pw; }   // a tripped grid is dark (the solver already gives it sat 0)
   FS.lastNets = P.nets;
 }
 

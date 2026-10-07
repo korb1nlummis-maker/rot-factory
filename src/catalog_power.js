@@ -1,4 +1,5 @@
 // Catalog part: power. Owned by wave 2 (4.3): Power Switch, Priority Switch, Breaker Box, Power Storage (3 marks), Load Meter.
+// Also the generator ladder (Portable 2 kW up to the Titan Plant, numbers in powerparts.js) and the powered Hanging Lantern (hanglamp.js).
 // The solver is in power.js, the meshes, numbers and panel in powerparts.js. This file is the wiring into the registry:
 // bench rows, two upgrades, kW per type and the entity handlers (tool plan/build, cfg, E, hover text, the 0.5 s row).
 // Rules (see catalog.js for the full contract): export exactly these four names, import nothing that imports upgrades.js,
@@ -6,7 +7,8 @@
 // read inside functions: catalog.js is still evaluating when this file loads.
 import { V } from './catalog.js';
 import * as PP from './powerparts.js';
-import { cellX, cellZ } from './config.js';
+import * as HL from './hanglamp.js';
+import { cellX, cellZ, toI, toJ, toK } from './config.js';
 
 const { KW, PRICE } = PP;
 
@@ -17,7 +19,10 @@ const USE = {
   breaker: 'Wire it into a grid with a Power Cable (or set it near a pole). It trips the grid when demand stays over the generators\' rating. E resets it.',
   meter: 'Aim at a wall or the floor and press B. Wire one Power Cable to a grid. It shows supply, demand, storage and a minute of history. M shows the same on your screen.',
   battery: 'Set it down with B and wire it into a grid (or set it near a pole). It charges from surplus power and covers a shortfall.',
+  gen: 'Place it, then press E on it with plush in your hands to feed it fuel (or belt plush in, or throw plush at it). Powers machines through poles and Power Cables. Aim at it to see what it burns, how fast and how long the hopper lasts.',
+  hlamp: 'Take it out and aim at a frame, then press B: it clips under the top beam on the side you face (four to a frame). Pick the Power Cable: click a generator, then the lantern, then click that lantern and the next, and so on down the line. E switches it off.',
 };
+const GEN_ICON = { portable: '⛽', turbine: '🌪️', plant: '🏭', grid: '🏢', titan: '☢️' };
 export const prioWhy = (g) => ((g.S.stats.pwSwitches || 0) > 0 && (g.S.stats.pwBreakers || 0) > 0 ? null : 'Build a Power Switch and a Breaker Box first (once each): a Priority Switch needs both');
 const placed = (g, type) => { let n = 0; for (const it of g.machines.items.values()) if (it.ent.type === type) n++; return n; };
 
@@ -32,18 +37,41 @@ export const RECIPES = (g) => {
       out.push({ id: 'battery:' + m, kind: 'battery', p: { mark: m }, icon: '🔋', name: PP.BATT_NAME[m], short: 'Storage ' + m, desc: `Stores ${PP.BATT_CAP[m].toLocaleString('en-US')} kJ (${Math.round(PP.BATT_CAP[m] / 720).toLocaleString('en-US')} Commons, or ${Math.round(PP.BATT_CAP[m] / 12000).toLocaleString('en-US')} Epics, burned). Charges from surplus power at up to ${(PP.BATT_CAP[m] / PP.BATT_FILL_S).toLocaleString('en-US', { maximumFractionDigits: 0 })} kW and covers any shortfall until it is flat. Draws 0.1 kW.`, price: PRICE.battery[m], batch: [1, 2, 5], use: USE.battery, statusFn: (gg) => `${[...gg.machines.items.values()].filter((it) => it.ent.type === 'battery' && it.ent.mark === m).length} placed` });
     }
   }
+  // the generator ladder: the 2 kW Portable comes with the Power Grid, the bigger rungs each have an upgrade (the ordinary 8 kW Generator is in crafting.js)
+  {
+    for (const k of PP.GEN_KINDS) {   // (the Portable comes with Power Grid; each bigger rung has its own upgrade, which already stands on the one below)
+      if (k.key === 'std' || (k.key === 'portable' ? !(T.machines || []).includes('gen') : !PP.genUnlocked(T, k))) continue;
+      const kw = PP.genKw(T, { gk: k.key }), hop = PP.genHopper(T, { gk: k.key }), sec = (r) => PP.secText(PP.BURN_S_AT_8KW[r] * 8 / kw);
+      const mult = k.mul < 1 ? 'a quarter of the' : `${k.mul} times the`;
+      out.push({
+        id: k.id, kind: 'gen', icon: GEN_ICON[k.key], name: k.name, short: k.short, price: PP.genPrice(k, PP.genOwned(g, k)), batch: [1, 2, 5],
+        desc: `${k.name}: ${mult} output of a Generator, ${PP.kwText(kw)} with your turbine upgrades, and a fuel hopper of ${hop} plush. Same plush rules as every generator (energy per plush over output): a Common lasts ${sec(0)}, an Uncommon ${sec(1)}, a Rare ${sec(2)} and an Epic ${sec(3)}. Takes ${k.ports} Power Cables.`,
+        use: USE.gen,
+        statusFn: (gg) => `${PP.genOwned(gg, k)} placed · ${PP.kwText(PP.genKw(gg.T, { gk: k.key }))} each, hopper ${PP.genHopper(gg.T, { gk: k.key })} plush`,
+      });
+    }
+  }
+  if ((T.machines || []).includes('pole')) {
+    out.push({ id: 'hlamp', kind: 'hlamp', icon: '🏮', name: 'Hanging Lantern', short: 'Hang Lamp', price: HL.LAMP_PRICE, batch: [1, 5, 10], desc: `Clips under the top beam of a support frame and lights the plush around it for ${HL.LAMP_KW} kW. One 8 kW Generator runs ${HL.LAMP_MAX_PER_SOURCE} of them. Chain them with Power Cables: generator to the first, the first to the second and so on. A brownout dims the whole line.`, use: USE.hlamp, statusFn: (gg) => `${HL.lampsOf(gg).length} hung` });
+  }
   if (T.prioPower) out.push({ id: 'pswitch', kind: 'pswitch', icon: '🔀', name: 'Priority Switch', short: 'Priority', desc: 'A switch with a group number from 1 to 8. When a grid is overloaded the closed Priority Switch with the highest group opens first (group 0, the default, goes before 8). E opens a panel to rename, regroup and toggle every one of them. Draws 0.08 kW.', price: PRICE.pswitch, batch: [1, 2, 5], use: USE.pswitch, statusFn: (gg) => prioWhy(gg) || `${[...gg.machines.items.values()].filter((it) => PP.isPrio(it.ent)).length} priority switches placed` });
   return out;
 };
 
 // ---------- upgrades (absolute costs) ----------
+// the generator ladder unlocks (the Portable comes with the Power Grid). Priced for 10M+ wallets at the top: each rung also asks the one below.
+const genUp = (id, name, cost, req, bit, blurb) => ({ id, cat: 'machine', name, desc: blurb, max: 1, cost: [cost], req, effect: (t) => { t.genKinds = ((t.genKinds | 0) | bit); } });
 export const UPGRADES = [
+  genUp('genTurbine', 'Turbine Generators', 1800000, { id: 'genOutput', lvl: 3 }, 1, 'Unlocks the Turbine Generator: 6 times the output of a Generator and a hopper twice as big, takes 3 cables. Plush burn by the same rules, 6 times faster.'),
+  genUp('genPlant', 'Power Plants', 14000000, { id: 'genTurbine', lvl: 1 }, 2, 'Unlocks the Power Plant: 30 times the output of a Generator, a hopper 4 times as big, takes 4 cables. It eats a belt of plush, so feed it from a line.'),
+  genUp('genStation', 'Grid Power Stations', 95000000, { id: 'genPlant', lvl: 1 }, 4, 'Unlocks the Grid Power Station: 150 times the output of a Generator, a hopper 8 times as big, takes 6 cables.'),
+  genUp('genTitan', 'Titan Plants', 650000000, { id: 'genStation', lvl: 1 }, 8, 'Unlocks the Titan Plant: 800 times the output of a Generator, a hopper 16 times as big, takes 8 cables. Needs several belts of fuel.'),
   { id: 'autoReset', cat: 'machine', name: 'Remote Reset', desc: 'Breaker Boxes close themselves 20 seconds after demand is back under the rating. Shed Priority Switches close again after 10 seconds of surplus.', max: 1, cost: [900000], req: { id: 'power', lvl: 1 }, effect: (t) => { t.autoReset = true; } },
   { id: 'prioPower', cat: 'machine', name: 'Priority Power', desc: 'Unlocks the Priority Switch: a switch with a group number that drops the highest group first when a grid is overloaded. You need to have built a Power Switch and a Breaker Box once before one can be set down.', max: 1, cost: [4000000], req: { id: 'power', lvl: 1 }, effect: (t) => { t.prioPower = true; } },
 ];
 
 // ---------- kW per type ----------
-export const DEMAND = { switch: KW.switch, pswitch: KW.pswitch, breaker: KW.breaker, battery: KW.battery, meter: KW.meter };
+export const DEMAND = { switch: KW.switch, pswitch: KW.pswitch, breaker: KW.breaker, battery: KW.battery, meter: KW.meter, hlamp: HL.LAMP_KW };
 
 // ---------- placing ----------
 const KIND_TYPE = { switch: 'switch', pswitch: 'switch', breaker: 'breaker', battery: 'battery', meter: 'meter' };
@@ -58,6 +86,7 @@ function spotWhy(g, e) {
     const o = it.ent; if (!PP.isPart(o.type)) continue;
     if (Math.hypot(o.x - e.x, o.z - e.z) < 0.55 && Math.abs(o.y - e.y) < 1.0) return 'Something is already set here';
   }
+  if (e.mount !== 'wall' && g.logi) { const why = g.logi.cellTaken(toI(e.x), toJ(e.y + 0.05), toK(e.z)); if (why) return 'Something is in the way (a belt, a rail piece or a shaft)'; }   // a floor part never stands in a cell something else holds
   return null;
 }
 
@@ -107,7 +136,7 @@ function build(g, tool, e) {
     case 'switch': S.stats.pwSwitches = (S.stats.pwSwitches || 0) + 1; return { type: 'switch', ...base, on: false, shed: false };
     case 'pswitch': return { type: 'switch', ...base, on: false, shed: false, prio: 0 };
     case 'breaker': S.stats.pwBreakers = (S.stats.pwBreakers || 0) + 1; return { type: 'breaker', ...base, armed: true, tripped: false, trip: { ...PP.TRIP_DEFAULT } };
-    case 'battery': return { type: 'battery', ...base, mark: markOf(tool.id), charge: 0 };
+    case 'battery': S.stats.pwBatteries = (S.stats.pwBatteries || 0) + 1; return { type: 'battery', ...base, mark: markOf(tool.id), charge: 0 };
     case 'meter': return { type: 'meter', ...base, mount: e.mount === 'wall' ? 'wall' : 'floor' };
     default: return null;
   }
@@ -117,6 +146,7 @@ function build(g, tool, e) {
 const f1 = (v) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString('en-US') : (+v).toFixed(1));
 const lampLine = (color, text) => `Lamp ${color}: ${text}`;
 function netFor(g, e) { return PP.netOfEnt(g, e); }
+
 
 function infoSwitch(g, e) {
   const prio = PP.isPrio(e), net = netFor(g, e), lamp = PP.lampOf(g, e), wires = g.cables ? g.cables.of(e.id).length : 0;
@@ -161,6 +191,7 @@ function infoMeter(g, e) {
   if (e.name) lines.push(`"${e.name}"`);
   if (!net) { lines.push('Not wired to a grid yet: run a Power Cable from a pole, generator or battery.'); return { title: 'LOAD METER · NO GRID', lit: false, lines }; }
   lines.push(`Supply ${f1(net.supply)} kW · demand ${f1(net.demand)} kW · rated ${f1(net.cap)} kW`);
+  { const ll = PP.loadsLine(net); if (ll) lines.push(ll); }   // doors, lifts, pads, stations, lights ... listed by kind
   lines.push(net.batMax > 0 ? `Storage ${Math.round(net.bat / net.batMax * 100)}% (${net.flow > 0.001 ? 'charging' : net.flow < -0.001 ? 'discharging' : 'idle'})` : 'No storage on this grid');
   if (net.tripped) lines.push('GRID TRIPPED');
   const h = net.hist;
@@ -255,5 +286,37 @@ export const TYPES = {
     info: (g, e) => infoMeter(g, e),
   },
   pole: { infoExtra: (g, e) => nodeSummary(g, e) },
-  gen: { infoExtra: (g, e) => nodeSummary(g, e) },
+  gen: {
+    infoExtra: (g, e) => nodeSummary(g, e), item: (e) => PP.genItemOf(e),   // (the mode line is part of genInfo in game.js, after the burn lines)
+    // 'auto' burns whenever it has fuel, 'reserve' keeps the fuel until a battery of its grid is under 30% or the grid is overloaded (power.js holdsFuel). Empty hands + E switches it.
+    cfg: () => ({ mode: V.enum(['auto', 'reserve']) }), copy: ['mode'], group: 'gen',
+  },
+  // the powered Hanging Lantern: a machine that hangs under a frame's top beam (hanglamp.js)
+  hlamp: {
+    add: (m, ent) => ({ obj: HL.buildLamp(ent) }),
+    item: () => 'hlamp',
+    group: 'hlamp',
+    cfg: () => ({ on: V.bool }),
+    copy: ['on'],
+    plan: (g, tool, eye, dir, yaw) => HL.plan(g, eye, dir, yaw),
+    preview: (g, tool, pl) => {
+      const m = g.machines, e = pl && pl.ent;
+      if (!e || !fin(e.x, e.y, e.z)) { m.showPreview(null, null); return; }
+      const key = `hl${pl.ok}`;
+      if (m.ghostKey !== key || !m.ghost) m.setGhost(HL.ghostLamp(e, pl.ok), key);
+      m.ghost.position.set(e.x, HL.lampCenterY(e), e.z);
+    },
+    conflict: (g, e, tool) => (tool && tool.id !== 'hlamp' ? 'That is not the item you hold' : HL.conflict(g, e)),
+    build: (g, tool, e) => HL.build(g, e),
+    use: (g, e) => {
+      const r = g.setCfg(e, { on: e.on === false });
+      if (r.ok) { g.sound.tone('square', e.on === false ? 520 : 300, e.on === false ? 300 : 520, 0.06, 0.07); g.ui.hint(`Hanging Lantern ${e.on === false ? 'off' : 'on'}.`, 1.5); } else g.ui.hint(r.why || 'Could not switch it', 2.5);
+      return true;
+    },
+    info: (g, e) => HL.info(g, e),
+    tick: (g, dt) => HL.tick(g, dt, false),
+    guestTick: (g, dt) => HL.tick(g, dt, true),
+    row: (g) => HL.packRow(g),
+    guestRow: (g, d) => HL.applyRow(g, d),
+  },
 };

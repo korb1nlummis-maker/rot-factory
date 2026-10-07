@@ -713,7 +713,7 @@ export class Crew {
         g.S.money -= 3; g.ui.setMoney(g.S.money);
         g.layBelt(oi, bj, ok, (b.dir + 2) & 3);
       }
-      if (T.crewBolt && b.adv % 3 === 0) g.machines.autoFrame(oi, bj, ok, b.dir);
+      if (T.crewBolt && b.adv % 4 === 0) g.machines.autoFrame(oi, bj, ok, b.dir);   // one 2.4 m cube per 4 cells of advance
     } else {
       b.state = 'blocked'; b.timer = 6;
     }

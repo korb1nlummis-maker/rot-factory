@@ -245,7 +245,7 @@ export default async function (ctx) {
     if (!(S().stats.sold - sold0 >= 5)) out.push('belted plush were not sold: ' + (S().stats.sold - sold0));
     return out.length ? out.join('; ') : true;
   });
-  await T('upg.crew.bolt-braces-every-third-step-and-pays-from-wallet', async () => {
+  await T('upg.crew.bolt-sets-a-cube-every-fourth-step-and-pays-from-wallet', async () => {
     const out = [];
     const run = async (up) => {
       await newWorld(); fresh({ crew: 1, crewSlots: 3, crewBolt: 1, crewBelt: 1, belts: 1, power: 1, ...up }); S().stats.plush = 1e9; const { i, k } = spot(); const b = g.crew.spawn(); b.xp = -1e9; p().pos.set(cellX(i) - 1.5, 0, cellZ(k)); g.crew.order(b, 0, cellX(i) - 1.5, 0.3, cellZ(k));
@@ -254,7 +254,7 @@ export default async function (ctx) {
       return { frames: S().entities.filter((e) => e.type === 'frame' && e.auto), paid, calls, steps, adv0 };
     };
     let a = await run({ timber: 1 }); for (let t = 0; t < 5 && a.frames.length < 1; t++) a = await run({ timber: 1 }); /* the crew can only brace where the pile has a roof, which depends on the world */ const FT = ctx.FRAME_TYPES;
-    if (a.frames.length < 1) out.push('no frame with timber'); if (a.calls !== Math.floor(a.steps / 3)) out.push(`autoFrame called ${a.calls} times for ${a.steps} steps`);
+    if (a.frames.length < 1) out.push('no frame with timber'); if (a.calls !== Math.floor(a.steps / 4)) out.push(`autoFrame called ${a.calls} times for ${a.steps} steps`);
     if (a.frames.some((f) => f.kind !== 'timber')) out.push('wrong kind with timber only'); if (a.paid !== a.frames.length * FT.timber.cost) out.push(`paid ${a.paid} for ${a.frames.length} timber frames`);
     const c = await run({ timber: 1, steel: 1, concrete: 1 }); if (c.frames.some((f) => f.kind !== 'concrete')) out.push('did not use the best owned frame: ' + [...new Set(c.frames.map((f) => f.kind))]); if (c.paid !== c.frames.length * FT.concrete.cost) out.push(`concrete paid ${c.paid}`);
     const d = await run({}); if (d.frames.length) out.push('frames braced with no frame upgrade owned');

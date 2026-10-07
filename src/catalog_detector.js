@@ -13,12 +13,13 @@ export const UPGRADES = [
   { id: 'archGiant', cat: 'machine', name: 'Giant Detector Arch', desc: 'Unlocks the Giant Detector Arch (220,000 at the bench): 4.8 m wide and 4.2 m tall with a lit crown panel that shows its target, a 6 m crowd plaza and a louder buzz with a low thunk. Wide enough for carts, bots and Haul Trucks. Draws 4 kW for its lamps. Needs the Detector Arch.', max: 1, cost: [3000000], req: { id: 'archGate', lvl: 1 }, effect: (t) => { t.machines.push('archBig'); } },
 ];
 export const RECIPES = (g) => D.recipes(g);
-export const DEMAND = { arch: 1.5 };   // the walk-through arch; the giant draws 4 kW (see detector.js SIZES). power.js does not wire arches in as consumers yet, so detector.js reads pole power itself.
+export const DEMAND = { arch: 1.5 };   // the walk-through arch; the giant draws 4 kW (see detector.js SIZES). power.js counts every arch as a consumer (the kw handler below gives the size's draw).
 export const TYPES = {
   arch: {
-    cfg: () => spec(), group: 'arch', check: D.check, onCfg: D.onCfg,
+    stat: 'archBuilt', cfg: () => spec(), group: 'arch', check: D.check, onCfg: D.onCfg,
     item: D.itemOf, onRemove: D.onRemove,
     info: D.info, use: D.use,
+    kw: (e) => D.SIZES[D.archSize(e)].kw, pos: (g, e) => [e.cx, e.y0 + 1.0, e.cz], reach: (g, e) => e.w / 2, wireName: (e) => D.SIZES[D.archSize(e)].name,   // the grid solver and the cable tool read these
     add: D.add, plan: D.plan, preview: D.preview, build: D.build, conflict: D.conflict,
     tick: D.tick, guestTick: D.guestTick, row: D.row, guestRow: D.guestRow,
   },

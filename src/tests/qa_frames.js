@@ -44,13 +44,15 @@ export default async function (ctx) {
   });
 
   await T('qa.frames.turned-frames-cannot-cut-through-each-other-but-may-touch', async () => {
-    const { i, k } = tunnel(10, 4, 40); const x = cellX(i + 12), z = cellZ(k + 2); const a = mkFree(x, z, 0.5);
+    const Y = 1.2, D = 2.36;   // frames are 2.36 m cubes
+    const { i, k } = tunnel(10, 4, 40); const x = cellX(i + 12), z = cellZ(k + 2); const a = mkFree(x, z, Y, { d: D });
     const tryAt = async (dx, dz, yaw) => { g.frameYaw = yaw; look(x + dx, z + dz); const pl = await plan(); return pl; };
-    const across = await tryAt(0.35, 0.1, 0.5 + Math.PI / 2); if (across.ok) return 'a frame crossing the first at 90 degrees through its middle was allowed';
-    const slant = await tryAt(0.2, 0.2, 0.5 + 0.8); if (slant.ok) return 'a frame slanted 46 degrees through the first was allowed';
-    const apart = await tryAt(3.4, 0, 0.5); if (!apart.ok) return 'a frame well clear of the first was refused: ' + apart.why;
-    // touching is fine: the next one flush along the first one's axis (depth 0.6 m) at the same angle
-    const flush = await tryAt(0.6 * Math.sin(0.5), 0.6 * Math.cos(0.5), 0.5); return flush.ok || 'a frame set flush against the first at the same angle was refused: ' + flush.why;
+    const across = await tryAt(0.35, 0.1, Y + Math.PI / 2); if (across.ok) return 'a frame crossing the first at 90 degrees through its middle was allowed';
+    const slant = await tryAt(0.2, 0.2, Y + 0.8); if (slant.ok) return 'a frame slanted 46 degrees through the first was allowed';
+    const half = await tryAt(0.5 * D * Math.sin(Y), 0.5 * D * Math.cos(Y), Y); if (half.ok) return 'a frame half a depth along the first was allowed';
+    const apart = await tryAt(3.2 * Math.sin(Y), 3.2 * Math.cos(Y), Y); if (!apart.ok) return 'a frame well clear of the first was refused: ' + apart.why;
+    // touching is fine: the next one flush along the first one's axis (depth 2.36 m) at the same angle
+    const flush = await tryAt((D + 0.02) * Math.sin(Y), (D + 0.02) * Math.cos(Y), Y); return flush.ok || 'a frame set flush against the first at the same angle was refused: ' + flush.why;
   });
 
   await T('qa.frames.grid-frames-cannot-cut-through-a-turned-frame', async () => {

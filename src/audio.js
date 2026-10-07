@@ -43,19 +43,16 @@ export class Sound {
   startAmbient() {
     const c = this.ctx;
     const g = c.createGain(); g.gain.value = 0.035; const dlp = c.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 260; g.connect(dlp); dlp.connect(this.dry);
-    for (const [f, a] of [[100, 0.5], [200, 0.2], [300, 0.06], [50, 0.5]]) {
-      const o = c.createOscillator(); o.type = f === 50 ? 'sine' : 'triangle'; o.frequency.value = f + (Math.random() - 0.5) * 0.4;
+    for (const [f, a] of [[46, 0.5]]) { // one very low sine only: the 100/200/300 Hz harmonics read as a light ballast buzzing
+      const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f + (Math.random() - 0.5) * 0.4;
       const og = c.createGain(); og.gain.value = a; o.connect(og); og.connect(g); o.start();
     }
-    const n = c.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140;
-    const ng = c.createGain(); ng.gain.value = 0.008; // a faint low rumble only: the old hiss read as static
-    n.connect(lp); lp.connect(ng); ng.connect(this.dry); n.start();
+    // (no looping noise bed: it read as static)
     this.ambient = g;
     // machinery hum: detuned saws through a low-pass, volume follows nearby belts and mechs
     const mg = c.createGain(); mg.gain.value = 0; mg.connect(this.dry);
     const lp2 = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 230; lp2.connect(mg);
-    for (const f of [58, 87, 116.5]) { const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.3; o.connect(og); og.connect(lp2); o.start(); }
+    for (const f of [58, 87, 116.5]) { const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f; const og = c.createGain(); og.gain.value = 0.3; o.connect(og); og.connect(lp2); o.start(); }
     this.machGain = mg;
   }
 

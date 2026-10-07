@@ -5,7 +5,7 @@ export default async function (ctx) {
   const txt = (b) => [b.title, ...b.rows.map((r) => (Array.isArray(r) ? r.join(' ') : r)), b.foot].join('\n');
   await T('hall.six-chalkboards-stand-in-the-bay', async () => {
     const boards = []; g.renderer.scene.traverse((o) => { if (o.name === 'chalkboard') boards.push(o); });
-    return (boards.length >= 8 && g.hall.boards.length === 7) || `${boards.length} chalkboards in the scene, ${g.hall.boards.length} new ones`;
+    return (boards.length >= 10 && g.hall.boards.length === 9) || `${boards.length} chalkboards in the scene, ${g.hall.boards.length} new ones`;   // wave 6 added the tunnels and portals board (8 -> 9)
   });
   await T('hall.depth-board-lists-every-support-with-its-real-rating', async () => {
     const b = g.hall.boards.find((x) => /HOW DEEP/.test(x.title)); if (!b) return 'no depth board'; const t = txt(b), bad = [];
@@ -19,6 +19,12 @@ export default async function (ctx) {
   });
   await T('hall.every-board-fits-its-chalk-and-has-clean-text', async () => {
     const bad = []; for (const b of g.hall.boards) { if (b.overflow) bad.push(b.title + ' runs off the board'); if (/[—–]|undefined|NaN/.test(txt(b))) bad.push(b.title + ' has bad text'); } return bad.length === 0 || bad.join('; ');
+  });
+  await T('hall.tunnel-board-numbers-are-the-real-ones', async () => {
+    const b = g.hall.boards.find((x) => /TUNNELS AND PORTALS/.test(x.title)); if (!b) return 'no tunnel board'; const t = txt(b), bad = [];
+    const { ARCH_SPANS } = await import('../loadtrace.js'), H = await import('../haul.js'), P = await import('../portal.js');
+    for (const want of [`${H.CUBE_CLEAR.w} x ${H.CUBE_CLEAR.h} cells clear`, `${ARCH_SPANS[6].cw} x ${ARCH_SPANS[6].ch} clear, 85% depth`, `${ARCH_SPANS[8].cw} x ${ARCH_SPANS[8].ch} clear, 70% depth`, `${ARCH_SPANS[12].cw} x ${ARCH_SPANS[12].ch} clear, 55% depth`, `${H.VEHICLES.truck.w} x ${H.VEHICLES.truck.h} clear`, `${H.VEHICLES.wheel.w} x ${H.VEHICLES.wheel.h} clear`, `Portal ${P.KW[6]} / ${P.KW[8]} / ${P.KW[12]} kW`, `Roads ${H.ROAD.speed}x`, `Docks ${H.DOCK.charge} kW`]) if (!t.includes(want)) bad.push('missing "' + want + '"');
+    if (b.overflow) bad.push('the board runs off its edge'); return bad.length === 0 || bad.join('; ');
   });
   await T('hall.earth-mover-board-numbers-are-the-real-ones', async () => {
     const b = g.hall.boards.find((x) => /EARTH MOVERS/.test(x.title)); if (!b) return 'no earth mover board'; const t = txt(b), bad = [];

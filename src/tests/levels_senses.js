@@ -83,7 +83,7 @@ export default async function (ctx) {
   });
 
   await T('levels.sense.seismicAssay.the-vein-meter-starts-climbing-sooner', async () => {
-    fresh({ ...reqUp(UPGRADES, U('seismicAssay')) }); const bar = () => parseFloat(/scaleX\(([\d.]+)\)/.exec(document.getElementById('assayBar').style.transform)[1]);
+    fresh({ ...reqUp(UPGRADES, U('seismicAssay')) }); const bar = () => g.ui.dials.read('vein').frac;
     let vv = 0.2; const real = w().veinAt; w().veinAt = () => vv; const read = (v) => { vv = v; place(0, -1.4); hud(0.15); return bar(); };
     try {
       let prev = [];

@@ -33,7 +33,7 @@ export function liftProblem(g, tier, c, held) {
   const L = g.logi, w = g.world;
   if (dn) {
     // a down lift hangs its shaft below the tile, so the tile itself needs no floor; the bottom does
-    if (w.solid(c.i, c.j, c.k) || L.tiles.has(idx(c.i, c.j, c.k)) || L.cols.has(idx(c.i, c.j, c.k))) return w.solid(c.i, c.j, c.k) ? 'Blocked' : 'Occupied';
+    if (w.solid(c.i, c.j, c.k) || L.cellTaken(c.i, c.j, c.k)) return w.solid(c.i, c.j, c.k) ? 'Blocked' : 'Occupied';   // (cellTaken: a belt, a shaft, a door, a rail piece or anything reserved)
     if (c.j + c.h < 0) return 'It would go through the floor';
     if (c.j + c.h > 0 && !w.solid(c.i, c.j + c.h - 1, c.k)) return 'The bottom of the shaft needs a floor';
   } else {
@@ -42,7 +42,7 @@ export function liftProblem(g, tier, c, held) {
   }
   for (let q = 1; q <= ht; q++) {
     const j = c.j + (dn ? -q : q);
-    if (!inside(g, c.i, j, c.k) || w.solid(c.i, j, c.k) || L.tiles.has(idx(c.i, j, c.k)) || L.cols.has(idx(c.i, j, c.k))) return 'Something is in the way in the shaft';
+    if (!inside(g, c.i, j, c.k) || w.solid(c.i, j, c.k) || L.cellTaken(c.i, j, c.k)) return 'Something is in the way in the shaft';
   }
   if (held < ht) return `A ${ht} cell lift takes ${ht} lift pieces. You hold ${held}.`;
   return null;
@@ -165,7 +165,7 @@ export function ugConflict(g, e, tool) {
 export function frameProblem(g, c) {
   if (!c || !inside(g, c.i, c.j, c.k)) return 'Out of the hall';
   const w = g.world, L = g.logi;
-  if (w.solid(c.i, c.j, c.k) || L.tiles.has(idx(c.i, c.j, c.k)) || L.cols.has(idx(c.i, c.j, c.k))) return 'Occupied';
+  if (w.solid(c.i, c.j, c.k) || L.cellTaken(c.i, c.j, c.k)) return 'Occupied';
   if (c.j > 0 && !w.solid(c.i, c.j - 1, c.k)) return 'Needs a floor';
   const x = cellX(c.i), z = cellZ(c.k);
   const r = frameRating(g.T), d = depthAt(x, z);
