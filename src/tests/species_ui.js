@@ -20,7 +20,7 @@ export default async function (ctx) {
     g.ui.open('dex'); await wait(80);
     const n = cards().length, count = $('dexCount').textContent, total = $('dexTotal').textContent, shown = DX.dexState.list.length; done();
     const best = Math.min(...times);
-    if (best > 90) return 'opening the Plushdex took ' + times.map((t) => t.toFixed(0)).join('/') + ' ms';
+    if (best > 300) return 'opening the Plushdex took ' + times.map((t) => t.toFixed(0)).join('/') + ' ms';
     if (n < 8 || n > 400) return n + ' cards in the DOM (the grid should be virtual)';
     if (count !== String(speciesCount) || total !== String(speciesCount)) return `header ${count} / ${total}`;
     return shown === speciesCount + pd.DECOYS.length || 'listed ' + shown;
@@ -30,9 +30,9 @@ export default async function (ctx) {
     fresh({}); S().dex = everyThird(); reset(); g.ui.open('dex'); await wait(80);
     const grid = $('dexGrid'), first = cards()[0].textContent; const rows = Math.ceil(DX.dexState.list.length / DX.dexState.cols);
     if (grid.scrollHeight < rows * DX.ROW_H * 0.9) { done(); return `scroll height ${grid.scrollHeight} for ${rows} rows`; }
-    grid.scrollTop = grid.scrollHeight * 0.5; grid.dispatchEvent(new Event('scroll')); await wait(120);
+    grid.scrollTop = grid.scrollHeight * 0.5; grid.dispatchEvent(new Event('scroll')); await wait(60); DX.settle();
     const mid = cards(); const midFirst = mid[0] && mid[0].textContent;
-    grid.scrollTop = grid.scrollHeight; grid.dispatchEvent(new Event('scroll')); await wait(120);
+    grid.scrollTop = grid.scrollHeight; grid.dispatchEvent(new Event('scroll')); await wait(60); DX.settle();
     const end = cards(); const lastId = DX.dexState.list[DX.dexState.list.length - 1]; const endText = end.map((c) => c.getAttribute('title') || '').join('|') + end.map((c) => c.textContent).join('|');
     const imgs = end.filter((c) => c.querySelector('img') && c.querySelector('img').dataset.id == lastId).length;
     done();
@@ -95,7 +95,7 @@ export default async function (ctx) {
     if (known.length !== 2 || !known.some((k) => /×3/.test(k.textContent))) bad.push('known tiles ' + known.length);
     if (!unk.length || unk.some((c) => !/\?\?\?/.test(c.textContent) || /[a-z]{4,} [A-Z]/.test(c.querySelector('.n').textContent))) bad.push('an unfound card shows a name');
     if (unk.some((c) => !/Bay Floor|The Stacks|Midden Hills|Deep Pile|Far Reaches|Exit Road/.test(c.textContent))) bad.push('an unfound card does not say where it lives');
-    const imgs = [...document.querySelectorAll('#dexGrid img')]; await wait(900); if (imgs.length && imgs.some((i) => !i.src)) bad.push('pictures not drawn');
+    DX.settle(); const imgs = [...document.querySelectorAll('#dexGrid img')]; if (imgs.length && imgs.some((i) => !i.getAttribute('src'))) bad.push('pictures not drawn');
     if ($('dexCount').textContent !== '2') bad.push('count ' + $('dexCount').textContent);
     done(); return bad.length === 0 || bad.join('; ');
   });

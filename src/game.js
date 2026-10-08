@@ -51,7 +51,8 @@ import { UPGRADES, FRAME_TYPES, STRUT_DEPTH, supportDepth, betterThan, GEAR, com
 import { Cart, CART_CAP, CART_NAMES, dims as cartDims } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { EARTH, isEarth, earthCost, earthTune, newEarthEnt, earthConflict, earthRow, applyEarthRow, useEarth, spillEarth } from './earth.js';
-import { RARITY, species, pickByRarity, bandOfDist, touchDex, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
+import { ISLAND_BODIES } from './island.js';
+import { RARITY, REGIONS, species, pickByRarity, bandOfDist, touchDex, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
 import { makeWorker, noteFor, rewardFor, applyBoost, describeBoosts } from './remains.js';
 import { speciesIcon, needleFrames } from './icons.js';
 import { clamp, lerp, fmt, compaction, escHtml } from './util.js';
@@ -182,6 +183,7 @@ export class Game {
     if (saved && saved.diff) {
       applyDiff(this.world, saved.diff);
       if (saved.needle) this.world.needle = saved.needle;
+      this.world.isl.afterLoad();   // a saved slab that hung cut off from the pile is found and let go, once, spread over the first seconds (island.js)
     }
     this.renderer.setWorld(this.world);
     this.sim = new Sim(this.world);
@@ -255,6 +257,7 @@ export class Game {
     this.sound.setVolume(S.settings.vol ?? 0.7);
     $('selQuality').value = S.settings.quality || 'high';
     $('rngVol').value = S.settings.vol ?? 0.7;
+    $('chkStress').checked = S.settings.stressBoxes !== false;
     $('rngSens').value = this.sens;
     this.hall.drawTerminal(S.money);
   }
@@ -281,6 +284,7 @@ export class Game {
     $('btnAch').onclick = () => this.ui.open('ach');
     $('btnReset').onclick = () => { if (confirm('Abandon this shift and start a new warehouse? Your progress will be lost.')) { this.ui.closeModalsSilently(); start(true); } };
     $('selQuality').onchange = (e) => { this.S.settings.quality = e.target.value; this.renderer.setQuality(e.target.value); this.fx.setScale(window.innerHeight); };
+    $('chkStress').onchange = (e) => { this.S.settings.stressBoxes = !!e.target.checked; if (!e.target.checked) this.renderer.setStress([]); };
     $('rngVol').oninput = (e) => { this.S.settings.vol = +e.target.value; this.sound.setVolume(+e.target.value); };
     $('rngSens').oninput = (e) => { this.sens = +e.target.value; this.S.settings.sens = this.sens; };
     $('crewAllHome').onclick = () => { this.crewHomeAll(); this.ui.renderCrew(); };
@@ -749,11 +753,7 @@ export class Game {
     this.kickBudget = 6;
     if (!this.isGuest()) {
       this.sim.step(dt);
-      world.updateStability(dt, T.warn, {
-        onCreak: (x, y, z, n) => this.onCreak(x, y, z, n),
-        release: (i, j, k2) => this.releaseCell(i, j, k2),
-        onRegion: (x, y, z) => this.queueLoad(x, y, z),
-      });
+      world.updateStability(dt, T.warn, this.stabHooks());
       this.updateAfters(dt);
       this.slide.update(dt);
       this.catchInCart();
@@ -952,8 +952,10 @@ export class Game {
 
     // vacuum burst (tap left click once the Plush Vacuum is owned); special targets always use the single grab
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE || tg.sp === PAD);
+    if (this.keys.KeyG && this.throwHold && this.curTool().kind === 'hands' && this.S.carry.length) this.throwOne();   // hold the left button after a throw: rapid fire
+    if (!this.keys.KeyG || !this.S.carry.length) this.throwHold = false;
     if (T.vac > 0 && !special) {
-      if (this.keys.KeyG && !special) this.vacT = Math.max(this.vacT || 0, 0.3);
+      if (this.keys.KeyG && !special && !this.throwHold) this.vacT = Math.max(this.vacT || 0, 0.3);
       if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
       this.ui.setGrab(0, false);
     } else {
@@ -1118,7 +1120,7 @@ export class Game {
         else if (this.mode === 'play' && !this.ui.isModalOpen() && !(this._dexSndT > this.time)) {
           const s = species[spId];
           this._dexSndT = this.time + 0.5;
-          this.ui.toast({ img: speciesIcon(spId), title: 'New species', text: `${s.name} · ${RARITY[s.rarity].name}`, ms: 3000 });
+          this.ui.toast({ img: speciesIcon(spId), title: 'New species', text: `${s.name} · ${RARITY[s.rarity].name}${s.legacy ? '' : ' · ' + REGIONS[s.lo].name}`, ms: 3000 });
           this.sound.tone('triangle', 800, 1200, 0.15, 0.06, 0.1);
         } else this._autoNewDex = (this._autoNewDex || 0) + 1;
       }
@@ -1161,7 +1163,7 @@ export class Game {
     const S = this.S, T = this.T;
     if (this.throwCd > 0 || !S.carry.length || this.mode !== 'play') return;
     const it = S.carry[S.carry.length - 1];
-    this.throwCd = 0.16;
+    this.throwCd = 0.12;
     const p = this.player, cam = this.renderer.camera;
     p.forward(_fwd);
     const o = cam.position;
@@ -1205,7 +1207,7 @@ export class Game {
         const sp = w.get(i, j, k);
         if (!sp || isSpecialCell(sp)) continue;
         if (n >= 14 || this.sim.n > 2300) continue;
-        const it = w.removeCell(i, j, k, false);
+        const it = w.removeCell(i, j, k, true);   // (queued: what is left of the roof, and any slab the punch cut off, is looked at like after every dig)
         if (!it) continue;
         this.sim.spawn(it.sp, it.vr, cx, cy, cz, dir.x * 3.2 + (Math.random() - 0.5) * 1.2, dir.y * 3.2 + 0.8, dir.z * 3.2 + (Math.random() - 0.5) * 1.2, 0);
         this.loosen(i, j, k, 0.8);
@@ -1230,8 +1232,10 @@ export class Game {
     const tg = this.curTargetRef;
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE || tg.sp === PAD);
     this.gDownAt = performance.now();
-    if (this.S.carry.length) { this.holdBlock = true; this.throwOne(); return; }
-    this.holdBlock = false;
+    // holding plush: aiming at something you can still pick up keeps picking up until you are full (hands, then the cart); with nothing to grab, or
+    // when everything is full, the click throws, and holding the button keeps throwing
+    if (this.S.carry.length && !(tg && !special && this.storeRoom())) { this.holdBlock = true; this.throwHold = true; this.throwOne(); return; }
+    this.throwHold = false; this.holdBlock = false;
     if (!tg) return;
     if (!this.storeRoom()) { this.ui.hint('Hands full. Walk to the SORT bin.', 2); return; }
     if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
@@ -1714,10 +1718,12 @@ export class Game {
       case 'cells': {
         const w = this.world;
         w._remoteApply = true;
-        for (let n = 0; n < m.a.length; n += 5) {
+        const cellsEnd = Math.min(Array.isArray(m.a) ? m.a.length : 0, 20000);   // a message carries at most 800 cells (4000 numbers); a forged one cannot make the host chew through millions
+        for (let n = 0; n + 4 < cellsEnd; n += 5) {
           const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2], sp = m.a[n + 3], vr = m.a[n + 4];
+          if (!(Number.isInteger(i) && Number.isInteger(j) && Number.isInteger(k) && w.inside(i, j, k) && Number.isInteger(sp) && sp >= 0 && sp < 65536 && Number.isInteger(vr) && vr >= 0 && vr < 256)) continue;
           w.setCell(i, j, k, sp, vr);
-          w.stabQueue.push({ i, j, k });
+          if (w.stabQueue.length < 30000) w.stabQueue.push({ i, j, k });
           if (sp === 0) { if (!this.isGuest()) this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (Math.random() < 0.3) this.fx.dust(cellX(i), cellY(j), cellZ(k), 2, 0.4, 0.5); }   // the dust field lives on the host: a guest's digging has to feed it there
         }
         w._remoteApply = false;
@@ -1752,6 +1758,7 @@ export class Game {
         if (m.a.length) this.onCreak(cellX(m.a[0]), cellY(m.a[1]), cellZ(m.a[2]), m.a.length / 3);
         break;
       }
+      case 'isl': this.islandWarn(m.x, m.y, m.z, m.n, m.b); break;   // the host found a slab cut off from the pile: the guest hears and sees the warning too
       case 'boom': {
         const d = Math.hypot(m.x - this.player.pos.x, m.y - this.player.pos.y, m.z - this.player.pos.z);
         this.sound.rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
@@ -1859,8 +1866,8 @@ export class Game {
     const S = this.S;
     switch (c) {
       case 'buy': { const lv = S.up[d.id] || 0; if (this.buy(d.id) && (S.up[d.id] || 0) > lv) { const u = upgradeById(d.id); if (u) this.netSend({ t: 'toast', icon: '🛒', title: u.name + (u.max > 1 ? ' ' + (lv + 1) : ''), text: u.names ? u.names[lv + 1] : 'Upgrade purchased' }); } break; }
-      case 'craft': craft(this, d.id, d.n); break;
-      case 'craftGear': craftGear(this, d.id); break;
+      case 'craft': craft(this, d && d.id, d && d.n); if (this.ui.openModal === 'craft') this.ui.renderCraft(); break;   // the host's own open bench shows what the guest made
+      case 'craftGear': craftGear(this, d && d.id); if (this.ui.openModal === 'craft') this.ui.renderCraft(); break;
       case 'place': { const tool = d.tool; const why = this.placeConflict(tool, d.ent); if (why) { this.netSend({ t: 'toast', icon: '⚠️', title: 'Could not place', text: why }); break; } this.plan = { ok: true, ent: d.ent }; this._forGuest = true; try { this.placeCurrent(tool); } finally { this._forGuest = false; } this.plan = null; break; }
       case 'decon': this.doDecon(d); break;
       case 'cfg': EXT.runCfgCmd(this, d); break;
@@ -2941,6 +2948,7 @@ export class Game {
     if (e.type === 'frame' || e.type === 'strut' || e.jack) {
       const w = this.world, ci = toI(e.cx ?? e.x), ck = toK(e.cz ?? e.z), cj = toJ(e.y0 ?? e.y ?? 0), R = e.type === 'frame' ? 8 : 4;
       for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5, 8]) w.stabQueue.push({ i: ci + a, j: cj + dj, k: ck + b });
+      if (!this.isGuest()) w.isl.sphere(ci, cj + 3, ck, R + 2);   // (and every plush with air against it around the frame is asked whether it still hangs on something: a narrow slab can lie between the grid points above)
       this.queueLoad(e.cx ?? e.x, (e.y0 ?? e.y ?? 0) + 1, e.cz ?? e.z);
     }
   }
@@ -3060,6 +3068,7 @@ export class Game {
     this.netSend({ t: 'sfail', x: s.x, y: s.y, z: s.z, name: fname, ratio });
     // the roof it was holding comes back under the tunnel rule, and the supports that shared its load are re-weighed
     for (let a = -6; a <= 6; a += 4) for (let b = -6; b <= 6; b += 4) for (const dj of [2, 5]) w.stabQueue.push({ i: toI(s.x) + a, j: toJ(s.y) + dj - 2, k: toK(s.z) + b });
+    if (!this.isGuest()) w.isl.sphere(toI(s.x), toJ(s.y), toK(s.z), Math.min(18, Math.ceil((s.r || 3) / C) + 3));
     this.queueLoad(s.x, s.y, s.z);
     this.stackFell(s, uppers);
   }
@@ -3640,12 +3649,86 @@ export class Game {
     return done > 0;
   }
 
-  onCreak(x, y, z, n) {
+  // what the stability loop (world.updateStability) calls: a roof cell lets go, a roof creaks, and a slab cut off from the pile (island.js) waits, creaks and falls
+  stabHooks() {
+    return this._stabHooks || (this._stabHooks = {
+      onCreak: (x, y, z, n, thin) => this.onCreak(x, y, z, n, thin),
+      release: (i, j, k2) => this.releaseCell(i, j, k2),
+      onRegion: (x, y, z) => this.queueLoad(x, y, z),
+      releaseIsland: (cells, from, n, isl) => this.releaseIsland(cells, from, n, isl),
+      onIsland: (isl) => this.onIsland(isl),
+      onIslandFx: (isl) => this.onIslandFx(isl),
+    });
+  }
+
+  onCreak(x, y, z, n, thin) {
     if (!this.isGuest() && Math.random() < 0.18) this.shedOffSlope(x, z, 1);
     const d = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
     if (d < 40) this.sound.creak(Math.max(0.05, 0.28 - d * 0.006));
     this.S.stats.creaks++; this.dust.add(x, y, z, 0.05);   // every creak shakes a little dust loose
+    if (thin && d < 30 && !(this._thinHint > this.time)) { this._thinHint = this.time + 90; this.ui.hint('<b>This room is too wide for the plush over it.</b> A thin cap cannot span a wide room: it comes down in pieces. Back away, put <kbd>Frames</kbd> under it, or leave more cover.', 7); return; }
     if (d < 10 && !this._creakHint) { this._creakHint = true; this.ui.hint('The roof is creaking! Back away, or place a <kbd>Frame</kbd> to hold it.', 5); }
+  }
+
+  // ---- a slab cut off from the pile (island.js). The host finds it, waits 1 to 3 s with a creak and dust, then lets every plush in it go as a loose body.
+  islandAbove(isl) {   // is a cell of the slab over the player's head
+    const p = this.player.pos, w = this.world, pi = toI(p.x), pk = toK(p.z), pj = toJ(p.y + 1.7);
+    for (let dj = 0; dj <= 10; dj++) for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (w.isl.cellIsl.get(((pj + dj) * NZ + pk + b) * NX + pi + a) === isl) return true;
+    return false;
+  }
+  islandWarn(x, y, z, n, b, under) {
+    this.onCreak(x, y, z, n);
+    if (under === undefined) { const p = this.player.pos, pi = toI(p.x), pk = toK(p.z); under = !!b && b.length === 5 && pi >= b[0] - 1 && pi <= b[1] + 1 && pk >= b[2] - 1 && pk <= b[3] + 1 && toJ(p.y + 1.7) < b[4]; }
+    if (under) { this.sound.creak(0.4); this.ui.hint('<b>The slab over your head is cut off from the pile and about to drop.</b> Get out from under it, or put a <kbd>Frame</kbd> or a wall under it.', 4); }
+  }
+  onIsland(isl) {
+    this.S.stats.islands = (this.S.stats.islands || 0) + 1;
+    this.islandWarn(isl.x, isl.y, isl.z, isl.n, null, this.islandAbove(isl));
+    this.netSend({ t: 'isl', x: +isl.x.toFixed(1), y: +isl.y.toFixed(1), z: +isl.z.toFixed(1), n: isl.n, sec: +isl.t.toFixed(1), b: [isl.i0, isl.i1, isl.k0, isl.k1, isl.j0] });
+  }
+  onIslandFx(isl) {   // every third of a second while it waits: a creak and a puff of dust from its underside
+    if (isl.n < 1) return;
+    const c = isl.cells, q = (Math.random() * Math.min(isl.n, 200)) | 0, x = cellX(c[q * 3]), y = cellY(c[q * 3 + 1]), z = cellZ(c[q * 3 + 2]);
+    const d = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
+    if (d < 40) this.sound.creak(Math.max(0.06, 0.3 - d * 0.006));
+    this.fx.dust(x, y - 0.2, z, 3, 0.4, 0.5);
+    if (d < 12) this.shake = Math.max(this.shake, 0.06 * (this.T.shakeMul || 1));
+  }
+  releaseIsland(cells, from, n, isl) {
+    const w = this.world, sim = this.sim;
+    if (!isl.banged) { if (isl.quiet) { isl.banged = true; this.fx.dust(cellX(cells[0]), cellY(cells[1]), cellZ(cells[2]), 2, 0.4, 0.5); } else this.islandBang(isl); }   // (a stray plush or two just drops)
+    // Loose bodies (the same body a roof cell becomes, releaseCell) up to what the sim can carry. A small slab waits for room; a big one (more than ISLAND_BODIES cells) cannot be
+    // all bodies at once, so what the sim has no room for drops straight down its own column onto the pile under it, as slide.js does when it is crowded: no plush is lost either way.
+    let room = Math.max(0, ISLAND_BODIES - sim.n), q = from, fell = 0;
+    const settle = n > ISLAND_BODIES;
+    for (; q < n; q++) {
+      const i = cells[q * 3], j = cells[q * 3 + 1], k = cells[q * 3 + 2];
+      const s0 = w.get(i, j, k); if (!s0 || isSpecialCell(s0)) continue;   // already dug away, or a cache or remains: those never fall as plush and stay where they are
+      if (room <= 0 && !(settle && s0 !== NEEDLE)) break;
+      const it = w.removeCell(i, j, k, false); if (!it) continue;
+      if (room > 0 || it.sp === NEEDLE) { sim.spawn(it.sp, it.vr, cellX(i), cellY(j), cellZ(k), (Math.random() - 0.5) * 0.8, -0.6 - Math.random() * 0.8, (Math.random() - 0.5) * 0.8, 2); room--; continue; }
+      let nj = j; while (nj > 0 && !w.solid(i, nj - 1, k)) nj--;
+      if (w.get(i, nj, k) || (w.reserved && w.reserved.has((nj * NZ + k) * NX + i))) { sim.spawn(it.sp, it.vr, cellX(i), cellY(j), cellZ(k), 0, -1, 0, 2); continue; }   // (nothing may settle in a belt or machine cell: it falls as a body there)
+      w.setCell(i, nj, k, it.sp, it.vr); fell++;
+    }
+    if (fell) this.slide.trigger(cells[from * 3], Math.max(1, cells[from * 3 + 1]), cells[from * 3 + 2], 0.9);
+    return q;
+  }
+  islandBang(isl) {   // the noise, shake, dust, aftershocks and slide chain of a cave-in, once for the whole slab
+    isl.banged = true;
+    const p = this.player.pos, c = isl.cells;
+    const dx = Math.max(cellX(isl.i0) - p.x, 0, p.x - cellX(isl.i1)), dz = Math.max(cellZ(isl.k0) - p.z, 0, p.z - cellZ(isl.k1)), d = Math.hypot(dx, dz);   // to the nearest edge of the slab: under any part of it counts
+    this.S.stats.collapses++; this.S.stats.islandFalls = (this.S.stats.islandFalls || 0) + 1;
+    this.collapseT = Math.min(this.collapseT, 1.2);
+    this.sound.rumble(d < 12 ? 1.5 : d < 30 ? 0.8 : 0.3);
+    if (d < 20) this.shake = Math.max(this.shake, Math.min(1.4, 16 / (d + 5)));
+    this.netSend({ t: 'boom', x: +isl.x.toFixed(1), y: +isl.y.toFixed(1), z: +isl.z.toFixed(1) });
+    const step = Math.max(1, Math.floor(isl.n / 12));
+    for (let q = 0; q < isl.n; q += step) this.fx.dust(cellX(c[q * 3]), cellY(c[q * 3 + 1]), cellZ(c[q * 3 + 2]), 6, 1.2, 1.4);
+    this.afters = this.afters || [];
+    this.afters.push({ i: Math.round((isl.i0 + isl.i1) / 2), j: isl.j0, k: Math.round((isl.k0 + isl.k1) / 2), t: 3 + Math.random() * 5, n: 2 });
+    if (!this.isGuest()) { const m = Math.min(isl.n, 400), s2 = Math.max(1, Math.floor(m / 8)); for (let q = 0; q < m; q += s2) this.slide.trigger(c[q * 3], c[q * 3 + 1], c[q * 3 + 2], 1.6); }
+    if (d < 22 && !this._islHint) { this._islHint = true; this.ui.hint('A slab that was cut off from the pile came down. Dig around a roof and only the pile beside it holds it up.', 6); }
   }
 
   releaseCell(i, j, k) {
@@ -3905,7 +3988,7 @@ export class Game {
     } else this.ui.setCompass(false);
     // stress lens
     this.stressT -= 0.1;
-    if (T.stressLens && this.stressT <= 0) {
+    if (T.stressLens && this.S.settings.stressBoxes !== false && this.stressT <= 0) {
       this.stressT = 0.35;
       const list = [];
       const ci = toI(p.pos.x), cj = toJ(p.pos.y + 1), ck = toK(p.pos.z);
@@ -3916,7 +3999,7 @@ export class Game {
         if (s && s.margin <= 0) list.push({ x: cellX(i), y: cellY(j), z: cellZ(k), sev: s.margin < 0 ? 2 : 1 });
       }
       this.renderer.setStress(list);
-    } else if (!T.stressLens) this.renderer.setStress([]);
+    } else if (!T.stressLens || this.S.settings.stressBoxes === false) this.renderer.setStress([]);
     if (T.assay) {
       let v = 0;
       const ci = toI(p.pos.x), cj = toJ(p.pos.y + 1), ck = toK(p.pos.z);
@@ -3965,7 +4048,7 @@ export class Game {
     const ci = toI(START_POS[0]), ck = toK(START_POS[2]);
     for (let di = -3; di <= 3; di++) for (let dk = -3; dk <= 3; dk++) for (let j = 0; j < 4; j++) {
       if (Math.hypot(di, dk) > 2.8) continue;
-      const it = w.removeCell(ci + di, j, ck + dk, false);
+      const it = w.removeCell(ci + di, j, ck + dk, true);
       if (it && it.sp === NEEDLE) { this.sim.spawn(it.sp, it.vr, cellX(ci + di), cellY(j) + 0.2, cellZ(ck + dk), 0, 2, 0, 2); }
     }
     this.sound.whoosh(0.2);

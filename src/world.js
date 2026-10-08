@@ -2,13 +2,15 @@ import { C, NX, NY, NZ, CS, CX, CY, CZ, HALL_H, cellX, cellY, cellZ, toI, toJ, t
 import { h32, mulberry32, smoothstep, fbm2, vnoise2, clamp } from './util.js';
 import { pickSpecies, bandOfD2, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell } from './plushdata.js';
 import { workingsNear, workingPlugged } from './remains.js';
+import { Islands } from './island.js';
 
 const NCX = NX >> 4, NCZ = NZ >> 4;
 const COLSZ = 256 * NY;
 // THE TUNNEL RULE. A tunnel (or room) stands as long as no stretch of it runs further than SAFE_LEN from an anchor:
 // an anchor is the open mouth of the cavity (no roof over it), or ground held by a frame, prop, strut, jack or bulkhead.
 // SAFE_LEN shrinks the heavier the pile above (overburden) and the further from the bay (denser plush), and grows with
-// Pile Tamping. Past that length the unsupported roof creaks, then comes down. Nothing else collapses a tunnel.
+// Pile Tamping. Past that length the unsupported roof creaks, then comes down. Two rules come on top of it and never loosen it: a wide roof needs cover thick enough for its span (THIN_*
+// below), and plush that has been cut off from the pile falls (island.js).
 export const VEIN_T = 0.8;      // veinAt above this is a rich vein
 export const SAFE_LEN = 12;     // cells (7.2 m) of tunnel you can dig unsupported near the surface
 export const OB = 14;           // every 14 cells of plush above the roof costs one cell of safe length
@@ -20,6 +22,19 @@ export const ARCH = 4;          // a collapse can only climb 4 cells (2.4 m) abo
 // of cells at 16 cells of safe length while a 2 wide tunnel got all 27. The allowance now grows with the reach asked for: the same safe length at any width.
 export const CAVITY_CAP = 500;
 export const CAVITY_PER_STEP = 70;
+// THE THIN CAP RULE (on top of the tunnel rule, never instead of it). A roof also has to be thick enough for its span. The span of a roof cell is the shorter of the two runs of open
+// cavity through it (the width of the cap along x and along z: a wall of plush, a support's reach or the end of the roof ends a run; a hole of THIN_HOLE cells or fewer in the cap does not). Spans up to THIN_SPAN
+// cells (3.6 m: every tunnel, the 4 wide frame tunnel and the 6 wide haul arch) never fail on thickness. A wider roof needs cover of at least span / THIN_RATIO cells: the plush from
+// the roof cell up to the first air (the open top of the pile, or the next cavity above). So a 20 by 20 room needs 7 cells over it, a 30 wide hall 10, and a thin cap over a huge dug area
+// comes down although it has a few holes in it (a hole of THIN_HOLE cells or fewer does not shorten a span, so one fallen cell never starts to hold what is left). What remains of a cap
+// that has come down are pieces no wider than THIN_SPAN along the walls, which stand. A cell that has started to creak is judged again when its time is up with every open cell counting
+// (`strict`), so the holes the first cells leave never save the rest of a cap that is coming down. Cover of THIN_REACH / THIN_RATIO cells or more is never checked.
+export const THIN_SPAN = 6;
+export const THIN_RATIO = 3;
+export const THIN_REACH = 30;
+export const THIN_HOLE = 3;     // a gap of up to this many cells in a cap does not shorten its span
+export const THIN_LEAD = 0.9;   // seconds a thin cap creaks at the very least before its first piece lets go (the creak sound and the hint come after 0.7 s of overload)
+const STAB_MAX = 50000;   // a flood of edits (a forged guest message, a huge blast) never leaves more than this waiting for a roof check
 
 // The hall is a huge lattice of plush cells (0.6 m). Storage is lazy: 16x16 column chunks are generated from the
 // seed on first touch, and only modified columns are kept forever. Everything else can be evicted and regenerated.
@@ -38,6 +53,7 @@ export class World {
     this.reserved = new Set();    // cells occupied by belts/machines (no plush may settle there)
     this.stabBonus = 0;
     this.needle = { i: 0, j: 0, k: 0 };
+    this.isl = new Islands(this);   // plush cut off from the pile (island.js)
     this._lk = -1; this._lc = null;
     this.placeNeedle();
   }
@@ -414,10 +430,45 @@ export class World {
     return Infinity;
   }
 
-  stress(i, j, k) {
+  // the width of the cap over the cavity through (i, k) along one axis: the roof cell itself and the roofed cells either way (open at level j - 1, plush at level j) until plush at the
+  // cavity level (a wall), a support's reach, the end of the roof (more than THIN_HOLE cells with no roof: the mouth of a cut, the open ground beside a slope) or the world edge.
+  // A hole of THIN_HOLE cells or fewer in the cap (a shaft, a few plush that fell) does not end a run. `strict` ignores where the roof ends (every open cell counts): that is how a
+  // roof that is already coming down is judged again when its time is up, so the holes the first cells leave never save the rest of a cap.
+  // It stops counting past `max` (callers only ask whether a run is longer than some length).
+  runLen(i, j, k, di, dk, max, strict = false) {
+    const jb = j - 1; let n = 1; const sup = this.supports.length > 0;
+    for (let s = 1; s >= -1; s -= 2) {
+      let pend = 0;
+      for (let c = 1; n + pend <= max; c++) {
+        const ci = i + di * s * c, ck = k + dk * s * c;
+        if (ci < 0 || ci >= NX || ck < 0 || ck >= NZ) break;
+        if (this.get(ci, jb, ck) !== 0) break;
+        if (sup && this.supportBonus(cellX(ci), cellY(jb), cellZ(ck)) > 0) break;
+        if (strict) { n++; continue; }
+        if (this.get(ci, j, ck) !== 0) { n += pend + 1; pend = 0; continue; }
+        if (++pend > THIN_HOLE) break;
+      }
+    }
+    return n;
+  }
+
+  // the thin cap rule for a roof cell (solid, air under it): null when the cover is thick enough for the span, else { span, T, need }
+  thinRoof(i, j, k, strict = false) {
+    if (this.thinOff) return null;
+    const maxT = Math.ceil(THIN_REACH / THIN_RATIO);
+    let T = 0;
+    for (let jj = j; jj < NY && T < maxT; jj++) { if (!this.get(i, jj, k)) break; T++; }
+    if (T >= maxT) return null;                       // cover this thick holds any span the rule looks at
+    const L = Math.max(THIN_SPAN, T * THIN_RATIO);   // the roof fails when both runs are longer than 3 x its thickness (and than THIN_SPAN)
+    if (this.supports.length && this.supportBonus(cellX(i), cellY(j - 1), cellZ(k)) > 0) return null;
+    if (this.runLen(i, j, k, 1, 0, L, strict) <= L) return null;
+    if (this.runLen(i, j, k, 0, 1, L, strict) <= L) return null;
+    const span = Math.min(this.runLen(i, j, k, 1, 0, THIN_REACH, strict), this.runLen(i, j, k, 0, 1, THIN_REACH, strict));
+    return { span, T, need: Math.max(T + 1, Math.ceil(span / THIN_RATIO)) };
+  }
+
+  stress(i, j, k, strict = false) {
     if (j === 0) return null;
-    const base = this.chimney.get(k * 16384 + i);
-    if (base !== undefined && j - base >= ARCH) return null; // arched: this part of the pile has already settled over the void
     const s0 = this.get(i, j, k);
     if (!s0 || s0 === BULK || s0 === PAD || this.solid(i, j - 1, k)) return null;   // bulkheads and floor pads never fall
     const over = Math.max(0, this.topAt(i, k) - j - 1);
@@ -425,6 +476,11 @@ export class World {
     // safe length: shrinks with the weight above and the distance from the bay, grows with tamping and strong frames
     // (the floor applies to the pile's own weight; tamping and props are added on top, so they work at any depth)
     const limit = Math.max(MIN_SAFE, SAFE_LEN - Math.floor(over / OB) - 2 * this.depthPenalty(i, k)) + 2 * this.stabBonus + 3 * sup;
+    // a wide roof under thin cover fails whatever its distance to an anchor, and it does not arch (the chimney limit below is for thick cover only)
+    const thin = this.thinRoof(i, j, k, strict);
+    if (thin) return { margin: thin.T - thin.need, d: Infinity, B: limit, thin };
+    const base = this.chimney.get(k * 16384 + i);
+    if (base !== undefined && j - base >= ARCH) return null; // arched: this part of the pile has already settled over the void
     const L = this.cavityLen(i, j - 1, k, limit + 1);
     return { margin: limit - L, d: L, B: limit };
   }
@@ -452,28 +508,47 @@ export class World {
   }
 
   scanRegion(i0, j0, k0, warn) {
-    for (let j = j0 - 1; j <= j0 + 2; j++) {
-      for (let k = k0 - 5; k <= k0 + 5; k++) {
-        for (let i = i0 - 5; i <= i0 + 5; i++) {
-          if (!this.inside(i, j, k)) continue;
-          const id = (j * NZ + k) * NX + i;
-          if (this.creaking.has(id)) continue;
-          const s = this.stress(i, j, k);
-          if (s && s.margin < 0) { this.creaking.set(id, { i, j, k, t: warn * (0.35 + Math.random() * 0.9) }); if (this.onCreakCell) this.onCreakCell(i, j, k); }
+    const mark = (i, j, k) => {
+      if (!this.inside(i, j, k)) return;
+      const id = (j * NZ + k) * NX + i;
+      if (this.creaking.has(id) || this.isl.cellIsl.has(id)) return;   // (a cell of a cut off slab is island.js's: it falls with the slab, not on its own)
+      const s = this.stress(i, j, k);
+      if (s && s.margin < 0) {
+        // a thin cap over a wide room lets go widest and thinnest first
+        const f = s.thin ? 0.3 + 0.7 * Math.min(1, s.thin.T / s.thin.need) : 1;
+        // (no piece of a thin cap lets go before THIN_LEAD seconds after the first one began to creak, so the creak sound and the hint, announced after 0.7 s, come before anything falls:
+        // the thinnest cap used to give 0.2 s. A piece flagged later in the same cave-in waits only for what is left of that lead)
+        let lead = 0;
+        if (s.thin) {
+          const now = this._clock || 0;
+          if (this._thinT0 === undefined || !this.creaking.size || now - (this._thinLast === undefined ? -1e9 : this._thinLast) > 1) this._thinT0 = now;   // (a new cap, not one that is already coming down)
+          lead = Math.max(0, THIN_LEAD - (now - this._thinT0));
         }
+        this.creaking.set(id, { i, j, k, t: lead + warn * (0.35 + Math.random() * 0.9) * f, thin: !!s.thin });
+        if (s.thin) this._thinSeen = true;
+        if (this.onCreakCell) this.onCreakCell(i, j, k);
       }
-    }
+    };
+    for (let j = j0 - 1; j <= j0 + 2; j++) for (let k = k0 - 5; k <= k0 + 5; k++) for (let i = i0 - 5; i <= i0 + 5; i++) mark(i, j, k);
+    // plush taken off the top of a cap thins it: the roofs under that column are looked at again, as far down as the thin cap rule reaches
+    for (let j = j0 - 2; j >= Math.max(1, j0 - Math.ceil(THIN_REACH / THIN_RATIO)); j--) mark(i0, j, k0);
   }
 
   updateStability(dt, warn, hooks) {
     let budget = 24;
+    this._clock = (this._clock || 0) + dt;
+    if (this.stabQueue.length > STAB_MAX) this.stabQueue.splice(0, this.stabQueue.length - STAB_MAX);
+    const isl = hooks.releaseIsland && !this.isl.off;
     while (this.stabQueue.length && budget-- > 0) {
       const q = this.stabQueue.shift();
       const before = this.creaking.size;
+      this._thinSeen = false;
       this.scanRegion(q.i, q.j, q.k, warn);
+      if (isl) this.isl.around(q.i, q.j, q.k);   // the cells around every edit are asked whether they are still joined to the pile (island.js)
       if (hooks.onRegion) hooks.onRegion(cellX(q.i), cellY(q.j), cellZ(q.k));
-      if (this.creaking.size > before && hooks.onCreak) (this._announce || (this._announce = [])).push({ i: q.i, j: q.j, k: q.k, t: 0.7, n: this.creaking.size - before });
+      if (this.creaking.size > before && hooks.onCreak) (this._announce || (this._announce = [])).push({ i: q.i, j: q.j, k: q.k, t: 0.7, n: this.creaking.size - before, thin: this._thinSeen });
     }
+    this.isl.update(dt, warn, hooks);
     // a creak is only worth a sound once the roof has stayed overloaded for a moment (grabbing a few plush leaves pockets that
     // settle at once), and no more than one every few seconds
     this._creakCool = Math.max(0, (this._creakCool || 0) - dt);
@@ -485,22 +560,27 @@ export class World {
         for (const an of ready) {
           let still = 0;
           for (let dj = -1; dj <= 2 && !still; dj++) for (let dk = -5; dk <= 5 && !still; dk++) for (let di = -5; di <= 5; di++) { const c = this.creaking.get(((an.j + dj) * NZ + an.k + dk) * NX + an.i + di); if (c) { still++; break; } }
-          if (still && this._creakCool <= 0) { this._creakCool = 5; hooks.onCreak(cellX(an.i), cellY(an.j), cellZ(an.k), an.n); }
+          if (still && this._creakCool <= 0) { this._creakCool = 5; hooks.onCreak(cellX(an.i), cellY(an.j), cellZ(an.k), an.n, an.thin); }
         }
       }
     }
-    if (!this.creaking.size) return;
+    if (!this.creaking.size) { this._thinT0 = undefined; return; }
     const done = [];
+    let thinN = 0;
     for (const [id, c] of this.creaking) {
       c.t -= dt;
+      if (c.thin) thinN++;
       if (c.t <= 0) done.push([id, c]);
     }
+    if (thinN) this._thinLast = this._clock; else this._thinT0 = undefined;   // (when no thin cap is coming down any more, the next one gets its own lead)
     let released = 0;
-    // a collapse runs like dominoes, not all at once: roof cells let go at a limited rate so a long tunnel comes down over a few seconds
-    this._relBudget = Math.min(30, (this._relBudget || 0) + dt * 24);
+    // a collapse runs like dominoes, not all at once: roof cells let go at a limited rate so a long tunnel comes down over a few seconds.
+    // A thin cap over a wide room is hundreds of cells: it speeds up with the number waiting (a 20 by 20 cap is down in a few seconds, not in a quarter of a minute)
+    this._relBudget = Math.min(30 + Math.min(90, thinN * 0.3), (this._relBudget || 0) + dt * (24 + Math.min(180, thinN * 0.6)));
     for (const [id, c] of done) {
       this.creaking.delete(id);
-      const s = c.force ? { margin: -1 } : this.stress(c.i, c.j, c.k);
+      if (c.isl || this.isl.cellIsl.has(id)) continue;   // a marker on a cut off slab, or a cell that joined one: the slab is island.js's, the marker only warns
+      const s = c.force ? { margin: -1 } : this.stress(c.i, c.j, c.k, !!c.thin);
       if (s && s.margin < 0) {
         if (this._relBudget >= 1 && hooks.release(c.i, c.j, c.k)) {
           this._relBudget -= 1;

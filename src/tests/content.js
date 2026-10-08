@@ -11,7 +11,7 @@ export default async function (ctx) {
   });
   await T('content.structural-survey-load-matches-the-trace', async () => {
     fresh({ timber: 1, survey: 1 }); const { i, k } = spot(); dig(i, k - 1, 12, 5, 4, false); const e = { id: g.nextId(), type: 'frame', kind: 'timber', axis: 'x', cx: cellX(i + 6), cz: cellZ(k + 1), y0: 0, w: 2.36, h: 2.38, gm: i + 6, glo: k - 1, gj: 0 }; S().entities.push(e); g.addEntity(e);
-    p().pos.set(e.cx - 2, 0, e.cz); g._svNext = 0; g.updateSurvey(); const sup = w().supports.find((s) => s.id === e.id); const want = Math.round(loadOn(w(), sup) / capacityOf('timber') * 100);
+    p().pos.set(e.cx - 2, 0, e.cz); g._svNext = 0; const cd = g.coverDepth; g.coverDepth = () => 400; g.updateSurvey(); g.coverDepth = cd; /* the survey only reads out under a roof */ const sup = w().supports.find((s) => s.id === e.id); const want = Math.round(loadOn(w(), sup) / capacityOf('timber') * 100);
     const sl = g.ui.dials.read('support'); return (sl.info.load === `nearest support: ${want}% load` && sl.val === want + '%') || `${sl.info.load} / ${sl.val} vs ${want}%`;
   });
   await T('content.new-achievements-trigger-only-when-earned', async () => {

@@ -367,7 +367,7 @@ export default async function (ctx) {
   // ---------------------------------------------------------------- settings
   await guard('detector.cfg-whitelist-targets-and-copy-paste', async () => {
     fresh(UP); const a = mk(1, -7.2, 3.0), b = mk(1, -7.2, 7.0), bad = [];
-    for (const [patch, why] of [[{ mode: 'bogus' }, 'bad mode'], [{ target: -1 }, 'negative target'], [{ target: 99999 }, 'huge target'], [{ target: 1.5 }, 'fraction'], [{ rarity: 6 }, 'rarity 6'], [{ volume: 2 }, 'volume 2'], [{ quiet: 'yes' }, 'string bool'], [{ evil: 1 }, 'unknown'], [{ mode: 'species' }, 'species without a target'], [{ target: 5000 }, 'no such species'], [{ cx: 5 }, 'position'], [{ size: 2 }, 'size'], [{ mode: 'rarity', evil: 1 }, 'half valid']]) {
+    for (const [patch, why] of [[{ mode: 'bogus' }, 'bad mode'], [{ target: -1 }, 'negative target'], [{ target: 99999 }, 'huge target'], [{ target: 1.5 }, 'fraction'], [{ rarity: 6 }, 'rarity 6'], [{ volume: 2 }, 'volume 2'], [{ quiet: 'yes' }, 'string bool'], [{ evil: 1 }, 'unknown'], [{ mode: 'species' }, 'species without a target'], [{ target: 59000 }, 'no such species'], [{ cx: 5 }, 'position'], [{ size: 2 }, 'size'], [{ mode: 'rarity', evil: 1 }, 'half valid']]) {
       const r = g.setCfg(a, patch); if (r.ok) bad.push(why + ' accepted'); }
     if (a.mode !== 'one' || a.cx === 5 || a.size !== 1) bad.push('a refused patch changed something: ' + a.mode);
     if (!g.setCfg(a, { mode: 'species', target: common, volume: 0.25, quiet: true }).ok || a.mode !== 'species' || a.target !== common || a.volume !== 0.25 || !a.quiet) bad.push('a clean patch failed');

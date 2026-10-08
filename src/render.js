@@ -21,6 +21,10 @@ function colOf(s0) {
   return palLin[s0.pal];
 }
 const STRIDE = 16;
+// The per instance seed (0..1) rides in the fraction of aData.w and the pattern number (0 plain, 1 stripes, 2 spots, 3 two-tone) in its whole part. The shader reads the
+// pattern with floor(), and a varying that is the same at all three corners of a triangle can still come out a hair under its value, so the seed never sits on 0 or 1:
+// it is kept inside 0.01..0.98, which leaves a margin of 0.01 either way for the rounding of the interpolation.
+export const seedEnc = (u) => 0.01 + (u > 1 ? 1 : u < 0 ? 0 : u) * 0.97;
 
 // precomputed linear palette colors
 const palLin = PALETTES.map(([, hex]) => {
@@ -331,7 +335,7 @@ export class Renderer {
           else col = colOf(s0);
           out.push(
             pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6], pose[7],
-            ao, skyOut, flag + hb, (pose[8] > 0.99 ? 0.99 : pose[8]) + (s0 && s0.pat && s < SPECIAL_MIN ? s0.pat : 0),
+            ao, skyOut, flag + hb, seedEnc(pose[8]) + (s0 && s0.pat && s < SPECIAL_MIN ? s0.pat : 0),
             col[0] * shade, col[1] * shade, col[2] * shade, arch,
           );
         }
@@ -489,7 +493,7 @@ export class Renderer {
     const ca = m.instanceColor.array;
     ca[n * 3] = col[0] * shade; ca[n * 3 + 1] = col[1] * shade; ca[n * 3 + 2] = col[2] * shade;
     const aa = m.geometry.attributes.aData.array;
-    aa[n * 4] = ao; aa[n * 4 + 1] = sky; aa[n * 4 + 2] = flag; aa[n * 4 + 3] = Math.min(0.99, ((vr * 37) & 255) / 255) + (s0.pat && sp < SPECIAL_MIN ? s0.pat : 0);
+    aa[n * 4] = ao; aa[n * 4 + 1] = sky; aa[n * 4 + 2] = flag; aa[n * 4 + 3] = seedEnc(((vr * 37) & 255) / 255) + (s0.pat && sp < SPECIAL_MIN ? s0.pat : 0);
   }
   endDynamic() { for (let a = 0; a < NA; a++) flush(this.dyn[a], this.dynCount[a]); }
 

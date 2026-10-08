@@ -1,8 +1,8 @@
 // The remesh as it was before daylight through holes (src/render.js at the last commit, `this` renamed to R): the baseline of the cost test and of "no hole means exactly the
 // old light". No default export, so the self test loader skips this file.
 import { NX, NY, NZ, CS, CX, CZ, cellX, cellY, cellZ } from '../config.js';
-import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, PAD, ARCH_COUNT } from '../plushdata.js';
-import { cellPose } from '../render.js';
+import { species, PALETTES, NEEDLE, BULK, REMAINS, CACHE, PAD, ARCH_COUNT, SPECIAL_MIN } from '../plushdata.js';
+import { cellPose, seedEnc } from '../render.js';
 import * as THREE from 'three';
 
 const STRIDE = 16;
@@ -106,7 +106,7 @@ export function legacyScan(R, cx, cy, cz, deep = false) {
         else col = colOf(s0);
         out.push(
           pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6], pose[7],
-          ao, skyBest, flag, pose[8],
+          ao, skyBest, flag, seedEnc(pose[8]) + (s0 && s0.pat && s < SPECIAL_MIN ? s0.pat : 0),   // (the species pattern in the integer part of the seed and the seed kept off 0 and 1: later changes of render.js, taken from it so the comparison stays about light)
           col[0] * shade, col[1] * shade, col[2] * shade, arch,
         );
       }

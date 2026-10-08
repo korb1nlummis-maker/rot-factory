@@ -107,7 +107,7 @@ export function loadSaved() {
 // Saves made before the specials moved (decoys 4090..4093, pad 4095, cache 4096, remains 4097, bulkhead 4098, The One 4099) carry the old ids in the world edits, the loose
 // plush, the Plushdex and the machines' contents. Every one of them is shifted to its new id once, on load.
 const oldSpecial = (n) => Number.isInteger(n) && n >= OLD_SPECIAL_MIN && n <= OLD_SPECIAL_MIN + 9;
-const FLAT = /cargo|hopper|hop$|load$/;
+const FLAT = /^(cargo|hopper|hop|load)$/;   // the flat [species, variant, species, variant ...] lists of the diggers, trucks and docks (an array that only has such a word at the end of its name is not one)
 function shiftWalk(o, key, depth) {
   if (!o || typeof o !== 'object' || depth > 14) return;
   if (Array.isArray(o)) {

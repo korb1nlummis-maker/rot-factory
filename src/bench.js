@@ -53,9 +53,10 @@ export const categoryOf = (r) => explicitCategory(r) || 'tools';
 let probeCache = null;
 function tuneProxy(g, T) { const px = Object.create(g); Object.defineProperty(px, 'T', { value: T, configurable: true }); return px; }
 const sigOf = (T) => JSON.stringify(Object.entries(T).filter(([, v]) => typeof v === 'boolean' || Array.isArray(v) || Number.isInteger(v)));
+const PROBE_TTL = 600000;   // the table only depends on the upgrade list and the catalog parts (the key); building it takes about 140 ms, so it is not redone at every opening
 function probe(g, fresh) {
   const key = Object.keys(EXTRA).join(',') + '|' + UPGRADES.length;
-  if (probeCache && probeCache.key === key && !(fresh && Date.now() - probeCache.at > 30000)) return probeCache.map;
+  if (probeCache && probeCache.key === key && !(fresh && Date.now() - probeCache.at > PROBE_TTL)) return probeCache.map;
   const map = new Map();
   const bases = [[]].concat(Object.keys(FRAME_TYPES).map((k) => [[k, 1]]));
   for (const base of bases) {
@@ -213,14 +214,13 @@ const cssId = (id) => (window.CSS && CSS.escape ? CSS.escape(id) : id.replace(/[
 const priceTag = (r) => `◈ ${fmt(r.price)}`;
 const catName = (r) => CAT_BY_ID[r.cat].name;
 
-function cardHtml(g, r, st) {
-  const sel = r.id === st.sel;
+function cardHtml(g, r) {
   const first = r.locked ? 0 : (offersOf(g, r)[0] || { cost: r.price }).cost;
   const own = r.owned > 0 ? `<span class="bc-own" title="You have ${r.owned}">${r.kind === 'bot' ? '' : '×'}${r.owned}</span>` : '';
   const foot = r.locked ? `<span class="bc-lock">🔒 ${escHtml(r.lock.text)}</span>` : `<span class="bc-price">${priceTag(r)}</span>`;
   const label = `${r.name}, ${r.locked ? 'locked. ' + r.lock.text : 'price ' + fmt(r.price) + (r.owned ? ', you have ' + r.owned : '')}`;
   const tip = r.locked ? `${r.name}: ${r.lock.text}` : `${r.name}: ◈ ${fmt(r.price)}${r.status ? '. ' + r.status : ''}`;
-  return `<div class="bcard${r.locked ? ' locked' : ''}${sel ? ' sel' : ''}${!r.locked && g.S.money < first ? ' broke' : ''}" role="option" aria-selected="${sel}" aria-label="${escHtml(label)}" title="${escHtml(tip)}" tabindex="${sel ? 0 : -1}" data-id="${escHtml(r.id)}" data-cat="${r.cat}"${r.locked ? ' data-locked="1"' : ` data-cost="${first}"`}>`
+  return `<div class="bcard${r.locked ? ' locked' : ''}" role="option" aria-selected="false" aria-label="${escHtml(label)}" title="${escHtml(tip)}" tabindex="-1" data-id="${escHtml(r.id)}" data-cat="${r.cat}"${r.locked ? ' data-locked="1"' : ` data-cost="${first}"`}>`
     + `<span class="bc-ico">${r.icon}</span>${own}<span class="bc-name">${escHtml(r.name)}</span>${foot}</div>`;
 }
 
@@ -232,7 +232,7 @@ function detailHtml(g, r, st) {
     : '';
   const offers = offersOf(g, r);
   const btns = r.locked ? '<button class="bd-btn" disabled>Locked</button>'
-    : offers.map((o) => `<button class="bd-btn" data-n="${o.n}" data-cost="${o.cost}" ${o.off || g.S.money < o.cost ? 'disabled' : ''}>${o.label} · ◈${fmt(o.cost)}</button>`).join('');
+    : offers.map((o) => `<button class="bd-btn" data-n="${o.n}" data-cost="${o.cost}"${o.off ? ' data-off="1" disabled' : ''}>${o.label} · ◈${fmt(o.cost)}</button>`).join('');
   const hint = r.locked ? '' : `<div class="bd-key"><kbd>Enter</kbd> crafts 1${offers.length > 1 ? `, <kbd>Shift</kbd>+<kbd>Enter</kbd> crafts ${(offers[1] || offers[0]).n}` : ''}</div>`;
   const status = r.status ? `<div class="bd-row"><b>Status</b> <span>${escHtml(r.status)}</span></div>` : '';
   const have = r.owned > 0 ? `<div class="bd-row"><b>${r.kind === 'bot' ? 'Crew' : 'You have'}</b> <span>${r.owned}${r.kind === 'bot' ? ` bot${r.owned === 1 ? '' : 's'}` : ''}</span></div>` : '';
@@ -241,6 +241,24 @@ function detailHtml(g, r, st) {
     + lock + `<p class="bd-desc">${escHtml(r.desc || '')}</p>` + price + have + mats + status
     + (r.use ? `<div class="bd-use"><b>How to use</b> <span>${escHtml(r.use)}</span></div>` : '')
     + `<div class="bd-buy">${btns}</div>${hint}`;
+}
+
+// write markup into a node only when it differs from what the node was last given. A redraw that changes nothing (a guest gets one every 0.6 s,
+// belts move the balance all the time) then keeps every node: a click that began before it still lands, the hover stays and nothing flickers.
+function put(el, html) {
+  if (el._benchHtml === html && el._benchFirst === el.firstChild) return false;
+  el.innerHTML = html; el._benchHtml = html; el._benchFirst = el.firstChild;
+  return true;
+}
+// what the balance decides, painted on top of the markup so the markup does not depend on it: a card you cannot pay yet is dimmed, a craft button
+// you cannot pay is off. A button that is off for another reason (data-off: an owned cart, a full crew) stays off whatever the balance.
+export function paintMoney(money) {
+  const win = $('craft'); if (!win) return;
+  for (const c of win.querySelectorAll('.bcard[data-cost]')) c.classList.toggle('broke', money < +c.dataset.cost);
+  for (const b of win.querySelectorAll('#benchDetail button[data-cost]')) b.disabled = b.hasAttribute('data-off') || money < +b.dataset.cost;
+}
+function markSel(grid, id) {
+  for (const c of grid.querySelectorAll('.bcard')) { const on = c.dataset.id === id; c.classList.toggle('sel', on); c.setAttribute('aria-selected', on); c.tabIndex = on ? 0 : -1; }
 }
 
 // draw everything. opts: { open } (the window just opened), { fresh } (look the unlock table up again)
@@ -257,12 +275,12 @@ export function render(ui, opts = {}) {
   const counts = tabCounts(rows, st.q);
   if (!TAB_IDS.has(st.tab)) st.tab = 'all';
   const focusedTab = document.activeElement && tabsEl.contains(document.activeElement) ? document.activeElement.dataset.tab : null;
-  tabsEl.innerHTML = TABS.map((t) => {
+  const tabsNew = put(tabsEl, TABS.map((t) => {
     const c = counts[t.id], on = t.id === st.tab;
     const num = t.id === 'locked' ? `${c.total}` : `${c.ready}/${c.total}`;
     return `<button role="tab" class="bt${on ? ' on' : ''}${c.total === 0 ? ' none' : ''}" data-tab="${t.id}" data-total="${c.total}" data-have="${c.ready}" aria-selected="${on}" tabindex="${on ? 0 : -1}" title="${escHtml(t.name)}: ${c.ready} ready, ${c.total - c.ready} locked. ${escHtml(t.blurb)}"><span class="ti">${t.icon}</span><span class="tn">${escHtml(t.name)}</span><span class="ts">${escHtml(t.short)}</span><span class="tc">${num}</span></button>`;
-  }).join('');
-  if (focusedTab) { const b = tabsEl.querySelector(`[data-tab="${focusedTab}"]`); if (b) b.focus({ preventScroll: true }); }
+  }).join(''));
+  if (tabsNew && focusedTab) { const b = tabsEl.querySelector(`[data-tab="${focusedTab}"]`); if (b) b.focus({ preventScroll: true }); }
 
   const shown = tabRows(rows, st.tab, st.q, st.hide);
   st.shown = shown;
@@ -270,29 +288,35 @@ export function render(ui, opts = {}) {
   const hadFocus = grid.contains(document.activeElement);
   const detailFocus = detail.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.n : null;
   const keepScroll = grid.scrollTop;
+  let gridNew;
   if (!shown.length) {
     const elsewhere = TABS.filter((t) => t.id !== st.tab && t.id !== 'all' && counts[t.id].total > 0);
-    grid.innerHTML = `<div class="bench-none">${st.q ? `Nothing in ${escHtml(TABS.find((t) => t.id === st.tab).name)} matches "${escHtml(st.q)}".` : 'Nothing in this tab yet.'}${st.q && elsewhere.length ? ` Matches in: ${elsewhere.map((t) => `<a href="#" data-goto="${t.id}">${escHtml(t.short)} (${counts[t.id].total})</a>`).join(', ')}.` : ''}</div>`;
-    for (const a of grid.querySelectorAll('[data-goto]')) a.onclick = (e) => { e.preventDefault(); setTab(ui, a.dataset.goto); };
+    const echo = st.q.length > 40 ? st.q.slice(0, 40) + '...' : st.q;
+    gridNew = put(grid, `<div class="bench-none">${st.q ? `Nothing in ${escHtml(TABS.find((t) => t.id === st.tab).name)} matches "${escHtml(echo)}".` : 'Nothing in this tab yet.'}${st.q && elsewhere.length ? ` Matches in: ${elsewhere.map((t) => `<a href="#" data-goto="${t.id}">${escHtml(t.short)} (${counts[t.id].total})</a>`).join(', ')}.` : ''}</div>`);
+    if (gridNew) for (const a of grid.querySelectorAll('[data-goto]')) a.onclick = (e) => { e.preventDefault(); setTab(ui, a.dataset.goto); };
   } else {
     let html = '', lastCat = null;
     for (const r of shown) {
       if (st.tab === 'all' && r.cat !== lastCat) { html += `<div class="bench-cat" role="presentation"><span>${CAT_BY_ID[r.cat].icon} ${escHtml(CAT_BY_ID[r.cat].name)}</span></div>`; lastCat = r.cat; }
-      html += cardHtml(g, r, st);
+      html += cardHtml(g, r);
     }
-    grid.innerHTML = html;
-    grid.scrollTop = keepScroll;
-    for (const c of grid.querySelectorAll('.bcard')) {
-      c.onclick = () => { select(ui, c.dataset.id, false); };
-      c.ondblclick = () => { const r = st.rows.find((x) => x.id === c.dataset.id); if (r && !r.locked) craftRow(ui, r, 1); };
+    gridNew = put(grid, html);
+    if (gridNew) {
+      grid.scrollTop = keepScroll;
+      for (const c of grid.querySelectorAll('.bcard')) {
+        c.onclick = () => { select(ui, c.dataset.id, false); };
+        c.ondblclick = () => { const r = st.rows.find((x) => x.id === c.dataset.id); if (r && !r.locked) craftRow(ui, r, 1); };
+      }
     }
   }
+  markSel(grid, shown.length ? st.sel : null);
   const sel = shown.find((r) => r.id === st.sel) || null;
   detail.dataset.id = sel ? sel.id : '';
-  detail.innerHTML = detailHtml(g, sel, st);
-  for (const b of detail.querySelectorAll('button[data-n]')) b.onclick = () => { if (sel) craftRow(ui, sel, +b.dataset.n); };
-  if (detailFocus) { const b = detail.querySelector(`button[data-n="${detailFocus}"]:not(:disabled)`); if (b) b.focus({ preventScroll: true }); else { const el = grid.querySelector('.bcard.sel'); if (el) el.focus({ preventScroll: true }); } }
-  else if ((hadFocus || opts.open) && sel && !(window.matchMedia && matchMedia('(pointer: coarse)').matches)) { const el = grid.querySelector(`.bcard[data-id="${cssId(sel.id)}"]`); if (el) el.focus({ preventScroll: true }); if (opts.open) keepSelVisible(grid); }
+  const detailNew = put(detail, detailHtml(g, sel, st));
+  if (detailNew) for (const b of detail.querySelectorAll('button[data-n]')) b.onclick = () => { if (sel) craftRow(ui, sel, +b.dataset.n); };
+  paintMoney(g.S.money);
+  if (detailNew && detailFocus) { const b = detail.querySelector(`button[data-n="${detailFocus}"]:not(:disabled)`); if (b) b.focus({ preventScroll: true }); else { const el = grid.querySelector('.bcard.sel'); if (el) el.focus({ preventScroll: true }); } }
+  else if (((hadFocus && gridNew) || opts.open) && !detailFocus && sel && !(window.matchMedia && matchMedia('(pointer: coarse)').matches)) { const el = grid.querySelector(`.bcard[data-id="${cssId(sel.id)}"]`); if (el) el.focus({ preventScroll: true }); if (opts.open) keepSelVisible(grid); }
   const ct = $('benchCount'); if (ct) ct.textContent = `${shown.length} shown`;
 }
 
@@ -306,11 +330,12 @@ export function setTab(ui, id) {
 export function select(ui, id, focus = true) {
   const st = state(ui); st.sel = id;
   const grid = $('craftGrid');
-  for (const c of grid.querySelectorAll('.bcard')) { const on = c.dataset.id === id; c.classList.toggle('sel', on); c.setAttribute('aria-selected', on); c.tabIndex = on ? 0 : -1; if (on && focus) { c.focus({ preventScroll: true }); c.scrollIntoView({ block: 'nearest' }); } }
+  markSel(grid, id);
+  if (focus) { const c = grid.querySelector(`.bcard[data-id="${cssId(id)}"]`); if (c) { c.focus({ preventScroll: true }); c.scrollIntoView({ block: 'nearest' }); } }
   const r = st.shown.find((x) => x.id === id) || null;
   const detail = $('benchDetail'); detail.dataset.id = r ? r.id : '';
-  detail.innerHTML = detailHtml(ui.game, r, st);
-  for (const b of detail.querySelectorAll('button[data-n]')) b.onclick = () => { if (r) craftRow(ui, r, +b.dataset.n); };
+  if (put(detail, detailHtml(ui.game, r, st))) for (const b of detail.querySelectorAll('button[data-n]')) b.onclick = () => { if (r) craftRow(ui, r, +b.dataset.n); };
+  paintMoney(ui.game.S.money);
 }
 export function setQuery(ui, q) {
   const st = state(ui); st.q = q; render(ui);
@@ -321,6 +346,10 @@ export function setHide(ui, on) { const st = state(ui); st.hide = !!on; savePref
 export function craftRow(ui, r, n) {
   const g = ui.game;
   if (r.locked) { g.sound.error(); return false; }
+  if (g.isGuest && g.isGuest()) {
+    const o = offersOf(g, r).find((x) => x.n === n);
+    if ((o && o.off) || g.S.money < quoteOf(g, r, n)) { g.sound.error(); return false; }
+  }
   const ok = r.kind === 'gear' ? g.craftGearItem(r.gid) : g.craftItem(r.id, n);
   render(ui);
   return ok;
@@ -328,15 +357,34 @@ export function craftRow(ui, r, n) {
 
 // ---------------------------------------------------------------- keyboard
 function colsOf(grid) { const n = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length; return Math.max(1, n); }
+// up and down by what is on screen: the card in the next row whose centre is nearest to this one's. The ALL tab has category blocks whose last row is
+// short, so "one row down" is not "the index plus the column count". With no row that way the selection stays.
+function rowStep(grid, list, from, dir, rows) {
+  const els = [...grid.querySelectorAll('.bcard')];
+  if (els.length !== list.length) return from + dir * colsOf(grid) * rows;
+  const rects = els.map((e) => e.getBoundingClientRect());
+  let at = from;
+  for (let s = 0; s < rows; s++) {
+    const r0 = rects[at], cx = r0.left + r0.width / 2;
+    let best = -1, bestAway = Infinity, bestDx = Infinity;
+    for (let k = 0; k < rects.length; k++) {
+      const away = (rects[k].top - r0.top) * dir; if (away <= 4) continue;
+      const dx = Math.abs(rects[k].left + rects[k].width / 2 - cx);
+      if (away < bestAway - 4 || (away <= bestAway + 4 && dx < bestDx)) { if (away < bestAway - 4) bestAway = away; best = k; bestDx = dx; }
+    }
+    if (best < 0) break;
+    at = best;
+  }
+  return at;
+}
 function moveSel(ui, key) {
   const st = state(ui), list = st.shown; if (!list.length) return;
-  const grid = $('craftGrid'), cols = colsOf(grid);
+  const grid = $('craftGrid');
   let i = Math.max(0, list.findIndex((r) => r.id === st.sel));
-  // up and down keep the column inside the same category block of the ALL tab: step by the column count over the visible cards
   if (key === 'ArrowLeft') i -= 1; else if (key === 'ArrowRight') i += 1;
-  else if (key === 'ArrowUp') i -= cols; else if (key === 'ArrowDown') i += cols;
+  else if (key === 'ArrowUp') i = rowStep(grid, list, i, -1, 1); else if (key === 'ArrowDown') i = rowStep(grid, list, i, 1, 1);
   else if (key === 'Home') i = 0; else if (key === 'End') i = list.length - 1;
-  else if (key === 'PageUp') i -= cols * 3; else if (key === 'PageDown') i += cols * 3;
+  else if (key === 'PageUp') i = rowStep(grid, list, i, -1, 3); else if (key === 'PageDown') i = rowStep(grid, list, i, 1, 3);
   i = Math.max(0, Math.min(list.length - 1, i));
   select(ui, list[i].id, true);
 }
@@ -372,6 +420,7 @@ export function installKeys(ui) {
       e.stopPropagation(); return;
     }
     if (inInput) return;
+    if (e.repeat && (e.code === 'Enter' || e.code === 'NumpadEnter')) { own(); return; }   // a held Enter crafts once, and never clicks a focused button over and over
     if (e.code === 'Tab') { e.stopPropagation(); return; }   // normal focus order; the game's Tab would close the bench
     if (inTabs && (e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'Home' || e.code === 'End')) { own(); stepTab(ui, e.code === 'ArrowLeft' ? -1 : 1, e.code === 'Home' ? 'start' : e.code === 'End' ? 'end' : null); return; }
     if (e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'Home' || e.code === 'End' || e.code === 'PageUp' || e.code === 'PageDown') { if (tag === 'BUTTON' && !inTabs && (e.code === 'ArrowLeft' || e.code === 'ArrowRight') && t.closest('#benchDetail')) return; own(); moveSel(ui, e.code); return; }

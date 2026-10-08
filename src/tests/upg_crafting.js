@@ -217,7 +217,7 @@ export default async function (ctx) {
       const s = w().supports.slice(n0).find((q) => q.id && !String(q.id).startsWith('shield'));
       if (!s) bad.push(id + ' placed but no support registered'); else { if (s.r !== want) bad.push(`${id} support radius ${s.r} not ${want}`); if (s.b !== b) bad.push(`${id} bonus ${s.b} not ${b}`); }
     }
-    fresh(maxAll()); g.T = g.tune(); const j = recipes(g).find((x) => x.id === 'jack'); if (!/Steel/.test(j.desc) || j.mat !== 'steel') bad.push('jack material text');
+    fresh(maxAll()); g.T = g.tune(); const j = recipes(g).find((x) => x.id === 'jack'); if (j.mat !== 'steel') bad.push('jack material');   // (the text no longer names Steel Beams: it is crafted with Fluff)
     return bad.length === 0 || bad.slice(0, 8).join('; ');
   });
 

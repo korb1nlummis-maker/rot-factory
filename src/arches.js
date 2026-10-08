@@ -350,5 +350,6 @@ export function onRemove(g, ent) {
   const w = g.world, bx = boxOf(ent), ci = (bx.i0 + bx.i1) >> 1, ck = (bx.k0 + bx.k1) >> 1;
   const R = Math.ceil(archReach(ent.span, ent.mat) / C) + 2;
   for (let a = -R; a <= R; a += 4) for (let b = -R; b <= R; b += 4) for (const dj of [2, 5, 8]) w.stabQueue.push({ i: ci + a, j: ent.gj + dj, k: ck + b });
+  if (!(g.isGuest && g.isGuest())) w.isl.sphere(ci, ent.gj + 3, ck, Math.min(18, R));   // (and every plush with air against it in its reach: a narrow slab can lie between the grid points above)
   if (g.queueLoad) g.queueLoad(ent.cx, ent.y0 + 1, ent.cz);
 }

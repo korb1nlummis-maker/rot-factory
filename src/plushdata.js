@@ -62,8 +62,8 @@ export const PALETTES = [
   ['Snow', 0xf2f4f0], ['Brick', 0xd9552b], ['Sherbet', 0xf2b8e0], ['Espresso', 0x3a2418],
   ['Salmon', 0xe58f9a], ['Mustard', 0xb8962e], ['Indigo', 0x2b2f8f], ['Raspberry', 0xc2185b],
   ['Charcoal', 0x33363d], ['Truffle', 0x6b5a4a], ['Citron', 0xd4e157], ['Mattone', 0x8f2d2d],
-  ['Moss', 0x566b3a], ['Blush', 0xf7c6c0], ['Cobalt', 0x1e5bd6], ['Lagoon', 0x3fa7d6],
-  ['Fern', 0x1f6b45], ['Cinnamon', 0xa8581f], ['Currant', 0x5b1f9e], ['Greige', 0xd8d4b0],
+  ['Moss', 0x566b3a], ['Blush', 0xf7c6c0], ['Cobalt', 0x1244f2], ['Lagoon', 0x3fa7d6],
+  ['Fern', 0x1f6b45], ['Cinnamon', 0x906010], ['Currant', 0x5b1f9e], ['Greige', 0xa9b9a3],
 ];
 // patterns: 0 plain, 1 stripes, 2 spots, 3 two-tone (the fragment shader draws them, see shaders.js; the name gets the suffix)
 export const PATTERNS = ['', 'Rigato', 'Macchiato', 'Bicolore'];

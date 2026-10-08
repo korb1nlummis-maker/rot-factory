@@ -2,12 +2,13 @@
 // Rules (see catalog.js for the full contract): export exactly these four names, import nothing that imports upgrades.js,
 // crafting.js, power.js or game.js at module level (they import catalog.js, so that would be a cycle).
 // All behavior lives in detector.js; this file only registers it. The cfg validators are built on first use because catalog.js imports this file.
-import { V } from './catalog.js';
+import { V, REJECT } from './catalog.js';
 import * as D from './detector.js';
-import { NEEDLE } from './plushdata.js';
+import { species, isSpecialCell } from './plushdata.js';
 
 let SPEC = null;
-const spec = () => SPEC || (SPEC = { mode: V.enum(D.MODES), target: V.int(0, NEEDLE), rarity: V.int(0, 5), exact: V.bool, volume: V.num(0, 1), quiet: V.bool });
+const speciesId = (v) => (v === 0 || (Number.isInteger(v) && v >= 1 && !!species[v] && !isSpecialCell(v)) ? v : REJECT);   // 0 (none), a real species, a decoy or The One
+const spec = () => SPEC || (SPEC = { mode: V.enum(D.MODES), target: speciesId, rarity: V.int(0, 5), exact: V.bool, volume: V.num(0, 1), quiet: V.bool });
 
 export const UPGRADES = [
   { id: 'archGate', cat: 'machine', name: 'Detector Arch', desc: 'Unlocks the Detector Arch (12,000 at the bench): a steel walk-through arch 2.4 m wide and 2.4 m tall. Carry plush through it. Nothing matches: a soft buzz (only when you carry something). A match: a two note da-ding, green and gold lamps. Press E on it to choose what it looks for: The One, a species from your Plushdex, a rarity, a species new to your Plushdex, or a shiny. In The One mode a match is the win. It scans you without power; the lamps need a pole (1.5 kW). Needs the Detector Gate.', max: 1, cost: [120000], req: { id: 'detector', lvl: 1 }, effect: (t) => { t.machines.push('arch'); } },

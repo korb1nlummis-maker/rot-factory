@@ -58,8 +58,8 @@ export class UI {
   syncMoney(v) {
     const m = this.openModal; const box = m === 'shop' ? 'shopMoney' : m === 'craft' ? 'craftMoney' : m === 'travel' ? 'travelMoney' : null; if (!box) return;
     $(box).textContent = fmt(v);
+    if (m === 'craft') { BENCH.paintMoney(v); return; }   // the bench also dims the cards you cannot pay yet and leaves a button that is off for another reason off
     for (const b of $(m).querySelectorAll('button[data-cost]')) b.disabled = v < +b.dataset.cost;
-    for (const c of $(m).querySelectorAll('.bcard[data-cost]')) c.classList.toggle('broke', v < +c.dataset.cost);   // a bench card whose price you cannot pay yet
   }
   gain(amount) {
     this.deltaAcc += amount;
@@ -236,7 +236,7 @@ export class UI {
   // the scoop dial: how many plush a grab scoops right now, out of the most Scoop Hands allow. - and = change it, 3 at a time.
   setScoop(n, max) {
     if (!(max > 0)) { this.dials.set('scoop', { on: false }); return; }
-    this.dials.set('scoop', { on: true, frac: Math.min(1, n / max), val: String(n), unit: '/ ' + max, sub: '3 at a time', state: n >= max && max > 12 ? 'warn' : 'ok', dim: n === 0, canDn: n > 0, canUp: n < max, text: `scoop ${n} of ${max} plush per grab; the minus and plus buttons (or the - and = keys) change it by three` });
+    this.dials.set('scoop', { on: true, frac: Math.min(1, n / max), val: String(n), unit: '/ ' + max, sub: '', state: n >= max && max > 12 ? 'warn' : 'ok', dim: n === 0, canDn: n > 0, canUp: n < max, text: `scoop ${n} of ${max} plush per grab; the minus and plus buttons (or the - and = keys) change it by three` });
   }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setCartLine(n, cap, mode) {

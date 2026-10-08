@@ -67,9 +67,9 @@ export default async function (ctx) {
   });
   await T('upg.sort.dex-bonus-per-species', async () => {
     const out = [];
-    for (const n of [0, 10, 100]) {
+    for (const n of [0, 10, 100]) {   // (prices are whole numbers, so a ratio is only good to half a unit in the price: 0.006)
       fresh({}); S().dex = {}; const a = g.valueOf(SP, 0, 0); fresh({ dex: 1 }); S().dex = {}; for (let q = 1; q <= n; q++) S().dex[q] = 1; const b = g.valueOf(SP, 0, 0);
-      if (!near(b / a, 1 + (await import('../plushdata.js')).DEX_UNIT * n, 0.003)) out.push(`${n} species: x${(b / a).toFixed(4)}`);
+      if (!near(b / a, 1 + (await import('../plushdata.js')).DEX_UNIT * n, 0.006)) out.push(`${n} species: x${(b / a).toFixed(4)}`);
     }
     S().dex = {}; fresh({}); return out.length ? out.join('; ') : true;
   });
@@ -130,16 +130,18 @@ export default async function (ctx) {
   await T('upg.sort.contracts-rewards-match-formula-and-pay', async () => {
     fresh({ contracts: 1, contractSlots: 3 }); S().stats.maxDist = 100; S().dex = {};
     const out = []; const C = g.contracts;
+    // a shape contract pays the plain formula times how rare the shape is in the pile (1 to 30: the 24 newest shapes are far rarer than the old ones, see contracts.js)
+    const shapePays = (c, prem, mult) => { const base = c.need * 36 * 1.1 * prem * mult; return c.reward >= Math.max(30, Math.round(base)) && c.reward <= Math.max(30, Math.round(base * 30)); };
     for (let n = 0; n < 60; n++) {
       const c = C.make(); const prem = 1 + 100 / 700; const mult = g.T.sellMult;
-      if (c.kind === 'shape' && c.reward !== Math.max(30, Math.round(c.need * 36 * 1.1 * prem * mult))) out.push('shape reward ' + c.reward);
+      if (c.kind === 'shape' && !shapePays(c, prem, mult)) out.push('shape reward ' + c.reward);
       if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('shiny reward ' + c.reward);
       if (!(c.reward >= 30) || !(c.need >= 1) || c.have !== 0) out.push('bad contract ' + JSON.stringify(c));
     }
     // rewards follow the sell price exactly: with Haggling 5 the sell multiplier is higher and every reward follows the same formula
     fresh({ contracts: 1, contractSlots: 3, haggle: 5 }); S().stats.maxDist = 100; S().dex = {}; const m5 = g.T.sellMult; { fresh({ contracts: 1, contractSlots: 3 }); if (!(m5 > g.T.sellMult * 1.6)) out.push(`haggle 5 sell multiplier ${m5} vs ${g.T.sellMult}`); }
     fresh({ contracts: 1, contractSlots: 3, haggle: 5 }); S().stats.maxDist = 100; S().dex = {};
-    for (let n = 0; n < 60; n++) { const c = g.contracts.make(); const prem = 1 + 100 / 700; const mult = g.T.sellMult; if (c.kind === 'shape' && c.reward !== Math.max(30, Math.round(c.need * 36 * 1.1 * prem * mult))) out.push('haggled shape reward ' + c.reward); if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('haggled shiny reward ' + c.reward); }
+    for (let n = 0; n < 60; n++) { const c = g.contracts.make(); const prem = 1 + 100 / 700; const mult = g.T.sellMult; if (c.kind === 'shape' && !shapePays(c, prem, mult)) out.push('haggled shape reward ' + c.reward); if (c.kind === 'shiny' && c.reward !== Math.max(30, Math.round(c.need * 140 * 1.2 * prem * mult * 3))) out.push('haggled shiny reward ' + c.reward); }
     // a rarity contract pays its reward exactly when the last matching plush is sold, wrong plush do not count
     fresh({ contracts: 1, contractSlots: 3 }); S().stats.maxDist = 0; const sp0 = species.findIndex((s) => s && s.rarity === 1), sp5 = SP;
     S().contracts = [{ kind: 'rarity', r: 3, need: 3, desc: 'x', reward: 12345, id: 77, have: 0 }]; g.streak.t = 0;

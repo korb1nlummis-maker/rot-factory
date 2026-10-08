@@ -2,7 +2,7 @@
 // ramps (rise 1 cell over 2, or a truck ramp 1 over 3) and stairs (rise 2 cells over 4), plus the Leveling Pad machine that digs a box and lays pads.
 //
 // How it fits the game:
-//  * Pads, catwalk plates and walls are real WORLD CELLS (PAD = 4095, BULK) set by the host when the ent is added, so the pile, the player, loose plush and the
+//  * Pads, catwalk plates and walls are real WORLD CELLS (PAD and BULK, the special ids of plushdata.js) set by the host when the ent is added, so the pile, the player, loose plush and the
 //    renderer all treat them as solid with no special casing beyond isSpecialCell (never falls, never grabbed, never blasted). The ent is the record of what was
 //    placed (material, group, rails) and what the hammer hands back; cell edits travel to a guest through the normal cell sync, the ent through ent+.
 //  * Ramps and stairs are NOT cells: they are walkable colliders. walkStep() (installed as player.walk) lifts the feet onto the slope and keeps the flanks solid.

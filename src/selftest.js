@@ -22,7 +22,7 @@ export async function runSelfTest(g, only = '') {
   // ------------------------------------------------------------------ helpers
   const adv = (sec, dt = 0.05) => { for (let n = 0; n < sec / dt; n++) { g.time += dt; g.updatePlay(dt); } };
   const stepSim = (sec, dt = 1 / 60) => {
-    const hooks = { onCreak: (x, y, z, n) => g.onCreak(x, y, z, n), release: (a, b, c) => g.releaseCell(a, b, c), onRegion: (x, y, z) => g.queueLoad(x, y, z) };
+    const hooks = g.stabHooks();   // the real hooks: roof cells, and slabs cut off from the pile (island.js)
     for (let n = 0; n < sec / dt; n++) { g.time += dt; g.slide.update(dt); sim().step(dt); w().updateStability(dt, g.T.warn, hooks); g.updateAfters(dt); }
   };
   const clearBodies = () => { while (sim().n > 0) sim().remove(sim().n - 1); };
@@ -62,7 +62,7 @@ export async function runSelfTest(g, only = '') {
     return { i, k: kk };
   };
   const newWorld = async () => { await g.startPlay(true); g.mode = 'play'; g.noSave = true; await realSleep(250); };
-  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.'];
+  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.', 'island.', 'thincap.'];
   const aimPoint = (x, y, z, back = 2.0) => {
     p().pos.set(x - back, 0, z); p().vel.set(0, 0, 0);
     const e = p().eyePos(new V3()); const dx = x - e.x, dy = y - e.y, dz = z - e.z;
@@ -221,7 +221,7 @@ export async function runSelfTest(g, only = '') {
   // ================================================================== SORT
   await T('sort.haggle-value', async () => { fresh({}); const EP = species.findIndex((x) => x && x.rarity === 3); const a = g.valueOf(EP, 0, 0); tune({ haggle: 10 }); const b = g.valueOf(EP, 0, 0); return (b > a * 2.2 && b < a * 2.6) || `${a} ${b}`; });
   await T('sort.streak-cap', async () => { tune({}); const EP = species.findIndex((x) => x && x.rarity === 3); const a = g.valueOf(EP, 0, 12); tune({ streak: 5 }); const b = g.valueOf(EP, 0, 12); return b > a || `${a} ${b}`; });
-  await T('sort.dex-bonus', async () => { fresh({}); S().dex = {}; for (let q = 1; q < 200; q++) S().dex[q] = 1; const a = g.valueOf(60, 0, 0); tune({ dex: 1 }); const b = g.valueOf(60, 0, 0); S().dex = {}; return b > a || `${a} ${b}`; });
+  await T('sort.dex-bonus', async () => { fresh({}); const EP = species.findIndex((x) => x && x.rarity === 4); S().dex = {}; for (let q = 1; q < 200; q++) S().dex[q] = 1; const a = g.valueOf(EP, 0, 0); tune({ dex: 1 }); const b = g.valueOf(EP, 0, 0); S().dex = {}; return b > a || `${a} ${b}`; });
   await T('sort.dump-range', async () => {
     const run = (up, d) => { fresh({ bag: 3, ...up }); const bp = g.hall.binPos; for (let q = 0; q < 3; q++) S().carry.push({ sp: 2, vr: 0 }); p().pos.set(bp.x + d, 0, bp.z); for (let n = 0; n < 60; n++) g.autoDump(0.1); return 3 - S().carry.length; };
     return (run({}, 6) === 0 && run({ dump: 3 }, 6) === 3) || 'range';
@@ -376,7 +376,7 @@ export async function runSelfTest(g, only = '') {
   await T('tunnel.tamping-collapses-later', async () => {
     // tamping raises the unsupported length the rule allows, and a tamped tunnel outlasts an untamped one
     const limitFor = (up) => { fresh(up); const { i: i0, k } = spot(); dig(i0, k, 30, 2, 3, false); let B = 0; for (let s = 10; s < 30; s++) { const st = w().stress(i0 + s, 3, k); if (st) { B = st.B; break; } } return B; };
-    const B0 = limitFor({}), B1 = limitFor({ tamp: 8 }); const a = await tunnelOutcome({}, 50, 0), b = await tunnelOutcome({ tamp: 8 }, 50, 0);
+    const B0 = limitFor({}), B1 = limitFor({ tamp: 8 }); await newWorld(); const a = await tunnelOutcome({}, 50, 0); await newWorld(); const b = await tunnelOutcome({ tamp: 8 }, 50, 0);   // each in a fresh world: the second tunnel used to be dug into the ruin of the first, where plush hangs loose that the island rule (island.js) now drops, and the test counted that as a cave-in
     return (B1 > B0 && (b.failed === null || b.failed >= a.failed - 1) && a.failed !== null) || `limit ${B0} vs ${B1}, failed at ${a.failed} vs ${b.failed}`;
   });
   await T('tunnel.collapse-is-bounded-and-settles', async () => { const r = await tunnelOutcome({}, 45, 0); stepSim(80); return (r.failed !== null && sim().n === 0 && g.slide.q.size === 0) || `loose ${sim().n} q ${g.slide.q.size}`; });

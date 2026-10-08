@@ -9,7 +9,7 @@ export default async function (ctx) {
   const { T, g, S, w, p, L, adv, V3, cellX, cellZ, toI, toK, craft, selectTool, plan } = ctx;
   const K = makeShell(ctx), B = K.B;
   const I0 = () => toI(-14), K0 = () => toK(2);
-  const guard = (name, fn) => T(name, async () => { try { return await fn(); } finally { K.clean(); for (const t of [...L().tiles.values()]) if (!t.free && (t.type === 'gen' || t.type === 'pole')) { L().remove(t); S().entities = S().entities.filter((x) => x.id !== t.id); } } });
+  const guard = (name, fn) => T(name, async () => { try { w().isl.off = true; w().thinOff = true; /* the fixtures here are checkerboards of plush columns hanging a cell over the floor; the island rule (island.js) and the thin cap rule (world.js) would drop them, and these tests are about the pad */ return await fn(); } finally { w().isl.off = false; w().thinOff = false; K.clean(); for (const t of [...L().tiles.values()]) if (!t.free && (t.type === 'gen' || t.type === 'pole')) { L().remove(t); S().entities = S().entities.filter((x) => x.id !== t.id); } } });
   // a powered pole two cells beside the machine: a generator fed with commons, a pole, run for a moment so the grid solver marks the pole powered
   const rig = async (i, k) => {
     const gen = { id: g.nextId(), type: 'gen', i: i - 3, j: 0, k: k + 4, dir: 0, rise: 0, items: [] }; S().entities.push(gen); g.addEntity(gen);

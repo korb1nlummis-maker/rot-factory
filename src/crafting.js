@@ -210,6 +210,7 @@ export function craftGear(g, id) {
 }
 
 export function craft(g, id, n) {
+  if (typeof id !== 'string') return false;   // a guest's command is untrusted: a number or an object for an id must not throw on the host
   const S = g.S;
   n = Math.floor(+n);
   if (!(n >= 1) && id.indexOf('cart:') !== 0) return false;

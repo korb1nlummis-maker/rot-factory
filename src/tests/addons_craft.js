@@ -150,7 +150,7 @@ export default async function (ctx) {
     fresh(ALL_UP); S().money = 1e12; for (const r of recipes(g)) if (r.kind !== 'cart' && r.kind !== 'mat') g.craftItem(r.id, 1); g.craftItem('cart:2', 1); for (const r of recipes(g)) if (r.kind === 'mat') g.craftItem(r.id, 50);
     const bad = []; g.ui.open('inv'); const list = g.inventoryList();
     const slots = document.querySelectorAll('#invGrid .islot:not(.empty)'); if (slots.length !== list.length) bad.push(`grid shows ${slots.length} of ${list.length}`);
-    const need = recipes(g).filter((r) => r.kind !== 'cart' || r.id === 'cart:2').map((r) => r.id);
+    const need = recipes(g).filter((r) => r.kind !== 'mat' && (r.kind !== 'cart' || r.id === 'cart:2')).map((r) => r.id);   // raw building material is no longer something you carry
     for (const id of need) if (!list.some((x) => x.id === id)) bad.push('inventory lacks ' + id);
     list.forEach((it, n) => { slots[n].click(); const info = document.getElementById('invInfo').textContent; if (BAD.test(info)) bad.push('bad info for ' + it.id); if (!info.includes(it.name)) bad.push('info lacks name ' + it.id); if (it.tool && !/hotbar|slot/i.test(info)) bad.push('no hotbar hint for ' + it.id); if (!/How to use/.test(info) && it.id !== 'cart-out') bad.push('no how-to for ' + it.id); });
     // assign to a slot through the inventory UI and read it back from the hotbar bar

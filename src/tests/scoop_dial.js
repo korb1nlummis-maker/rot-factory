@@ -44,4 +44,29 @@ export default async function (ctx) {
     const { plushWall, standBeforeWall, sleep, p } = ctx; if (!plushWall) return true;   // helper missing in this build: covered by hands.scoop-takes-more
     return true;
   });
+  await T('hands.holding-plush-keeps-picking-up-until-full-and-holding-the-button-throws-rapidly', async () => {
+    const { spot, w, p } = ctx; fresh({ bag: 4 }); g.T = g.tune(); g.stowed = true; const sp0 = spot(); const bad = [];
+    const cell = (di) => { const i = sp0.i + di, j = 1, k = sp0.k; w().setCell(i, j, k, 3, 0); return { type: 'cell', i, j, k, sp: 3, vr: 0 }; };
+    const carry = (n) => { S().carry = []; for (let q = 0; q < n; q++) S().carry.push({ sp: 4, vr: 0 }); g.ui.setCarry(S().carry, g.T.carry); };
+    g.keys.KeyG = false; g.holdBlock = false; g.throwHold = false;
+    // holding 2 of 6 and aiming at a plush: a click picks it up (not a throw)
+    carry(2); g.curTargetRef = cell(5); g.throwCd = 0; const n0 = g.sim.n; g.gPress(); if (S().carry.length !== 3) bad.push('click with room should grab: carry ' + S().carry.length); if (g.sim.n > n0) bad.push('it threw instead of picking up');
+    // full and aiming at a plush: the click throws
+    carry(g.T.carry); g.curTargetRef = cell(7); g.throwCd = 0; g.gPress(); if (S().carry.length !== g.T.carry - 1) bad.push('full hands should throw: ' + S().carry.length);
+    // nothing aimed at: the click throws
+    carry(3); g.curTargetRef = null; g.throwCd = 0; g.gPress(); if (S().carry.length !== 2) bad.push('no target should throw: ' + S().carry.length);
+    // holding the button after that throw keeps throwing, several a second
+    carry(20); g.T.carry = 20; g.curTargetRef = null; g.throwCd = 0; g.keys.KeyG = true; g.gPress(); const cam = g.renderer.camera; const f = new cam.position.constructor(); g.player.forward(f);
+    for (let n = 0; n < 20; n++) { g.time += 0.05; g.throwCd -= 0.05; g.interact(0.05, cam.position, f); }
+    const thrown = 20 - S().carry.length; if (thrown < 5) bad.push('holding threw only ' + thrown + ' in a second');
+    g.keys.KeyG = false; g.interact(0.05, cam.position, f); if (g.throwHold) bad.push('throw hold stayed on after release'); g.curTargetRef = null;
+    return bad.length === 0 || bad.join('; ');
+  });
+  await T('ui.stress-lens-boxes-can-be-switched-off-in-the-pause-menu', async () => {
+    const bad = []; const box = document.getElementById('chkStress'); if (!box) return 'no checkbox';
+    g.renderer.setStress([{ x: 0, y: 1, z: 0, sev: 2 }, { x: 1, y: 1, z: 0, sev: 1 }]); if (g.renderer.stress.count !== 2) bad.push('lens did not draw boxes');
+    box.checked = false; box.dispatchEvent(new Event('change')); if (g.renderer.stress.count !== 0) bad.push('boxes stayed after switching off'); if (g.S.settings.stressBoxes !== false) bad.push('setting not saved');
+    box.checked = true; box.dispatchEvent(new Event('change')); if (g.S.settings.stressBoxes !== true) bad.push('setting not restored');
+    return bad.length === 0 || bad.join('; ');
+  });
 }

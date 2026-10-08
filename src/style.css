@@ -68,7 +68,7 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
 
 /* ---------- the belt: the hotbar in the middle, a round dial group each side ----------
    Wide screens: [dials][hotbar][dials] on one line. Under 1180 px the dials stack above the hotbar and wrap. */
-:root { --dial: 58px; --slot: 62px; --sgap: 8px; --gutter: 14px; }
+:root { --dial: 76px; --slot: 62px; --sgap: 8px; --gutter: 14px; }
 #belt { left: 0; right: 0; bottom: 14px; padding: 0 var(--gutter); display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 8px var(--gutter); }
 #belt > #hint { position: absolute; }
 #bottom { order: 3; flex: 0 0 100%; display: flex; flex-direction: column; align-items: center; }
@@ -79,13 +79,18 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
 @media (min-width: 1180px) {
   #belt { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); flex-wrap: nowrap; align-items: end; }
   #bottom { grid-column: 2; grid-row: 1; order: 0; flex: none; }
-  #dialsL { grid-column: 1; grid-row: 1; justify-content: flex-start; }
-  #dialsR { grid-column: 3; grid-row: 1; }
+  #dialsL { grid-column: 1; grid-row: 1; justify-content: flex-start; justify-self: end; }
+  #dialsR { grid-column: 3; grid-row: 1; justify-self: start; }
   #belt > #hint { bottom: calc(var(--center-h, 80px) + 8px); }
+  /* a group is never wider than five dials: on a wide screen it makes a second row (stacked up from the hotbar) instead of one long row that drifts out to the screen edge */
+  .dials { max-width: calc(5 * (var(--dial) + 14px)); }
+  /* the hotbar gives way a little so each side keeps room for three dials across (so nine dials are three rows, not five) down to the narrowest desktop window */
+  :root { --slot: clamp(50px, calc((100vw - 656px) / 9), 62px); }
 }
-@media (max-width: 700px) { :root { --dial: 46px; --sgap: 4px; --gutter: 8px; --slot: clamp(30px, calc((100vw - 2 * var(--gutter) - 8 * var(--sgap)) / 9), 62px); } .slot .l { display: none; } .slot .k { left: 3px; top: 1px; font-size: 9px; } .slot .c { right: 3px; top: 1px; font-size: 9px; } #hotbarHint { font-size: 10px; } }
-@media (max-width: 430px) { :root { --dial: 38px; } }   /* a phone shows a lot of dials (air, oxygen, suffocation, dust, depth ...): keep them to about three rows */
-@media (min-width: 2400px) { :root { --dial: 92px; --slot: 92px; --sgap: 12px; --gutter: 24px; } #hint { font-size: 19px; } #hotbarHint { font-size: 15px; } }
+@media (max-width: 700px) { :root { --dial: 56px; --sgap: 4px; --gutter: 8px; --slot: clamp(30px, calc((100vw - 2 * var(--gutter) - 8 * var(--sgap)) / 9), 62px); } .slot .l { display: none; } .slot .k { left: 3px; top: 1px; font-size: 9px; } .slot .c { right: 3px; top: 1px; font-size: 9px; } #hotbarHint { font-size: 10px; } }
+@media (max-width: 430px) { :root { --dial: 44px; } }
+@media (max-width: 380px), (max-height: 680px) and (max-width: 430px) { :root { --dial: 38px; } }   /* a phone shows a lot of dials (air, oxygen, suffocation, dust, depth ...): keep them to about three rows */
+@media (min-width: 2400px) { :root { --dial: 116px; --slot: 92px; --sgap: 12px; --gutter: 24px; } #hint { font-size: 19px; } #hotbarHint { font-size: 15px; } }
 #hotbar { display: flex; gap: var(--sgap); }
 .slot { width: var(--slot); height: var(--slot); border-radius: 14px; background: var(--bg); backdrop-filter: blur(8px); border: 1px solid var(--line); display: grid; place-items: center; position: relative; font-size: calc(var(--slot) * 0.355); }
 .slot.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 20px rgba(215,242,106,0.3); background: var(--bg2); }
@@ -355,11 +360,13 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
 .dial .u:empty { display: none; }
 .dial .ar { width: calc(17px * var(--fs)); height: calc(17px * var(--fs)); fill: var(--c); transition: transform 0.12s linear; margin-bottom: 1px; }
 .dial .ar.off { display: none; }
-.dial .dl { margin-top: 4px; max-width: 100%; font-size: calc(10px * var(--fs)); letter-spacing: 0.12em; font-weight: 800; color: var(--dim); text-shadow: 0 1px 4px #000, 0 0 3px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dial .dl { margin-top: 4px; max-width: 100%; font-size: calc(10px * var(--fs)); letter-spacing: 0.06em; font-weight: 800; color: var(--dim); text-shadow: 0 1px 4px #000, 0 0 3px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dial .dd { font-style: normal; margin-top: 1px; max-width: 100%; font-size: calc(9.5px * var(--fs)); line-height: 1.2; font-weight: 700; color: var(--c); white-space: pre-line; overflow-wrap: anywhere; text-shadow: 0 1px 4px #000, 0 0 3px #000; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .dial .dd.none { display: none; }
-.dial .stp { display: none; gap: 3px; width: 100%; margin-top: 4px; }
-.dial .sb { flex: 1 1 0; min-width: 0; height: 24px; padding: 0; border-radius: 8px; border: 1px solid var(--line); background: rgba(12,15,9,0.86); color: var(--c); font: 800 16px/1 ui-monospace, Menlo, monospace; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.dial .stp { display: flex; gap: 3px; width: 100%; margin-top: 4px; }
+.dial[data-dial='scoop'] .dd { display: none !important; }   /* the buttons take the place of the detail line (the reading is in the ring and the tooltip), so the dial is never taller than the others */
+.dial .sb { position: relative; flex: 1 1 0; min-width: 0; height: var(--sbh, 24px); padding: 0; border-radius: 8px; border: 1px solid var(--line); background: rgba(12,15,9,0.86); color: var(--c); font: 800 16px/1 ui-monospace, Menlo, monospace; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.dial .sb::after { content: ''; position: absolute; inset: -6px -2px; }   /* a bigger target for a thumb than the drawn button */
 .dial .sb:hover:not(:disabled) { border-color: var(--c); background: rgba(36,43,28,0.95); }
 .dial .sb:active:not(:disabled) { transform: translateY(1px); }
 .dial .sb:disabled { opacity: 0.35; cursor: default; }
@@ -375,7 +382,8 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
   .dial .mid { padding: 5px; }
   .dial .u { display: none; }
   .dial .dl { letter-spacing: 0.04em; margin-top: 2px; }
-  .dial .sb { height: 28px; font-size: 18px; }   /* a thumb needs the room */
+  .dial .stp { margin-top: 1px; } .dial { --sbh: 21px; }   /* as tall as the two detail lines the other dials may carry */
+  .dial .sb { font-size: 15px; border-radius: 7px; }
   .dial .dd { font-size: calc(9px * var(--fs)); -webkit-line-clamp: 2; }
 }
 
@@ -394,13 +402,29 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
   .dial .u { display: none; }
   .dial .dl { letter-spacing: 0.04em; margin-top: 2px; }
   .dial .dd { font-size: calc(9px * var(--fs)); -webkit-line-clamp: 2; }
+  .dial { --sbh: 17px; }
 }
-@media (max-height: 400px) and (max-width: 1179px) { .dial .dd { display: none; } }
+@media (max-height: 520px) and (max-width: 1179px) { .dial .dd { display: none; } #belt { row-gap: 4px; } .dials { row-gap: 2px; } }   /* a short window: the belt is two rows of rings and labels; the full reading stays in the tooltip */
 @media (max-height: 560px) and (max-width: 1179px) { #botInfo { left: auto; right: 18px; top: 100px; width: min(240px, 36vw); } #chat { top: 100px; left: 14px; max-width: min(180px, 28vw); } }
 /* the load meter (M) sits just above the belt; its graph goes when there is not the room */
 @media (max-width: 700px), (max-height: 700px) { #pwMeterHud canvas { display: none !important; } }
 @media (max-width: 1179px) { #pwMeterHud { bottom: calc(var(--belt-h, 0px) + 66px) !important; } }   /* the hint sits over the whole belt here */
-@media (max-width: 700px) { #pwMeterHud { bottom: calc(var(--belt-h, 0px) + 98px) !important; } }   /* and wraps to more lines */
+@media (max-width: 700px) { #pwMeterHud { bottom: calc(var(--belt-h, 0px) + 74px) !important; max-height: calc(100vh - var(--belt-h, 0px) - 74px - 96px) !important; } }   /* and wraps to more lines (four at 360 px, about 66 px with its margin); the meter's top stays under the compass, which is up to 90 px tall with its text */
+/* a desktop window under 800 px high: three rows of dials are a lot of the screen. The detail lines hold two lines, the rows sit closer, and everything that floats over the left of the screen (chat, bot panel) or the middle
+   (machine readout, lung warning) is placed from the belt so it never lands on a dial. The middle is free of dials from 1180 px up, so it is placed from the hotbar column (--center-h) and not the whole belt (--belt-h). */
+@media (min-width: 1180px) {
+  #tileInfo { top: max(104px, min(56%, calc(100vh - var(--center-h, 80px) - 14px - 230px))); }
+  #tileInfo:not(.hidden) ~ #lungWarn { top: max(96px, calc(max(104px, min(56%, 100vh - var(--center-h, 80px) - 14px - 230px)) - 52px)); }
+  #lungWarn { top: min(58%, calc(100vh - var(--center-h, 80px) - 14px - 150px)); }
+}
+@media (min-width: 1180px) and (max-height: 800px) {
+  .dials { gap: 3px 4px; }
+  .dial .dl { margin-top: 2px; }
+  .dial .dd { -webkit-line-clamp: 2; }
+  #chat { top: 138px; max-width: min(360px, 60vw, calc(50vw - 304px)); }   /* the rail readout starts 280 px left of the middle */
+  #botInfo { top: max(210px, min(max(34%, 330px), calc(100vh - var(--belt-h, 0px) - 150px))); }
+}
+@media (min-width: 1180px) and (max-height: 520px) { .dial .dd { display: none; } }
 /* the Plushdex: a virtual grid (dexui.js draws only the cards in view; the padding stands in for the rest), with a toolbar of search, filters and region counts */
 #dexGrid { overflow-anchor: none; min-height: 0; }
 .dx { height: 160px; box-sizing: border-box; overflow: hidden; }
@@ -419,3 +443,24 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
 #dexBar .seg button:first-child { border-radius: 9px 0 0 9px; }
 #dexBar .seg button:last-child { border-radius: 0 9px 9px 0; }
 #dexShown { font-size: 11.5px; color: var(--dim); }
+/* a phone: the toolbar would take half of the screen (search, two selects, three toggles and six region chips wrapped over seven lines), so it is kept to four short rows and the region chips scroll sideways */
+@media (max-width: 700px) {
+  #dex header { padding: 10px 14px; gap: 10px; }
+  #dex .bal { font-size: 14px; white-space: nowrap; }
+  #dexBar { padding: 8px 12px 0; gap: 6px; }
+  #dexBar input { flex: 1 1 100%; min-width: 0; }
+  #dexBar select { flex: 1 1 0; min-width: 0; padding: 6px 6px; font-size: 12px; }
+  #dexBar .seg { flex: 0 0 auto; }
+  #dexBar .seg button { padding: 6px 8px; }
+  #dexBar #dexRegions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  #dexBar #dexRegions button { flex: 0 0 auto; white-space: nowrap; }
+  #dexGrid { padding: 12px 12px 14px; }
+}
+@media (max-height: 520px) {   /* a phone held sideways: a short screen (search, filters and toggles share one row, the region counts scroll) */
+  #dex header { padding: 8px 16px; }
+  #dexBar { padding: 6px 16px 0; gap: 4px; }
+  #dexBar input { flex: 1 1 160px; }
+  #dexBar #dexRegions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  #dexBar #dexRegions button { flex: 0 0 auto; white-space: nowrap; }
+  #dexGrid { padding: 10px 16px 12px; }
+}

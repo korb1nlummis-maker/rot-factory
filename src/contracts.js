@@ -1,8 +1,22 @@
-import { RARITY, species, ARCH_NAMES, pools, allPools, speciesChance, bandOfDist } from './plushdata.js';
+import { RARITY, REGIONS, species, speciesCount, ARCH_COUNT, ARCH_NAMES, pools, allPools, volatilePool, speciesChance, bandOfDist } from './plushdata.js';
 import { mulberry32, fmt } from './util.js';
 
 // P(rarity >= r) in the pile
 const P_GE = [1, 0.355, 0.135, 0.045, 0.011, 0.0025];
+
+// The share of the pile that each shape makes in each band (the species chances added up per shape): a shape contract was priced for one plush in 68 (F_REF), which was right
+// for the 68 old shapes everywhere. The 24 newest shapes are 0.06 to 0.3 percent of the pile at the bay, so the pay follows how often the shape turns up where the player has been.
+// Razzo plush are one in 60,000: no contract asks for that shape.
+const F_REF = 1 / 68;
+let ARCH_SHARE = null;
+const razzoArch = new Set(volatilePool.map((id) => species[id].arch));
+function archShare(band, arch) {
+  if (!ARCH_SHARE) {
+    ARCH_SHARE = REGIONS.map(() => new Float64Array(ARCH_COUNT));
+    for (let id = 1; id <= speciesCount; id++) { const s = species[id]; if (s.volatile) continue; for (let b = s.lo; b <= s.hi; b++) ARCH_SHARE[b][s.arch] += speciesChance(id, b); }
+  }
+  return ARCH_SHARE[band][arch];
+}
 
 export class Contracts {
   constructor(game) { this.game = game; }
@@ -43,9 +57,13 @@ export class Contracts {
       if (!(freq > 0)) freq = RARITY[r].weight / pools[r].length;
       c = { kind, sp, need, desc: `Sell ${need} x ${species[sp].name}.`, reward: Math.round((need / freq) * 1.1 * prem * mult + need * RARITY[r].value * prem * mult * 2) };
     } else if (kind === 'shape') {
-      const a = (rng() * ARCH_NAMES.length) | 0;
+      const reach = bandOfDist(S.stats.maxDist || 0);
+      const shareOf = (q) => { let f = 0; for (let b = 0; b <= reach; b++) f = Math.max(f, archShare(b, q)); return f; };
+      let a = (rng() * ARCH_COUNT) | 0;
+      for (let n = 0; n < ARCH_COUNT && (razzoArch.has(a) || !(shareOf(a) > 0)); n++) a = (a + 1) % ARCH_COUNT;   // a shape the pile can show you, never the Razzo
       const need = 14 + ((rng() * 20) | 0) + tier * 4;
-      c = { kind, arch: a, need, desc: `Sell ${need} ${ARCH_NAMES[a]} plush of any color.`, reward: Math.round(need * 36 * 1.1 * prem * mult) };
+      const rare = Math.max(1, Math.min(30, F_REF / Math.max(1e-6, shareOf(a))));   // 1 for the old shapes, up to 30 for a shape that is a thirtieth as common
+      c = { kind, arch: a, need, desc: `Sell ${need} ${ARCH_NAMES[a]} plush of any color.`, reward: Math.round(need * 36 * 1.1 * prem * mult * rare) };
     } else {
       const need = 1 + ((rng() * 2) | 0);
       c = { kind: 'shiny', need, desc: `Sell ${need} shiny plush.`, reward: Math.round(need * 140 * 1.2 * prem * mult * 3) };

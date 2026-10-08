@@ -28,8 +28,8 @@ function ensureBar() {
   bar.id = 'dexBar';
   bar.innerHTML = `<div class="dexRow">
       <input id="dexSearch" type="search" placeholder="Search the species you have found" autocomplete="off" spellcheck="false">
-      <select id="dexRarity"><option value="-1">Every rarity</option>${RARITY.slice(0, 6).map((r) => `<option value="${r.id}">${r.name}</option>`).join('')}</select>
-      <select id="dexPat"><option value="-1">Every pattern</option>${PATTERN_LABELS.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
+      <select id="dexRarity"><option value="-1">Any rarity</option>${RARITY.slice(0, 6).map((r) => `<option value="${r.id}">${r.name}</option>`).join('')}</select>
+      <select id="dexPat"><option value="-1">Any pattern</option>${PATTERN_LABELS.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
       <span class="seg" id="dexShow"><button data-show="all" class="on">All</button><button data-show="found">Found</button><button data-show="missing">Missing</button></span>
     </div>
     <div class="dexRow" id="dexRegions"></div>
@@ -139,7 +139,8 @@ function paintIcons(grid) {
 function refilter(toTop) {
   const st = dexState, grid = $('dexGrid');
   const dex = dexOf();
-  const w = Math.max(MIN_W, grid.clientWidth - PAD_X * 2);
+  const cs = getComputedStyle(grid), pl = parseFloat(cs.paddingLeft), pr = parseFloat(cs.paddingRight), padX = (Number.isNaN(pl) ? PAD_X : pl) + (Number.isNaN(pr) ? PAD_X : pr);   // the grid's own padding (smaller on a phone, see style.css)
+  const w = Math.max(MIN_W, grid.clientWidth - padX);
   st.cols = Math.max(1, Math.floor((w + GAP) / (MIN_W + GAP)));
   st.list = filterList(dex, st);
   if (toTop) grid.scrollTop = 0;
@@ -147,6 +148,14 @@ function refilter(toTop) {
   for (const b of $('dexShow').children) b.classList.toggle('on', b.dataset.show === st.show);
   $('dexShown').textContent = st.q && st.show !== 'found' ? `${fmt(st.list.length)} found species match (a search only finds what you have discovered)` : `${fmt(st.list.length)} shown`;
   draw(true);
+}
+
+// draw what is in view and every picture of it right now (the screen does this over a few frames; a test cannot wait for frames in a hidden window)
+export function settle() {
+  const grid = $('dexGrid'); if (!grid || !ui || ui.openModal !== 'dex') return;
+  draw(true);
+  for (const im of grid.querySelectorAll('img')) if (!im.getAttribute('src')) im.src = im.dataset.f === '1' ? speciesIcon(+im.dataset.id) : silhouetteIcon(+im.dataset.a);
+  dexState.work++;
 }
 
 export function render(theUi) {

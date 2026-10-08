@@ -13,7 +13,7 @@ export default async function (ctx) {
   const cap = () => { sent = []; g.netSend = (m) => { sent.push(json(m)); }; };
   const done = () => { delete g.netSend; role(null); g.remote = null; g.netOut.length = 0; };
   const guard = (name, fn) => T(name, async () => { try { return await fn(); } finally { done(); X.clean(); } });
-  const fakeRemote = (pos) => ({ pos, update() {}, lampOn: false, yaw: 0, pitch: 0 });
+  const fakeRemote = (pos) => ({ pos, update() {}, lampOn: false, yaw: 0, pitch: 0, spheres() { return []; } });
   const coins = () => { const calls = []; const orig = g.sound.coin; g.sound.coin = (...a) => { calls.push(a); }; return { calls, restore: () => { g.sound.coin = orig; } }; };
 
   await guard('mp.audit_gaps.a-grid-with-no-power-parts-still-reaches-the-guests-load-meter', async () => {

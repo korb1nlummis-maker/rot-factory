@@ -40,6 +40,11 @@ export const noiseGLSL = noise;
 // Patterned species (stripes, spots, two-tone): the second color is made from the first (channels rotated, then pushed light or dark so there is always contrast), and the
 // parts that are not body (eyes, dark tips: vertex color well below white) keep their own color. p is the object space position, vc the vertex color.
 export const patternGLSL = /* glsl */ `
+float plushSpots(vec3 g){
+  vec3 c = floor(g);
+  vec3 f = fract(g) - 0.5 - (vec3(hash31(c), hash31(c + 7.0), hash31(c + 13.0)) - 0.5) * 0.4;
+  return (1.0 - smoothstep(0.30, 0.40, length(f))) * step(0.22, hash31(c + 29.0));
+}
 vec3 plushPattern(vec3 alb, float pat, vec3 p, vec3 vc, float n0){
   float body = smoothstep(0.30, 0.55, min(vc.r, min(vc.g, vc.b)));
   if (body <= 0.0) return alb;
@@ -51,12 +56,9 @@ vec3 plushPattern(vec3 alb, float pat, vec3 p, vec3 vc, float n0){
     m = smoothstep(0.42, 0.58, abs(fract(p.y * 5.0 + 0.31) - 0.5) * 2.0 - 0.0);
     m = 1.0 - m;
   } else if (pat < 2.5) {
-    vec3 g = p * 5.6 + vec3(3.1, 1.7, 5.3);
-    vec3 c = floor(g);
-    vec3 f = fract(g) - 0.5 - (vec3(hash31(c), hash31(c + 7.0), hash31(c + 13.0)) - 0.5) * 0.4;
-    m = (1.0 - smoothstep(0.27, 0.36, length(f))) * step(0.22, hash31(c + 29.0));
+    m = max(plushSpots(p * 5.6 + vec3(3.1, 1.7, 5.3)), plushSpots(p * 8.3 + vec3(9.7, 4.3, 1.9)));   // two lattices of different size: a thin shape that slips between the dots of one is caught by the other
   } else {
-    m = 1.0 - smoothstep(-0.03, 0.03, p.y + 0.02);
+    m = abs(smoothstep(-0.03, 0.03, p.x) - smoothstep(-0.03, 0.03, p.z));                              // two upright cuts through the middle (opposite quarters share a color): every shape shows both colors from any side, whatever its height
   }
   return mix(alb, sec, m * body);
 }
