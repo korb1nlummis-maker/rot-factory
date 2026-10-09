@@ -53,7 +53,7 @@ export default async function (ctx) {
     for (let l = 0; l <= 4; l++) {
       S().up.cargo = l; g.T = g.tune(); if (g.T.carry !== cap[l]) { finish(); return `capacity ${g.T.carry} at level ${l}`; }
       block(2.0, 8, 2); S().carry = []; for (let q = 0; q < cap[l] - 2; q++) S().carry.push({ sp: 2, vr: 0 }); g.grabCd = 0;
-      g.keys.KeyG = true; g.gDownAt = 0; g.holdBlock = false; for (let q = 0; q < 120; q++) { const [e, d] = eyeDir(); g.interact(0.016, e, d); } g.keys.KeyG = false;
+      g.keys.Mouse0 = true; g.gDownAt = 0; g.holdBlock = false; for (let q = 0; q < 120; q++) { const [e, d] = eyeDir(); g.interact(0.016, e, d); } g.keys.Mouse0 = false;
       if (S().carry.length !== cap[l]) { finish(); return `holding the grab key filled ${S().carry.length} of ${cap[l]} at level ${l}`; }
       if (g.storeRoom()) { finish(); return 'storeRoom true when full at level ' + l; }
       S().carry.pop(); if (!g.storeRoom()) { finish(); return 'storeRoom false with room at level ' + l; }

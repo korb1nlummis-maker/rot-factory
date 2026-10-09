@@ -26,7 +26,7 @@ export default async function (ctx) {
     g.gPress(); if (!(g.vacT > 0)) return 'the click did not start a burst';
     for (let n = 0; n < 3; n++) { g.time += 0.033; g.interact(0.033, eye, dir); }
     for (let n = 0; n < 6; n++) g.adjustVac(-1); if (g.vacPct() !== 0) return 'dial did not reach 0: ' + g.vacPct();
-    S().carry = []; g.keys = { KeyG: true }; g.gDownAt = 0; g.holdBlock = false; g.throwHold = false;
+    S().carry = []; g.keys = { Mouse0: true }; g.gDownAt = 0; g.holdBlock = false; g.throwHold = false;
     for (let n = 0; n < 40; n++) { g.grabCd = Math.max(0, g.grabCd - 0.033); g.time += 0.033; g.interact(0.033, eye, dir); }
     g.keys = {}; const held = S().carry.length;
     if (held < 3) bad.push(`holding the grab at 0 percent took ${held} plush in 1.3 s (vacT ${g.vacT})`);

@@ -43,7 +43,7 @@ export default async function (ctx) {
     need(find(/CARE AND NIGHT SHIFT/), 'care', [`every ${CM.CARE.DAYS} game days`, `${upgradeById('nightshift').cost[0] / 1e6}M`, 'red button', 'J, the achievements screen', '19:00']);
     need(find(/POWER NEEDS WIRES/), 'power', [`Charging Station`, `Common ${PW.BURN_SECONDS[0] / 60}, Uncommon ${PW.BURN_SECONDS[1] / 60}, Rare ${PW.BURN_SECONDS[2] / 60}, Epic ${PW.BURN_SECONDS[3] / 60} min`]);
     const cb = (await import('../controls.js')).CONTROL_CODES; for (const [title] of g.hall.controlBoards) { const b = find(new RegExp(title.replace(/[:]/g, '.'))); if (!b) bad.push('missing ' + title); }
-    const t = txt(find(/CONTROLS: TOOLS/) || { title: '', rows: [], foot: '' }) + txt(find(/CONTROLS: MOVING/) || { title: '', rows: [], foot: '' }); for (const w of ['scoop / vacuum dial', 'belt intake', 'pick the bin']) if (!t.includes(w)) bad.push('controls missing ' + w); void cb;
+    const t = txt(find(/CONTROLS: TOOLS/) || { title: '', rows: [], foot: '' }) + txt(find(/CONTROLS: MOVING/) || { title: '', rows: [], foot: '' }); for (const w of ['scoop / vacuum dial', 'pick the bin']) if (!t.includes(w)) bad.push('controls missing ' + w); void cb;
     // the easel by the start names the dials and belts
     const names = []; g.renderer.scene.traverse((o) => { if (o.name === 'chalkboard') names.push(o); });
     // no new board stands on another board or on a station

@@ -44,6 +44,19 @@ export const pointAtten = (d, r) => (d >= r ? 0 : 1 / (1 + d * d * PT_FALLOFF) *
 // a lamp's share of light on a surface is eased off near its peak, so the floor right under a lantern is a warm pool and not a white blob (x / (1 + 0.7 x): 0.2 stays 0.175, 1.0 becomes 0.59). The GLSL line is the same.
 export const PT_SHOULDER = 0.7;
 export const pointLight = (d, r, n = 1) => { const x = pointAtten(d, r) * n; return x / (1 + PT_SHOULDER * x); };
+// The headlamp (the beam on the plush) gets the same treatment as a lantern: its light is eased off right up against a surface and what a surface gets is rolled off under a ceiling, so a
+// light plush (snow, cream, custard, blush, sky) keeps its colour and its shading up close and with the Headlamp upgrades (a 2.4x lamp was a white blob at arm's length, and anything
+// above 0.92 blooms into a haze). Far away the beam is what it always was: the roll-off starts at LAMP_KNEE and leaves everything under it untouched. lampAtten is the falloff of the
+// beam (without its colour), lampRoll the roll-off of the lit amount (the brightest channel; the GLSL scales all three by the same factor, so the warm colour of the beam stays).
+export const LAMP_FALLOFF = 0.16;
+export const LAMP_NEAR_MIN = 0.75, LAMP_NEAR_D0 = 0.2, LAMP_NEAR_D1 = 1.4;   // within 20 cm only 75% of the beam lands, the full beam from 1.4 m out (the rest of the near ease is game.js _lampNear)
+export const LAMP_KNEE = 0.45, LAMP_TOP = 0.9;                                // the most light the beam gives a surface that faces it is LAMP_TOP (a white plush then reads about 0.85 before the tone curve)
+export const lampAtten = (d, range) => 1 / (1 + d * d * LAMP_FALLOFF) * sstep(range, range * 0.35, d) * (LAMP_NEAR_MIN + (1 - LAMP_NEAR_MIN) * sstep(LAMP_NEAR_D0, LAMP_NEAR_D1, d));
+export const LAMP_AMB_CUT = 0.65, LAMP_AMB_FULL = 0.9;   // the beam is cut by up to 65% where the other light on the surface reaches 0.9 (daylight on a plush, a room around a lantern)
+export const lampWhenLit = (amb) => 1 - LAMP_AMB_CUT * sstep(0, LAMP_AMB_FULL, amb);
+export const lampRoll = (x) => (x > LAMP_KNEE ? LAMP_KNEE + (LAMP_TOP - LAMP_KNEE) * (1 - Math.exp(-(x - LAMP_KNEE) / (LAMP_TOP - LAMP_KNEE))) : x);
+export const HL_KNEE = 0.62, HL_TOP = 0.9;   // the plush's final highlight roll-off (any lights): the brightest channel of a lit plush never goes above HL_TOP, which is under the bloom threshold (0.92), so a light plush never glows
+export const rollOff = (m) => (m > HL_KNEE ? HL_KNEE + (HL_TOP - HL_KNEE) * (1 - Math.exp(-(m - HL_KNEE) / (HL_TOP - HL_KNEE))) : m);
 // Patterned species (stripes, spots, two-tone): the second color is made from the first (channels rotated, then pushed light or dark so there is always contrast), and the
 // parts that are not body (eyes, dark tips: vertex color well below white) keep their own color. p is the object space position, vc the vertex color.
 export const patternGLSL = /* glsl */ `
@@ -125,13 +138,6 @@ void main(){
   L += uHoleSun * wrap * wrap * hx + mix(uHemiGround * uHoleLv, uHoleHemi, hm) * 0.9 * hx;
   L += vec3(0.020, 0.022, 0.026) * uFloor; // dark-room floor: gone at night and deep underground, so only light sources show anything
 
-  // headlamp
-  vec3 lv = uLampPos - vWP; float ld = length(lv); vec3 ldir = lv / ld;
-  float cone = smoothstep(uLampCone.y, uLampCone.x, dot(-ldir, uLampDir));
-  float att = 1.0 / (1.0 + ld * ld * 0.16) * smoothstep(uLampRange, uLampRange * 0.35, ld);
-  float ndl = clamp((dot(N, ldir) + 0.35) / 1.35, 0.0, 1.0);
-  L += uLampColor * cone * att * ndl * ndl * (0.55 + 0.45 * ao);
-
   // placed lamps
   for (int i = 0; i < 10; i++) {
     if (i >= uPtN) break;
@@ -145,12 +151,26 @@ void main(){
     }
   }
 
+  // headlamp, last, so it knows how much light the surface already has: in a lit room or a hall by day the beam adds less (a flashlight does not brighten daylight), in the dark it is all of the light
+  float amb = dot(L, vec3(0.3333));
+  vec3 lv = uLampPos - vWP; float ld = length(lv); vec3 ldir = lv / ld;
+  float cone = smoothstep(uLampCone.y, uLampCone.x, dot(-ldir, uLampDir));
+  float att = 1.0 / (1.0 + ld * ld * ${LAMP_FALLOFF.toFixed(2)}) * smoothstep(uLampRange, uLampRange * 0.35, ld) * (${LAMP_NEAR_MIN.toFixed(2)} + ${(1 - LAMP_NEAR_MIN).toFixed(2)} * smoothstep(${LAMP_NEAR_D0.toFixed(2)}, ${LAMP_NEAR_D1.toFixed(2)}, ld));
+  float ndl = clamp((dot(N, ldir) + 0.35) / 1.35, 0.0, 1.0);
+  vec3 lx = uLampColor * (cone * att * ndl * ndl * (0.55 + 0.45 * ao));
+  float lxm = max(lx.r, max(lx.g, lx.b));
+  if (lxm > ${LAMP_KNEE.toFixed(2)}) lx *= (${LAMP_KNEE.toFixed(2)} + ${(LAMP_TOP - LAMP_KNEE).toFixed(2)} * (1.0 - exp(-(lxm - ${LAMP_KNEE.toFixed(2)}) / ${(LAMP_TOP - LAMP_KNEE).toFixed(2)}))) / lxm;   // eased off close up and rolled off under a ceiling: light plush keep their colour and their shading
+  L += lx * (1.0 - ${LAMP_AMB_CUT.toFixed(2)} * smoothstep(0.0, ${LAMP_AMB_FULL.toFixed(2)}, amb));
+
   vec3 col = alb * L * ao;
 
   // fabric sheen
   float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0);
   float lum = dot(L, vec3(0.33));
-  col += fres * mix(alb, vec3(1.0), 0.45) * 0.30 * min(lum, 1.6) * ao;
+  col += fres * mix(alb, vec3(1.0), 0.3) * 0.26 * min(lum, 1.0) * ao;
+  // a light plush in full light keeps its hue and its shading instead of clipping to white: from 0.62 up the brightest channel is rolled off to under 0.9, below the bloom threshold (0.92): a light plush used to bloom into a white haze
+  float mx = max(col.r, max(col.g, col.b));
+  if (mx > ${HL_KNEE.toFixed(2)}) col *= (${HL_KNEE.toFixed(2)} + ${(HL_TOP - HL_KNEE).toFixed(2)} * (1.0 - exp(-(mx - ${HL_KNEE.toFixed(2)}) / ${(HL_TOP - HL_KNEE).toFixed(2)}))) / mx;
 
   // shiny and The One
   if (flags > 0.5) {

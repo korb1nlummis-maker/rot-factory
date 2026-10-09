@@ -14,7 +14,7 @@ export default async function (ctx) {
   const on = (up = {}, day = 1, keepQueue = false) => {
     fresh(up); g.careOff = false; CP.teardown(g); S().care = undefined; at(day); g.mode = 'play'; g.dead = false; g.blacking = false; g.ui.closeModals(); S().ending = null;
     p().pos.set(0, 0, 2); S().totalEarned = 0; S().stats.rar = [0, 0, 0, 0, 0, 0, 0]; S().stats.maxDepth = 0; S().stats.upgrades = 0; S().dex = {}; S().entities = S().entities.filter((e) => e.free);
-    stub.toasts = []; stub.sent = []; const t0 = g.ui.toast; g.ui.toast = (t) => { stub.toasts.push(t); }; stub._toast = t0; stub._send = g.netSend; g.netSend = (m) => { stub.sent.push(JSON.parse(JSON.stringify(m))); };
+    stub.toasts = []; stub.sent = []; if (!stub._toast) stub._toast = g.ui.toast; g.ui.toast = (t) => { stub.toasts.push(t); }; stub._send = g.netSend; g.netSend = (m) => { stub.sent.push(JSON.parse(JSON.stringify(m))); };
     g.camSky = 1; const C = CP.ensure(g); if (!keepQueue) C.queue.length = 0; return C;   // (a game that starts with upgrades already bought has met their milestones: that backlog crate is its own test)
   };
   const done = () => { if (stub._toast) { g.ui.toast = stub._toast; stub._toast = null; } delete g.netSend; if (stub._send) stub._send = null; g.careOff = true; CP.teardown(g); S().care = undefined; g.coverDepth = Object.getPrototypeOf(g).coverDepth; delete g.isGuest; delete g.remote; g.ui.closeModals(); g.dead = false; };
@@ -284,14 +284,15 @@ export default async function (ctx) {
     const C = on(FULL); const made = { osc: 0, nodes: 0, stopped: 0, disconnected: 0 };
     const node = (extra) => { made.nodes++; return { connect() {}, disconnect() { made.disconnected++; }, start() {}, stop() { made.stopped++; }, frequency: { value: 0, setTargetAtTime() {} }, gain: { value: 0, setTargetAtTime() {} }, pan: { value: 0, setTargetAtTime() {} }, ...extra }; };
     const fake = { currentTime: 0, createOscillator: () => { made.osc++; return node({}); }, createGain: () => node({}), createBiquadFilter: () => node({}), createStereoPanner: () => node({}) };
-    const s = g.sound, c0 = s.ctx, d0 = s.dry; s.ctx = fake; s.dry = node({});
+    const s = g.sound, c0 = s.ctx, d0 = s.dry, tone0 = s.tone, noise0 = s.noise; s.ctx = fake; s.dry = node({});
+    s.tone = () => {}; s.noise = () => {};   // (the real frames that run during the wait below can play an achievement or a creak: with a fake context that has no setValueAtTime that is a frame error, and it would also be counted as one of the hum's own oscillators)
     try {
       const rt = { hum: null };
       const near = CP.humAt(g, rt, { x: p().pos.x + 3, y: 2, z: p().pos.z, crate: null }), mid = CP.humAt(g, rt, { x: p().pos.x + 15, y: 2, z: p().pos.z, crate: null }), far = CP.humAt(g, rt, { x: p().pos.x + 80, y: 2, z: p().pos.z, crate: null });
       const made1 = made.osc;
       CP.humAt(g, rt, null); await new Promise((r) => setTimeout(r, 600));
       return (near >= 0.99 && mid > 0 && mid < near && far === 0 && made1 === 2 && !rt.hum && made.stopped === 2 && made.disconnected >= 5) || JSON.stringify({ near, mid, far, made });
-    } finally { s.ctx = c0; s.dry = d0; }
+    } finally { s.ctx = c0; s.dry = d0; s.tone = tone0; s.noise = noise0; }
   });
   await guard('care.a-far-drone-starts-no-hum-at-all', async () => {
     on(FULL); const s = g.sound, c0 = s.ctx, d0 = s.dry; let n = 0; s.ctx = { currentTime: 0, createOscillator: () => { n++; throw new Error('should not start'); } }; s.dry = {};

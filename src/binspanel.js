@@ -1,11 +1,12 @@
 // The bins panel: pick the bin a bot, cart, machine or belt end sells at, see every bin with its distance and what it sold today, and name the Depot Beacons.
-//   ;            aim at a machine, a belt end, a bot or your cart (or with a bot selected) and press ; : the panel opens for it. Press ; again in the panel to step to the next bin.
-//   Shift+;      copies the bin of what you aim at (or of the selected bot); E on another machine, bot or belt end pastes it (Shift+E copies everything, bin included, for the same kind).
+//   B            (no building item in hand) aim at a machine, a belt end, a bot or your cart (or with a bot selected) and press B: the panel opens for it. Press B again in the panel to step to the next bin.
+//   Shift+;      (the copybin action) copies the bin of what you aim at (or of the selected bot); E on another machine, bot or belt end pastes it (Shift+E copies everything, bin included, for the same kind).
 //   nothing aimed: the panel is an overview of every bin, where you can rename the beacons.
 // Every change goes through g.setCfg (machines and belt ends) or BINS.assign (bots and carts), so a guest asks the host and the host checks it.
 import * as BINS from './bins.js';
 import * as EXT from './ext.js';
 import { escHtml, fmt } from './util.js';
+import * as KB from './keybinds.js';
 
 let el = null, timer = 0, focus = null, editing = 0;   // focus: { k:'bot'|'cart'|'ent', id?, key? } the thing the panel is for, or null for the overview
 
@@ -62,7 +63,7 @@ export function choose(g, s, dest) {
   if (!g.isGuest()) g.ui.hint(`${BINS.subjectLabel(s)}: ${dest ? BINS.destText(g, s) : 'Auto'}.`, 3);
   return r;
 }
-// ; in the panel: the next bin in the list (Auto, SORT bin, Depot A ...)
+// the bin key in the panel: the next bin in the list (Auto, SORT bin, Depot A ...)
 export function cycle(g) {
   const s = focus ? subjectFor(g, focus) : null;
   if (!s || subjectWhy(g, s)) { g.sound.error(); return false; }
@@ -77,10 +78,10 @@ export function destKey(g, shift) {
   openFor(g, s); return true;
 }
 export function copyDest(g, s) {
-  if (!s) { if (g.cfgClip && g.cfgClip.group === 'bindest') { g.cfgClip = null; g.ui.hint('Copied bin dropped.', 2); return true; } g.ui.hint('Aim at a machine, a belt end, a bot or your cart and press Shift+; to copy its bin.', 3); return false; }
+  if (!s) { if (g.cfgClip && g.cfgClip.group === 'bindest') { g.cfgClip = null; g.ui.hint('Copied bin dropped.', 2); return true; } g.ui.hint('Aim at a machine, a belt end, a bot or your cart and press {copybin} to copy its bin.', 3); return false; }
   g.cfgClip = { type: s.k === 'ent' ? s.o.type : s.k, group: 'bindest', vals: { dest: s.o.dest | 0 } };
   g.sound.tone('triangle', 700, 900, 0.08, 0.06);
-  g.ui.hint(`Bin copied from <b>${escHtml(BINS.subjectLabel(s))}</b>: ${escHtml(BINS.destText(g, s))}. Aim at another machine, belt end or bot and press <kbd>E</kbd> to paste it, <kbd>Shift</kbd>+<kbd>;</kbd> at nothing drops it.`, 5);
+  g.ui.hint(`Bin copied from <b>${escHtml(BINS.subjectLabel(s))}</b>: ${escHtml(BINS.destText(g, s))}. Aim at another machine, belt end or bot and press <kbd>E</kbd> to paste it, <kbd>{copybin}</kbd> at nothing drops it.`, 5);
   return true;
 }
 // E on a bot while a copied bin is held: it gets that bin (the machines take theirs through ext.useKey)
@@ -120,9 +121,9 @@ function render(g) {
   const ops = options(g, s);
   let h = '';
   if (s) {
-    h += `<div class="jcard" style="margin-bottom:8px"><p style="margin:0 0 4px">Sells at: <b>${escHtml(BINS.destText(g, s))}</b></p><p style="margin:0;opacity:.75;font-size:12px">${why ? escHtml(why) : 'Pick where it sells. Every bin pays the same: a far one is only slower. A bin that is gone or has no power sends it back to Auto, and it says so. <kbd>;</kbd> steps to the next bin, <kbd>Shift</kbd>+<kbd>;</kbd> outside copies this choice.'}</p></div>`;
+    h += `<div class="jcard" style="margin-bottom:8px"><p style="margin:0 0 4px">Sells at: <b>${escHtml(BINS.destText(g, s))}</b></p><p style="margin:0;opacity:.75;font-size:12px">${why ? escHtml(why) : 'Pick where it sells. Every bin pays the same: a far one is only slower. A bin that is gone or has no power sends it back to Auto, and it says so. <kbd>' + KB.keyText('bin') + '</kbd> steps to the next bin, <kbd>' + KB.keyText('copybin') + '</kbd> outside copies this choice.'}</p></div>`;
   } else {
-    h += '<div class="jcard" style="margin-bottom:8px"><p style="margin:0 0 4px"><b>Every bin</b>, with what it sold today.</p><p style="margin:0;opacity:.75;font-size:12px">Aim at a machine, a belt end, a bot or your cart and press <kbd>;</kbd> to give it a bin. Rename a Depot Beacon here: its name shows when you aim at it, in the travel menu and in the crew panel.</p></div>';
+    h += '<div class="jcard" style="margin-bottom:8px"><p style="margin:0 0 4px"><b>Every bin</b>, with what it sold today.</p><p style="margin:0;opacity:.75;font-size:12px">Aim at a machine, a belt end, a bot or your cart and press <kbd>' + KB.keyText('bin') + '</kbd> to give it a bin. Rename a Depot Beacon here: its name shows when you aim at it, in the travel menu and in the crew panel.</p></div>';
   }
   for (const o of ops) {
     if (o.kind === 'auto') {

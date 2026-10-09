@@ -10,7 +10,7 @@ export default async function (ctx) {
   const { g, S, w, L, adv, tiles } = ctx;
   const H = makeHoseKit(ctx), B = H.B, T = B.T, io = H.io;
   const bad = (a) => a.length === 0 || a.join('; ');
-  const done = () => { g.bplan = null; g.machines.setGhost(null); g.plan = null; g.keys.KeyG = false; g.vacT = 0; };
+  const done = () => { g.bplan = null; g.machines.setGhost(null); g.plan = null; g.keys.Mouse0 = false; g.vacT = 0; };
   const wall = () => { for (let di = 2; di <= 5; di++) for (let dk = -2; dk <= 2; dk++) for (let j = 0; j < 3; j++) w().setCell(H.o.i + di, j, H.o.k + dk, pools[0][(di + dk + j) & 3], 0); };
   const unwall = () => { for (let di = 2; di <= 5; di++) for (let dk = -2; dk <= 2; dk++) for (let j = 0; j < 3; j++) w().removeCell(H.o.i + di, j, H.o.k + dk, false); };
 

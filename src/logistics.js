@@ -123,7 +123,7 @@ export class Logistics {
   held(i, j, k) {
     const h = this.game.cellHeld; if (h && h(i, j, k)) return true;
     const key = idx(i, j, k), R = this.game._rail;
-    if (R && R.nodes.size && R.nodes.has(key)) return true;   // a Mine Rail piece (a guest never reserves the cell itself: it only knows the pieces the host sent)
+    if (R && R.nodes.size) { const rn = R.nodes.get(key); if (rn) { if (this.game.machines.items.has(rn.id)) return true; R.sig = ''; } }   // (the graph is rebuilt on the next frame: a piece that is gone since the last rebuild, taken down or left behind by an old world, holds nothing)   // a Mine Rail piece (a guest never reserves the cell itself: it only knows the pieces the host sent)
     const lc = this.game._levelCells; if (lc) { const id = lc.get(key); if (id !== undefined) { if (this.game.machines.items.has(id)) return true; lc.delete(key); } }   // a Leveling Pad (same reason)
     return false;
   }

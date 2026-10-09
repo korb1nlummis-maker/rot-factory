@@ -12,7 +12,7 @@ export default async function (ctx) {
   const on = (up = {}, day = 1) => {
     fresh(up); g.careOff = false; CP.teardown(g); S().care = undefined; S().gameMin = (day - 1) * DAY + 100; g.mode = 'play'; g.dead = false; g.blacking = false; g.ui.closeModals(); S().ending = null;
     p().pos.set(0, 0, 2); S().totalEarned = 0; S().stats.rar = [0, 0, 0, 0, 0, 0, 0]; S().stats.maxDepth = 0; S().stats.upgrades = 0; S().dex = {}; S().entities = S().entities.filter((e) => e.free);
-    stub.toasts = []; stub.t0 = g.ui.toast; g.ui.toast = (t) => { stub.toasts.push(t); };
+    stub.toasts = []; if (!stub.t0) stub.t0 = g.ui.toast; g.ui.toast = (t) => { stub.toasts.push(t); };
     g.camSky = 1; const C = CP.ensure(g); C.queue.length = 0; return C;
   };
   const done = () => {

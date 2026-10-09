@@ -22,9 +22,9 @@ export default async function (ctx) {
   const act = () => { g.updateBotHud(); return document.getElementById('biAct').textContent; };
   const botText = () => { g.updateBotHud(); return document.getElementById('botInfo').textContent; };
 
-  await G('bins.ui.semicolon-on-an-aimed-machine-opens-its-panel-and-a-click-picks-the-bin', async () => {
+  await G('bins.ui.b-on-an-aimed-machine-opens-its-panel-and-a-click-picks-the-bin', async () => {
     const bad = [], d = K.beacon(8, 10); K.run(0.2); const e = K.beacon(-4, 8, { name: 'Deep Dig' }); K.run(0.2); const tk = K.mkEarth('truck', toI(-2), toK(2)); BINS.note(g, d.id, 40, 1234);
-    p().pos.set(0, 0, 2); look(tk.px, 0.5, tk.pz, 2.5); io.tap('Semicolon');
+    p().pos.set(0, 0, 2); look(tk.px, 0.5, tk.pz, 2.5); io.tap('KeyB');
     if (g.ui.openModal !== 'binpanel') return 'the panel did not open: ' + g.ui.openModal;
     if (!/BINS: HAUL TRUCK/.test(title())) bad.push('title ' + title());
     const txt = panel().textContent;
@@ -36,29 +36,29 @@ export default async function (ctx) {
     if (tk.dest !== e.id) bad.push('Use Deep Dig set ' + tk.dest);
     if (!/Sells at: Deep Dig/.test(panel().textContent)) bad.push('the panel does not show the new bin');
     // ; in the panel steps to the next bin: after the last one, back to Auto
-    io.tap('Semicolon'); if (tk.dest !== 0) bad.push('; after the last bin should wrap to Auto, dest ' + tk.dest);
-    io.tap('Semicolon'); if (tk.dest !== BINS.HALL) bad.push('; then the SORT bin, dest ' + tk.dest);
-    io.tap('Semicolon'); if (tk.dest !== d.id) bad.push('; then Depot A, dest ' + tk.dest);
+    io.tap('KeyB'); if (tk.dest !== 0) bad.push('B after the last bin should wrap to Auto, dest ' + tk.dest);
+    io.tap('KeyB'); if (tk.dest !== BINS.HALL) bad.push('B then the SORT bin, dest ' + tk.dest);
+    io.tap('KeyB'); if (tk.dest !== d.id) bad.push('B then Depot A, dest ' + tk.dest);
     g.ui.closeModals(); if (panel() && !panel().classList.contains('hidden')) bad.push('the panel stayed open');
     return bad.length === 0 || bad.join(' || ');
   });
 
   await G('bins.ui.a-belt-end-takes-a-bin-a-belt-in-the-middle-says-where-to-aim', async () => {
     const bad = [], d = K.beacon(8, 10); K.run(0.2); const a = K.rawTile('belt', toI(-4), toK(0), { dir: 0 }), b2 = K.rawTile('belt', toI(-4) + 1, toK(0), { dir: 0 }); K.run(0.2);
-    lookFrom(cellX(a.i), cellZ(a.k) - 2.2, cellX(a.i), 0.3, cellZ(a.k)); io.tap('Semicolon');
+    lookFrom(cellX(a.i), cellZ(a.k) - 2.2, cellX(a.i), 0.3, cellZ(a.k)); io.tap('KeyB');
     if (g.ui.openModal !== 'binpanel') bad.push('no panel for a belt'); else {
       if (!/last piece of the line/.test(panel().textContent)) bad.push('a belt with a belt after it should say where to aim: ' + panel().textContent.slice(0, 160));
       if (btn('Use Depot A')) bad.push('a Use button on a belt that is not the end');
       if (btn('Rename') === undefined) bad.push('rename must stay');
     }
-    g.ui.closeModals(); lookFrom(cellX(b2.i), cellZ(b2.k) - 2.2, cellX(b2.i), 0.3, cellZ(b2.k)); io.tap('Semicolon');
+    g.ui.closeModals(); lookFrom(cellX(b2.i), cellZ(b2.k) - 2.2, cellX(b2.i), 0.3, cellZ(b2.k)); io.tap('KeyB');
     if (!btn('Use Depot A')) bad.push('the end of the line has no Use button'); else { btn('Use Depot A').click(); if (b2.dest !== d.id) bad.push('belt end dest ' + b2.dest); }
     g.ui.closeModals();
     return bad.length === 0 || bad.join(' || ');
   });
 
   await G('bins.ui.nothing-aimed-is-an-overview-and-rename-renames-for-good', async () => {
-    const bad = [], d = K.beacon(8, 10); K.run(0.2); p().pos.set(0, 0, 4); look(0, 0.5, 20, 2); io.tap('Semicolon');
+    const bad = [], d = K.beacon(8, 10); K.run(0.2); p().pos.set(0, 0, 4); look(0, 0.5, 20, 2); io.tap('KeyB');
     if (g.ui.openModal !== 'binpanel' || title() !== 'BINS') return 'overview did not open: ' + g.ui.openModal + ' ' + title();
     if (/Use /.test(panel().textContent.replace(/Use the|Used/g, ''))) bad.push('the overview should have no Use buttons');
     btn('Rename').click(); const inp = document.querySelector('#binBody [data-nameinput]'); if (!inp) return 'no name box'; inp.value = 'North Face <i>'; btn('Save name').click();
@@ -143,7 +143,7 @@ export default async function (ctx) {
   await G('bins.ui.your-cart-takes-a-bin-and-its-readout-says-so', async () => {
     const bad = [], d = K.beacon(8, 10); K.run(0.2); craft('cart:1'); g.useCart(); const c = S().cart; c.mode = 'stay'; c.x = -3; c.z = 3; c.y = 0; p().pos.set(0, 0, 3);
     look(c.x, 0.5, c.z, 2.0); const a = g.crewAim(); if (!a || a.kind !== 'cart') return 'aim: ' + (a && a.kind);
-    io.tap('Semicolon'); if (g.ui.openModal !== 'binpanel' || !/BINS: YOUR CART/.test(title())) return 'panel ' + g.ui.openModal + ' ' + title();
+    io.tap('KeyB'); if (g.ui.openModal !== 'binpanel' || !/BINS: YOUR CART/.test(title())) return 'panel ' + g.ui.openModal + ' ' + title();
     btn('Use Depot A').click(); if (c.dest !== d.id) bad.push('cart dest ' + c.dest); g.ui.closeModals();
     const info = infoFor(g, findInfoRef(g)); if (!info || !/Bin: Depot A \(\d+ m\)/.test(info.lines.join(' '))) bad.push('cart readout: ' + (info && info.lines.join(' | ')));
     return bad.length === 0 || bad.join(' || ');
@@ -155,8 +155,8 @@ export default async function (ctx) {
     g.ui.open('crew'); const intro = document.getElementById('crewIntro').textContent; g.ui.closeModals();
     if (!/Bins\. A bot unloads at the SORT bin unless you pick a Depot Beacon/.test(intro)) bad.push('intro');
     if (/—/.test(intro)) bad.push('em dash in the intro');
-    // every key the panel names exists: ; opens it, Shift+; copies
-    if (!/; picks its bin, Shift\+; copies it/.test(infoFor(g, { kind: 'mach', id: K.mkEarth('truck', toI(-6), toK(9)).id }).lines.join(' '))) bad.push('truck readout does not name the key');
+    // every key the panel names exists: B opens it, Shift+; copies
+    if (!/B picks its bin, Shift\+; copies it/.test(infoFor(g, { kind: 'mach', id: K.mkEarth('truck', toI(-6), toK(9)).id }).lines.join(' '))) bad.push('truck readout does not name the key');
     void BP;
     return bad.length === 0 || bad.join(' || ');
   });

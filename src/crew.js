@@ -802,6 +802,9 @@ export class Crew {
     }
   }
 
+  // a solid cell at the height of the bot's belly or back (plush, a plate or a wall: the open bay and the tunnels it walks are empty there)
+  bodyInSolid(x, y, z) { const w = this.game.world, i = toI(x), k = toK(z); return w.solid(i, toJ(y + 0.12), k) || w.solid(i, toJ(y + 0.5), k); }
+
   move(b, dt) {
     if (NAV.took(b)) return;   // botnav.js placed this bot on a surface this frame
     const g = this.game, w = g.world;
@@ -824,8 +827,14 @@ export class Crew {
       }
     }
     if (pos.y - r < 0) { pos.y = r; if (b.vy < 0) b.vy = 0; }
+    const x0 = b.x, z0 = b.z, y0 = b.y;
     b.x = clamp(pos.x, -HALL_HX + 1, HALL_HX - 1); b.z = clamp(pos.z, -HALL_HZ + 1, HALL_HZ - 1); b.y = pos.y - r;
-    if (blocked && b.y < 40 && Math.abs(b.vy) < 0.5) b.vy = 3.4; // hop over a lip
+    // the cells are spheres, so a hopping bot that pushes on a wall of plush exactly along the line between two cells is not pushed out (the spheres cancel): it must never END a frame inside a cell it was not already in
+    if ((b.x !== x0 || b.z !== z0) && this.bodyInSolid(b.x, b.y, b.z) && !this.bodyInSolid(x0, y0, z0)) { b.x = x0; b.z = z0; }
+    if (blocked && b.y < 40 && Math.abs(b.vy) < 0.5) {   // hop over a lip: only a lip (one cell high). A wall two rows or more high is not hopped at: the hops would climb it a lip at a time, up the sphere bumps of the cells
+      const ax = b.x + dx / (d || 1) * 0.45, az = b.z + dz / (d || 1) * 0.45, ai = toI(ax), ak = toK(az);
+      if (!w.solid(ai, toJ(b.y + 0.7), ak) && !w.solid(ai, toJ(b.y + 1.3), ak)) b.vy = 3.4;
+    }
   }
 
   animate(b, o, dt, time) {

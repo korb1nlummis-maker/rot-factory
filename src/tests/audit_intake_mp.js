@@ -76,7 +76,7 @@ export default async function (ctx) {
     S().gcart = { tier: 2, x: cellX(ci()) + 0.5, y: 0, z: cellZ(ck()), yaw: 0, mode: 'follow', dest: BINS.HALL, load: Array.from({ length: 10 }, () => ({ sp, vr: 0 })) };
     const run = () => { for (let n = 0; n < 20; n++) { g.time += 0.05; BI.update(g, 0.05); for (const t of ts) t.items.length = 0; } };
     run(); if (S().gcart.load.length !== 10) bad.push('a belt took plush off a guest cart that was sent to a bin');
-    for (const d of [null, undefined, 5, 'x', {}, { off: 'no' }, [1]]) { try { g.netCmd('intake', d); } catch (e) { bad.push('intake command ' + JSON.stringify(d) + ' threw: ' + e.message); } }
+    for (const d of [null, undefined, 5, 'x', {}, { off: 1 }, { off: 'no' }, [1]]) { try { g.netCmd('intake', d); } catch (e) { bad.push('old intake command ' + JSON.stringify(d) + ' threw: ' + e.message); } }
     return bad.length === 0 || bad.join('; ');
   });
 }

@@ -52,7 +52,7 @@ export default async function (ctx) {
   await T('levels.crew.fusionCells.batteries-last-longer-per-level-digging-and-walking', async () => {
     const bad = []; const drain = [];
     for (let l = 0; l <= 4; l++) {
-      fresh({ ...reqUp(UPGRADES, U('fusionCells')), crew: 1, fusionCells: l }); g.crew.sync(); const b = S().crew[0]; g.time = 0;
+      fresh({ ...reqUp(UPGRADES, U('fusionCells')), crew: 1, fusionCells: l }); g.crew.sync(); const b = S().crew[0];   // (g.time is never set back: a throttle somewhere else in the suite would wait for the old time all over again)
       b.battery = 1; b.state = 'return'; b.path = [[b.x + 800, b.z]]; b.pi = 0; b.scanned = true; const t1 = g.time; for (let n = 0; n < 100; n++) { g.time += 0.05; g.crew.update(0.05, g.time); } const walk = (1 - b.battery) / (g.time - t1);
       b.battery = 1; b.carry = []; b.state = 'farm'; b.timer = 99; const t0 = g.time; for (let n = 0; n < 200; n++) { g.time += 0.05; g.crew.update(0.05, g.time); } const farm = (1 - b.battery) / (g.time - t0);
       drain.push([farm, walk]);

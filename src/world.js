@@ -9,7 +9,7 @@ const COLSZ = 256 * NY;
 // THE TUNNEL RULE. A tunnel (or room) stands as long as no stretch of it runs further than SAFE_LEN from an anchor:
 // an anchor is the open mouth of the cavity (no roof over it), or ground held by a frame, prop, strut, jack or bulkhead.
 // SAFE_LEN shrinks the heavier the pile above (overburden) and the further from the bay (denser plush), and grows with
-// Pile Tamping. Past that length the unsupported roof creaks, then comes down. Two rules come on top of it and never loosen it: a wide roof needs cover thick enough for its span (THIN_*
+// Pile Tamping. Past that length the unsupported roof creaks, then comes down (a roof held by a support stands SUP_EXTRA cells further and waits GRACE_T seconds longer when it is just past that: see SUPPORT REACH AND GRACE below). Two rules come on top of it and never loosen it: a wide roof needs cover thick enough for its span (THIN_*
 // below), and plush that has been cut off from the pile falls (island.js).
 export const VEIN_T = 0.8;      // veinAt above this is a rich vein
 export const SAFE_LEN = 12;     // cells (7.2 m) of tunnel you can dig unsupported near the surface
@@ -22,6 +22,15 @@ export const ARCH = 4;          // a collapse can only climb 4 cells (2.4 m) abo
 // of cells at 16 cells of safe length while a 2 wide tunnel got all 27. The allowance now grows with the reach asked for: the same safe length at any width.
 export const CAVITY_CAP = 500;
 export const CAVITY_PER_STEP = 70;
+// SUPPORT REACH AND GRACE (tuning for placing the next support). Roof cells within the reach of a support already count 3 x its bonus extra cells. Past that reach the plain safe length
+// (4 to 6 cells at 500 to 1,000 m, 3 at the floor of the rule) left almost no room to dig the four cells the next cube needs and set it before the roof came down (a roof went from creaking to
+// falling in 0.4 to 1.4 s). A roof whose NEAREST anchor is a support (not the open mouth or a wall) now holds SUP_EXTRA more cells (1.8 m), and a roof that is over even that waits GRACE_T seconds
+// longer before it lets go, creaking all the while, when it is up to GRACE_FULL cells over, fading to nothing at GRACE_END cells over. So a player who overshoots by 1 to 3 cells has about 3 s to
+// set the next support (which saves the roof); one who overshoots by 6 or more, and any roof with no support in reach at all (a huge cavern, a mouth far away), falls as quickly as it always did.
+export const SUP_EXTRA = 3;
+export const GRACE_T = 2.5;
+export const GRACE_FULL = 3;
+export const GRACE_END = 6;
 // THE THIN CAP RULE (on top of the tunnel rule, never instead of it). A roof also has to be thick enough for its span. The span of a roof cell is the shorter of the two runs of open
 // cavity through it (the width of the cap along x and along z: a wall of plush, a support's reach or the end of the roof ends a run; a hole of THIN_HOLE cells or fewer in the cap does not). Spans up to THIN_SPAN
 // cells (3.6 m: every tunnel, the 4 wide frame tunnel and the 6 wide haul arch) never fail on thickness. A wider roof needs cover of at least span / THIN_RATIO cells: the plush from
@@ -97,14 +106,19 @@ export class World {
   // how high the pile stood before anyone dug: the same rule makeCol uses, without generating the column (a far search must stay cheap)
   baseTop(i, k) { const x = cellX(i), z = cellZ(k); return x * x + z * z > 85 * 85 ? NY : Math.min(NY, Math.floor(this.heightAt(x, z) / C)); }
   nearestVein(x, y, z, range) {
-    const ci = toI(x), ck = toK(z), cj = toJ(y), R = Math.ceil(range / C), step = 3;
+    const ci = toI(x), ck = toK(z), cj = toJ(y), R = Math.ceil(range / C);
     let best = null, bd = 1e9;
-    for (const dj of [0, -8, 8, -16, 16, -32]) {
-      const j = cj + dj; if (j < 1 || j > NY - 2) continue;
-      for (let dk = -R; dk <= R; dk += step) for (let di = -R; di <= R; di += step) {
-        const d2 = di * di + dk * dk; if (d2 > R * R || d2 + dj * dj >= bd) continue;
-        const i = ci + di, k = ck + dk; if (!this.inside(i, j, k)) continue;
-        if (this.veinAt(i, j, k) > VEIN_T && j < this.baseTop(i, k)) { bd = d2 + dj * dj; best = { i, j, k }; }   // a vein is in the pile, never in the open air above it
+    // every cell near the player, every second cell further out, every third far away (a vein can be a blob smaller than the far spacing, but the near ones are never missed)
+    for (const [lim, step, skip] of [[25, 1, -1], [60, 2, 25], [R, 3, 60]]) {
+      const L = Math.min(lim, R);
+      for (const dj of [0, -8, 8, -16, 16, -32]) {
+        const j = cj + dj; if (j < 1 || j > NY - 2) continue;
+        for (let dk = -L; dk <= L; dk += step) for (let di = -L; di <= L; di += step) {
+          if (Math.abs(di) <= skip && Math.abs(dk) <= skip) continue;   // (a finer pass did that cell)
+          const d2 = di * di + dk * dk; if (d2 > R * R || d2 + dj * dj >= bd) continue;
+          const i = ci + di, k = ck + dk; if (!this.inside(i, j, k)) continue;
+          if (this.veinAt(i, j, k) > VEIN_T && j < this.baseTop(i, k)) { bd = d2 + dj * dj; best = { i, j, k }; }   // a vein is in the pile, never in the open air above it
+        }
       }
     }
     if (!best) return null;
@@ -388,15 +402,16 @@ export class World {
     return Math.floor(Math.max(0, d - 40) / 330);
   }
 
-  // length (in cells) from this cavity cell to the nearest anchor, searching through the cavity; Infinity if none within maxD
-  cavityLen(i, j, k, maxD) {
+  // length (in cells) from this cavity cell to the nearest anchor, searching through the cavity; Infinity if none within maxD.
+  // Past maxD (up to supD) only a SUPPORT counts as an anchor (the open mouth and walls end at maxD): `this._ak` says what the anchor it returned was (2 a support, 1 the mouth or a wall).
+  cavityLen(i, j, k, maxD, supD = maxD) {
     const open = (ci, ck) => this.topAt(ci, ck) <= j;
     const wall = (a, b) => { const q = this.get(a, j, b); return q === BULK || q === PAD; };   // a bulkhead or a floor pad cell at this height holds the roof edge (build shell: a pad is never a roof itself, see stress)
-    const anchored = (ci, ck) => open(ci, ck) || this.supportBonus(cellX(ci), cellY(j), cellZ(ck)) > 0 || wall(ci + 1, ck) || wall(ci - 1, ck) || wall(ci, ck + 1) || wall(ci, ck - 1);
-    if (anchored(i, k)) return 0;
-    const seen = new Set([k * 16384 + i]), cap = CAVITY_CAP + (this.capPerStep ?? CAVITY_PER_STEP) * maxD;   // capPerStep: a test sets 0 to measure the old fixed allowance
+    const kindOf = (ci, ck) => open(ci, ck) ? 1 : this.supportBonus(cellX(ci), cellY(j), cellZ(ck)) > 0 ? 2 : (wall(ci + 1, ck) || wall(ci - 1, ck) || wall(ci, ck + 1) || wall(ci, ck - 1)) ? 1 : 0;
+    const k0 = kindOf(i, k); if (k0) { this._ak = k0; return 0; }
+    const seen = new Set([k * 16384 + i]), cap = CAVITY_CAP + (this.capPerStep ?? CAVITY_PER_STEP) * supD;   // capPerStep: a test sets 0 to measure the old fixed allowance
     let frontier = [[i, k]], visited = 1;
-    for (let d = 1; d <= maxD; d++) {
+    for (let d = 1; d <= supD; d++) {
       const next = [];
       for (const [ci, ck] of frontier) {
         for (let n = 0; n < 4; n++) {
@@ -407,7 +422,8 @@ export class World {
           seen.add(key);
           if (this.solid(ni, j, nk)) continue;      // the cavity continues only through empty cells at this height
           if (++visited > cap) return Infinity;
-          if (anchored(ni, nk)) return d;
+          const kd = kindOf(ni, nk);
+          if (kd && (d <= maxD || kd === 2)) { this._ak = kd; return d; }
           next.push([ni, nk]);
         }
       }
@@ -494,8 +510,14 @@ export class World {
     if (thin) return { margin: thin.T - thin.need, d: Infinity, B: limit, thin };
     const base = this.chimney.get(k * 16384 + i);
     if (base !== undefined && j - base >= ARCH) return null; // arched: this part of the pile has already settled over the void
-    const L = this.cavityLen(i, j - 1, k, limit + 1);
-    return { margin: limit - L, d: L, B: limit };
+    this._ak = 0;
+    const xt = this.supExtra ?? SUP_EXTRA, gt = this.graceT ?? GRACE_T;   // (a test sets supExtra and graceT to 0 to measure the old rule)
+    const L = this.cavityLen(i, j - 1, k, limit, limit + xt + (gt > 0 ? GRACE_END - 1 : 0));
+    const lim = this._ak === 2 ? limit + xt : limit;   // a roof held by a support reaches SUP_EXTRA further than one held by the open mouth or a wall
+    const margin = lim - L;
+    // how long a roof just past that waits before it lets go (world.scanRegion): the closer to the limit, the longer
+    const grace = margin < 0 && this._ak === 2 && isFinite(L) && -margin < GRACE_END ? gt * Math.min(1, (GRACE_END + margin) / (GRACE_END - GRACE_FULL)) : 0;
+    return { margin, d: L, B: limit, grace };
   }
 
   // Slope physics: how readily does this surface plush slide when something heavy presses on it?
@@ -537,7 +559,7 @@ export class World {
           if (this._thinT0 === undefined || !this.creaking.size || now - (this._thinLast === undefined ? -1e9 : this._thinLast) > 1) this._thinT0 = now;   // (a new cap, not one that is already coming down)
           lead = Math.max(0, THIN_LEAD - (now - this._thinT0));
         }
-        this.creaking.set(id, { i, j, k, t: lead + warn * (0.35 + Math.random() * 0.9) * f, thin: !!s.thin });
+        this.creaking.set(id, { i, j, k, t: lead + (s.grace || 0) + warn * (0.35 + Math.random() * 0.9) * f, thin: !!s.thin });
         if (s.thin) this._thinSeen = true;
         if (this.onCreakCell) this.onCreakCell(i, j, k);
       }

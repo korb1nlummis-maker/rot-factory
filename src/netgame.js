@@ -2,6 +2,7 @@
 // the late joiner's world in slices, the ping, the F3 numbers and the "connection slow" badge. Functions take the game as their first argument.
 import { compactCells } from './netperf.js';
 import { species } from './plushdata.js';
+import * as PI from './playerinv.js';
 
 // seconds between messages for pipe levels 0 (fine), 1 (slow), 2 (bad)
 export const IV = { pos: [0.1, 0.15, 0.3], bodies: [0.14, 0.22, 0.38], dyn: [0.17, 0.34, 0.7], fl: [0.08, 0.16, 0.32], creak: [0.15, 0.3, 0.6], shared: [0.6, 1.2, 2.4] };
@@ -25,7 +26,7 @@ export function validSpawn(a) {
   return a[8] === 0 || a[8] === 1 || a[8] === 2;
 }
 // messages only a host ever sends: a host that receives one ignores it (a forged 'shared' would rewrite its money, a 'world' would restart its game)
-export const HOST_ONLY = new Set(['world', 'diff', 'ents', 'ready', 'shared', 'dyn', 'dynb', 'bodies', 'creak', 'isl', 'time', 'fl', 'ent+', 'ent-', 'cables', 'nflag', 'nflags', 'nclue', 'toast', 'note', 'give', 'nope', 'xrow', 'sale', 'boom', 'razzo', 'slide', 'sfail', 'swarn', 'sbreak', 'sstrain', 'chint', 'avwarn', 'avrun', 'avend', 'avride']);
+export const HOST_ONLY = new Set(['inv', 'hint', 'world', 'diff', 'ents', 'ready', 'shared', 'dyn', 'dynb', 'bodies', 'creak', 'isl', 'time', 'fl', 'ent+', 'ent-', 'cables', 'nflag', 'nflags', 'nclue', 'toast', 'note', 'give', 'nope', 'xrow', 'sale', 'boom', 'razzo', 'slide', 'sfail', 'swarn', 'sbreak', 'sstrain', 'chint', 'avwarn', 'avrun', 'avend', 'avride']);
 
 // ------------------------------------------------------------------ the per frame net tick (both roles)
 export function update(g, dt) {
@@ -51,7 +52,7 @@ export function update(g, dt) {
   if (g._np <= 0) {
     g._np = IV.pos[lv];
     const p = g.player;
-    g.netSend({ t: 'pos', x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(3), pitch: +p.pitch.toFixed(3), lamp: g.lampOn !== false });
+    { const pm = { t: 'pos', x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(3), pitch: +p.pitch.toFixed(3), lamp: g.lampOn !== false }; const tl = PI.heldNow(g); if (tl) pm.tl = tl; if (g.S.carry.length) pm.cr = g.S.carry.length; g.netSend(pm); }   // (the tool in hand and the plush carried: drawn on the avatar)
   }
   if (net.role === 'host') {
     g._nb = (g._nb || 0) - dt;
@@ -71,6 +72,7 @@ export function update(g, dt) {
   }
   g._npg = (g._npg === undefined ? 2 : g._npg) - dt;   // (the first ping goes after two seconds)
   if (g._npg <= 0) { g._npg = 2; g.netSend({ t: 'png', ts: now() }); }
+  PI.tick(g, dt);
   if (g.remote) g.remote.update(dt);
   st.time('tick', now() - t0);
   st.roll();
@@ -148,7 +150,7 @@ export function applyBodies(g, m) {
 // ------------------------------------------------------------------ the shared numbers: the heavy part (upgrades, gear, items ...) only when it changed
 export function periodicShared(g) {
   const S = g.S;
-  const heavy = JSON.stringify([S.up, S.gear, S.items, S.mats, S.boosts, S.contracts, S.clues || [], S.clueLevel || 0, g.world.needle.i, g.world.needle.j, g.world.needle.k]);
+  const heavy = JSON.stringify([S.up, S.gear, S.boosts, S.contracts, S.clues || [], S.clueLevel || 0, g.world.needle.i, g.world.needle.j, g.world.needle.k]);
   g._shT = (g._shT || 0) + 1;
   if (heavy !== g._shKey || g._shT >= 5) { g._shKey = heavy; g._shT = 0; g.sendShared(); return; }
   g.netSend({
@@ -195,6 +197,7 @@ export function* worldSteps(g) {
   yield { t: 'cables', list: g.cables.list().map((c) => ({ id: c.id, a: c.a, b: c.b })) };
   yield { t: 'nflags', list: (g.S.nflags || []).slice(0, 40) };
   yield 'shared';
+  yield PI.snapshotMsg(g);   // the friend's own bag, and only that
   yield { t: 'ready' };
 }
 // everything at once (what the tests and any caller that wants the whole thing now use)

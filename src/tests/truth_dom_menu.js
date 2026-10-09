@@ -231,14 +231,14 @@ export default async function (ctx) {
   });
 
   // ---------------------------------------------------------------- chat
-  await T('truth.dom.chat-box-sends-on-enter-and-esc-cancels-as-its-placeholder-says', async () => {
+  await T('truth.dom.chat-box-opens-on-the-backtick-sends-on-enter-and-esc-cancels-as-its-placeholder-says', async () => {
     fresh({}); g.mode = 'play'; g.ui.closeModals(); const bad = []; const chat = $('chatIn'), net = g.net; const wasOpen = net.open, wasSend = net.send; const sent = []; net.open = true; net.send = (m) => { sent.push(m); };
     try {
       if (!/press Enter/.test(chat.placeholder)) bad.push('placeholder: ' + chat.placeholder);
-      key('Enter'); if (chat.classList.contains('hidden')) bad.push('Enter did not open the chat box'); chat.value = 'hello there'; chat.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+      key('Enter'); if (!chat.classList.contains('hidden')) bad.push('Enter opens the chat box (the backtick does that now)'); key('Backquote'); if (chat.classList.contains('hidden')) bad.push('the backtick did not open the chat box'); chat.value = 'hello there'; chat.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
       if (sent.length !== 1 || sent[0].t !== 'say' || sent[0].text !== 'hello there') bad.push('sent ' + JSON.stringify(sent)); if (!chat.classList.contains('hidden')) bad.push('the box stayed open after Enter'); const box = $('chat'); if (!box || !/You: hello there/.test(box.textContent)) bad.push('your own line is not shown');
-      key('Enter'); chat.value = 'never sent'; chat.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', bubbles: true })); if (sent.length !== 1 || !chat.classList.contains('hidden')) bad.push('Esc did not cancel the message');
-      net.open = false; chat.classList.add('hidden'); key('Enter'); if (!chat.classList.contains('hidden')) bad.push('Enter opened chat although nobody is connected (README: chat is for playing together)');
+      key('Backquote'); chat.value = 'never sent'; chat.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', bubbles: true })); if (sent.length !== 1 || !chat.classList.contains('hidden')) bad.push('Esc did not cancel the message');
+      net.open = false; chat.classList.add('hidden'); key('Backquote'); if (!chat.classList.contains('hidden')) bad.push('the backtick opened chat although nobody is connected (README: chat is for playing together)');
     } finally { net.open = wasOpen; net.send = wasSend; chat.classList.add('hidden'); chat.value = ''; const c = $('chat'); if (c) c.innerHTML = ''; }
     return bad.length === 0 || bad.join('; ');
   });

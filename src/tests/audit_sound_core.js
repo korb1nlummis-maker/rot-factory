@@ -58,7 +58,7 @@ export default async function (ctx) {
   await T('audit_sound.the-sale-message-to-the-guest-is-still-one-per-0.12-s-whoever-hears-it', async () => {
     fresh({}); const bad = [];
     await asHost(async (sent) => {
-      listenAt(0, 0); g.coinCd = 0; g.time = 4000;
+      listenAt(0, 0); g.coinCd = 0; g.time += 4000; g._saleMsgAt = 0;   // (forward only: g.time never runs backwards, or every throttle set in the suite so far would still be waiting in the future)
       for (let q = 0; q < 30; q++) WS.saleCoin(g, { x: 70 + q, y: 1.2, z: 0 });   // 30 far sales in one frame
       const n = sent.filter((m) => m.t === 'sale').length; if (n !== 1) bad.push(n + ' sale messages for 30 sales in one frame');
       g.time += 0.05; for (let q = 0; q < 10; q++) WS.saleCoin(g, { x: 2, y: 1.2, z: 0 });

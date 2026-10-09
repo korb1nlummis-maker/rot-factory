@@ -11,12 +11,18 @@ export default async function (ctx) {
     g.ui.closeModals(); return (game && ctl && on && rows === total && back && resets) || `game tab first ${game}, controls tab ${ctl}, rows ${rows}/${total}, back ${back}, reopens on the game tab ${resets}`;
   });
   await T('ui.the-controls-list-matches-the-keys-the-game-really-handles', async () => {
-    const src = await (await fetch('/src/game.js')).text(); const a = src.indexOf('  onKey(e, down) {'), b = src.indexOf('  onMouse(e, down) {'); const body = src.slice(a, b);
-    const handled = new Set([...body.matchAll(/e\.code === '([A-Za-z0-9]+)'/g)].map((m) => m[1])); for (const m of body.matchAll(/startsWith\('Digit'\)/g)) for (let d = 1; d <= 9; d++) handled.add('Digit' + d);
-    for (const c of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space', 'KeyC', 'ControlLeft', 'KeyH', 'F3', 'Mouse0', 'Mouse2', 'Wheel']) handled.add(c);
-    for (const c of ['ArrowUp']) handled.delete(c); handled.delete('KeyG'); handled.delete('Enter'); handled.add('Enter');
-    const missing = [...handled].filter((c) => !CONTROL_CODES.has(c)), stale = [...CONTROL_CODES].filter((c) => !handled.has(c));
-    return (missing.length === 0 && stale.length === 0) || `handled but not listed: ${missing.join(' ')}; listed but not handled: ${stale.join(' ')}`;
+    // the Controls list is drawn from the keybind table (keybinds.js) and game.js knows no key codes: so every rebindable action of the table must have a handler
+    // (a case of runAction, or a branch of onKey), every listed code must come from the table, and the keys the user retired must not be listed any more
+    const KB = await import('../keybinds.js'); const src = await (await fetch('/src/game.js')).text();
+    const a = src.indexOf('  onKey(e, down) {'), b = src.indexOf('  onMouse(e, down) {'), c = src.indexOf('  runAction(act, e) {'), body = src.slice(a, b);
+    const handled = new Set([...src.slice(c, b).matchAll(/case '([A-Za-z0-9]+)'/g)].map((m) => m[1]).concat([...body.matchAll(/cands\.includes\('([A-Za-z0-9]+)'\)/g)].map((m) => m[1])));
+    if (/hb\[1-9\]/.test(src.slice(c, b))) for (let d = 1; d <= 9; d++) handled.add('hb' + d);
+    const missing = KB.ACTIONS.filter((x) => x.flag !== 'locked' && !handled.has(x.id)).map((x) => x.id);
+    const fromTable = new Set(KB.ACTIONS.flatMap((x) => KB.binds(x.id).map(KB.baseCode))); const stray = [...CONTROL_CODES].filter((cc) => !fromTable.has(cc) && !['Mouse move', 'Wheel'].includes(cc));
+    const bad = []; if (missing.length) bad.push('actions without a handler: ' + missing.join(' ')); if (stray.length) bad.push('listed codes that are not in the table: ' + stray.join(' '));
+    if (CONTROL_CODES.has('Enter')) bad.push('Enter is listed, but it opens nothing any more (it only sends a line in the chat box)');
+    const rows = CONTROLS.flatMap((gr) => gr.rows); const semi = rows.filter((r) => r.codes.includes('Semicolon')); if (semi.length !== 1 || semi[0].keys.join('+') !== 'Shift+;') bad.push('Semicolon rows: ' + semi.map((r) => r.keys.join('+')));
+    return bad.length === 0 || bad.join('; ');
   });
   await T('ui.controls-text-has-no-leftovers-and-matches-this-version', async () => {
     const all = CONTROLS.flatMap((gr) => gr.rows.map((r) => r.keys.join(' ') + ' ' + r.what)).join('\n'); const bad = [];
@@ -40,6 +46,7 @@ export default async function (ctx) {
     return bad.length === 0 || bad.slice(0, 6).join(' || ');
   });
   await T('ui.button-words-match-the-actions-they-run', async () => {
+    g.ui.showEnding('plush', S()); g.ui.hideEnding();   // (the ending screen keeps the words of the last ending shown: an earlier test that showed the escape one left 'Stay and tinker' on the button)
     const want = { btnResume: /resume/i, btnSave: /save/i, btnShop: /terminal/i, btnDex: /plushdex/i, btnAch: /achievement/i, btnMulti2: /play together/i, btnHow2: /how to play/i, btnReset: /abandon|new warehouse/i, btnNew: /new shift/i, btnContinue: /continue/i, btnMulti: /play together/i, btnHow: /how to play/i, crewAllHome: /home/i, crewAllFollow: /follow/i, btnKeep: /keep playing/i, btnNew2: /new warehouse/i };
     const bad = []; for (const [id, re] of Object.entries(want)) { const b = document.getElementById(id); if (!b || !re.test(b.textContent)) bad.push(`#${id} says "${b && b.textContent.trim()}"`); }
     // the crew buttons also name their key, and the key does what the label says

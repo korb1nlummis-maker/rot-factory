@@ -24,6 +24,7 @@ export const ISLAND_CAP = 4000;     // a group of this many cells or more is the
 export const RAY_REACH = 24;        // how far the quick test walks sideways along a roof looking for a column that reaches the floor
 export const QUIET_N = 6;           // a group of fewer plush than this is a stray one or two hanging after a dig: it drops after the minimum wait without the creak, the hint or the warning
 export const DELAY_MIN = 1, DELAY_MAX = 3, DELAY_PER_CELL = 1 / 500;   // seconds before a cut off slab lets go: 1 s for a small one, 3 s for 1000 cells or more
+export const ISL_GRACE = 1.5;       // plus this many seconds for a slab of QUIET_N cells or more (it creaks and sheds dust all that time): a player who dug it free has time to set a support under it (2.5 to 4.5 s in all; a stray plush or two still drops after 1 s)
 export const ISLAND_BODIES = 1200;   // loose bodies a falling slab may have in the sim at once (game.releaseIsland); what is past that drops down its column instead
 export const SEED_CAP = 60000;      // seeds waiting at most (a flood of forged edits drops the rest instead of growing the queue)
 const MAX_SAMPLE = 48;              // creaking markers shown on a waiting island (its underside)
@@ -206,7 +207,7 @@ export class Islands {
     for (let s = 1; s <= span; s++) cnt[s] += cnt[s - 1];
     const cells = new Int32Array(3 * n);
     for (let q = 0; q < n; q++) { const at = cnt[ord[q * 3 + 1] - minJ]++; cells[at * 3] = ord[q * 3]; cells[at * 3 + 1] = ord[q * 3 + 1]; cells[at * 3 + 2] = ord[q * 3 + 2]; }
-    let delay = Math.min(DELAY_MAX, Math.max(DELAY_MIN, DELAY_MIN + n * DELAY_PER_CELL)) * Math.min(2, Math.max(1, warn / 1.1));
+    let delay = Math.min(DELAY_MAX, Math.max(DELAY_MIN, DELAY_MIN + n * DELAY_PER_CELL)) * Math.min(2, Math.max(1, warn / 1.1)) + (n < QUIET_N ? 0 : (w.islGrace ?? ISL_GRACE));   // (w.islGrace: a test sets 0 to measure the old wait)
     // a slab found again after more digging (it joined one already waiting) keeps the shorter wait
     const merged = new Set();
     for (let q = 0; q < n; q++) { const o = this.cellIsl.get(kOf(cells[q * 3], cells[q * 3 + 1], cells[q * 3 + 2])); if (o) merged.add(o); }

@@ -150,8 +150,8 @@ export default async function (ctx) {
       let o; try { setup(0); S().up.beltIntake = lv; g.recompute ? g.recompute() : null; const T = g.T; T.intakeLevel = lv; o = BI.intakeOf(T); } catch (e) { bad.push(String(lv) + ' threw ' + e.message); continue; }
       if (!(o.rate >= 2 && o.rate <= 256 && o.range >= 2 && o.range <= 6) || !Number.isInteger(o.level)) bad.push(`level ${String(lv)} gave ${JSON.stringify(o)}`);
     }
-    setup(7); const ts = block(3); hands(10); stand(cellX(ci()), cellZ(ck())); S().beltIntakeOff = 'maybe'; tick(0.5, 0.05, clear(ts)); if (S().carry.length !== 10) bad.push('a switch that is not a plain true still pulled');
-    S().beltIntakeOff = 0; g._bi = null; tick(0.5, 0.05, clear(ts)); if (S().carry.length === 10) bad.push('a switch of 0 kept it off');
+    setup(7); const ts = block(3); hands(10); stand(cellX(ci()), cellZ(ck())); S().beltIntakeOff = 'maybe'; tick(0.5, 0.05, clear(ts)); if (S().carry.length === 10) bad.push('an old saved switch of maybe kept it off');
+    for (const v of [true, 1, 'yes', {}]) { S().beltIntakeOff = v; S().carry.length = 0; hands(10); g._bi = null; tick(0.5, 0.05, clear(ts)); if (S().carry.length === 10) bad.push('an old saved switch of ' + JSON.stringify(v) + ' kept it off'); if (S().beltIntakeOff !== undefined) bad.push('the old switch ' + JSON.stringify(v) + ' was not deleted'); }
     return bad.length === 0 || bad.join('; ');
   });
 

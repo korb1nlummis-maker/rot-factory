@@ -803,7 +803,7 @@ export function holdStart(g, tool) {
 export function holdTick(g) {
   const h = g._bhold; if (!h) return;
   const t = g.curTool(); if (!t || t.kind !== 'pad' || t.id !== h.id || (g.ui && g.ui.isModalOpen && g.ui.isModalOpen())) { g._bhold = null; return; }   // put away, swapped or a window opened: the drag is dropped, nothing is placed
-  if (g.keys && (g.keys.KeyB || g.keys.KeyG)) return;
+  if (g.keys && (g.keys.KeyB || g.keys.Mouse0)) return;
   g._bhold = null;
   if (g.plan && g.plan.ok) g.placeCurrent(t); else if (g.sound) g.sound.error();
 }

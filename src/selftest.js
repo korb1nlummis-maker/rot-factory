@@ -8,6 +8,7 @@ import { CART_CAP, CART_NAMES } from './cart.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { NEEDLE, BULK, species } from './plushdata.js';
 import { Slides } from './slide.js';
+import * as PIN from './playerinv.js';
 import { capacityOf, loadOn, totalLoad, totalRatio } from './loadtrace.js';
 
 const { cellX, cellY, cellZ, toI, toJ, toK } = cfg;
@@ -45,8 +46,12 @@ export async function runSelfTest(g, only = '') {
     for (const b of [...S().crew]) { const o = g.crew.objs.get(b.id); if (o) { g.machines.disposeObj(o); g.crew.root.remove(o); g.crew.objs.delete(b.id); } }
     S().crew = []; delete S().crewFuel;   // (the crew's 'keep machines fueled' switch is back on)
     S().up = { ...up }; S().items = {}; S().mats = {}; S().carry = []; S().cart = null; S().gcart = null; S().hcart = null; g.cart.sync(); g.cart2.sync();
+    S().ginv = undefined; PIN.reset(g);   // (no friend's bag, no swap, no owner marks from the test before)
     S().money = 1e12; S().stats.plush = 1e9; S().stats.maxDist = 0; S().hotbar = ['hammer', null, null, null, null, null, null, null, null]; g.buildIdx = 0;
     S().contracts = []; S().ending = null; S().needleLost = false;
+    S().boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0 };   // (a permanent boost a test earned, such as a note's reward, would scale every price and rounding after it: the economy ratio tests failed by it in a full run)
+    g.logi.visualOnly = g.isGuest();   // (a test that ran frames as a friend leaves the belts as a guest's: they only draw what the host simulates, so every belt test after it fails in a full run)
+    g.cancelDeaths(); g.ui.blackout(false);   // (a death or a pass-out of the test before wakes the player after 1.4 s of real time: it would move him in the middle of this test)
     g.grabCd = 0; g.hp = 100; g.hpMax = 100; g.dead = false; g.trapOn = false; g.airLeft = undefined; g.suffocating = false; g.blacking = false;
     p().embedded = false; p().buried = 0; p().vel.set(0, 0, 0);
     g.dust.cells.clear(); g.dust.lung = 0; g.dust.recover = 0; g._lungPrev = undefined; g._lungRate = 0;
@@ -56,11 +61,14 @@ export async function runSelfTest(g, only = '') {
     g.rebuildTools();
   };
   // a fresh strip of the slope: the first column of the pile along +x at a lane near the start
+  // (the world is random: the slope's edge is not at the same place in every lane, and the far lanes start already high, so when the wanted lane has no mouth the nearest lane that has one is used)
   const spot = (lane = 12) => {
-    const kk = toK(0) + lane; let i = toI(0) + 4;
-    while (i < toI(0) + 140 && !(w().topAt(i - 1, kk) === 0 && w().topAt(i, kk) >= 1)) i++;
-    if (i >= toI(0) + 140) throw new Error('no slope mouth');
-    return { i, k: kk };
+    for (const d of [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 8, -8, 10, -10, 14, -14]) {
+      const kk = toK(0) + lane + d; let i = toI(0) + 4;
+      while (i < toI(0) + 140 && !(w().topAt(i - 1, kk) === 0 && w().topAt(i, kk) >= 1)) i++;
+      if (i < toI(0) + 140) return { i, k: kk };
+    }
+    throw new Error('no slope mouth within 14 lanes of lane ' + lane);
   };
   const newWorld = async () => { await g.startPlay(true); g.mode = 'play'; g.noSave = true; await realSleep(250); };
   const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.', 'island.', 'thincap.', 'netperf.', 'mp.netperf.', 'lag.', 'avalanche.audit.'];
@@ -86,14 +94,24 @@ export async function runSelfTest(g, only = '') {
   const placeAtFloor = async (id, x, z, back = 2.0) => { craft(id); selectTool(id); aimPoint(x, 0, z, back); const pl = await plan(); if (!pl || !pl.ok) return { ok: false, why: pl && pl.why }; return { ok: true, placed: placeNow() }; };
   const tiles = () => [...L().tiles.values()];
   const dig = (i, k, n, wd = 2, ht = 3, queue = true) => { for (let s = 0; s < n; s++) for (let dk = 0; dk < wd; dk++) for (let j = 0; j < ht; j++) w().removeCell(i + s, j, k + dk, queue); };
+  // Per-player bags (Wave 12, src/playerinv.js): the co-op tests written before it expect ONE bag, the host's S.items, for a guest's craft, place and spend. Until a test is
+  // rewritten for two bags, its friend's bag IS the host's: before every guest command the friend's bag is pointed at the host's maps (the swap in netCmd then swaps nothing).
+  // The tests of the feature itself (pinv.*, mp.pinv.*) and the care package tests (mp.care.*, which were rewritten) run with real separate bags.
+  const PINV_OWN = /^(mp\.)?pinv\.|^mp\.care\./;
+  const legacyFlag = (name) => { g._pinvLegacy = !PINV_OWN.test(name); };
+  if (!g._pinvShim) { g._pinvShim = true; const real = g.netCmd; g.netCmd = function (c, d) { if (g._pinvLegacy) { const b = PIN.curBag(g); b.items = this.S.items; b.mats = this.S.mats; b.hotbar = this.S.hotbar; } return real.call(this, c, d); }; }
   const T = async (name, fn) => {
-    if (only && !name.startsWith(only)) return;
+    if (only && !(Array.isArray(only) ? only : [only]).some((o) => name.startsWith(o))) return;
+    legacyFlag(name);
     if (WORLD_TESTS.some((x) => name.startsWith(x))) await newWorld();
     g.surgeT = 1e9; if (g.outage > 0) { g.outage = 0; if (g.power) g.power.outage = false; }   // the random grid surge (40 s without power, after 25 to 45 game minutes with a generator) would fail whichever power test a long run happens to be in
-    const before = g.errCount || 0;
+    const before = g.errCount || 0, time0 = g.time;
     try {
       const r = await fn();
-      if ((g.errCount || 0) > before) results.push({ name, ok: false, msg: 'frame errors: ' + (g.errLog || []).slice(-1)[0] });
+      g.cancelDeaths();   // (a wake-up after a death that the test did not wait for would otherwise move the player in the next test)
+      if (!Number.isFinite(g.shake)) { const was = g.shake; g.shake = 0; results.push({ name, ok: false, msg: `g.shake was left at ${was}: the camera shake is NaN for the rest of the page (every later test that aims, places or reads the view fails in a full run, and a real game would shake NaN forever). Something fed a non-number into a shake (see slideFeel in src/game.js with a garbled 'slide' message)` }); }
+      else if (g.time < time0 - 1e-6) results.push({ name, ok: false, msg: `g.time was set back from ${time0.toFixed(2)} to ${g.time.toFixed(2)}: every throttle that already ran in this page now waits for a time that has not come again, and the tests after this one fail only in a full run (add to g.time, never assign it)` });
+      else if ((g.errCount || 0) > before) results.push({ name, ok: false, msg: 'frame errors: ' + (g.errLog || []).slice(-1)[0] });
       else if (typeof r === 'string') results.push({ name, ok: false, msg: r });
       else if (r === false || r === null || r === 0) results.push({ name, ok: false, msg: 'returned ' + r });
       else results.push({ name, ok: true });
@@ -394,7 +412,8 @@ export async function runSelfTest(g, only = '') {
     p().pos.set(cellX(i), 25, cellZ(k)); p().footCell = { i, j: t - 1, k }; for (let n = 0; n < 60 && (S().stats.slides || 0) === s0; n++) { g.treadOn(1.0, false); stepSim(0.4); } stepSim(6); return ((S().stats.slides || 0) > s0) || 'no slide from high climbing';
   });
   await T('slides.supports-hold-slope', async () => {
-    const run = async (props) => { await newWorld(); fresh({ charges: 3 }); const k = toK(0) + 14; let d0 = 0; for (let d = 30; d < 90; d++) if (w().topAt(toI(0) + d, k) >= 36) { d0 = d; break; } const i = toI(0) + d0, t = w().topAt(i, k); if (props) for (let a = -6; a <= 6; a += 3) for (let b = -6; b <= 6; b += 3) w().supports.push({ x: cellX(i + a), y: cellY(t - 2), z: cellZ(k + b), r: 4, b: 3, id: 's' + a + b }); const s0 = S().stats.slides || 0; g.detonate({ x: cellX(i), y: cellY(t - 2), z: cellZ(k), tier: 3 }); stepSim(25); return (S().stats.slides || 0) - s0; };
+    const run = async (props) => { await g.startPlay(true, 8675309); g.mode = 'play'; g.noSave = true; await realSleep(250); fresh({ charges: 3 }); const k = toK(0) + 14;   // (the same seed for both runs: two random worlds are not comparable)
+      let d0 = 0; for (let d = 30; d < 90; d++) if (w().topAt(toI(0) + d, k) >= 36) { d0 = d; break; } const i = toI(0) + d0, t = w().topAt(i, k); if (props) for (let a = -6; a <= 6; a += 3) for (let b = -6; b <= 6; b += 3) w().supports.push({ x: cellX(i + a), y: cellY(t - 2), z: cellZ(k + b), r: 4, b: 3, id: 's' + a + b }); const s0 = S().stats.slides || 0; g.detonate({ x: cellX(i), y: cellY(t - 2), z: cellZ(k), tier: 3 }); stepSim(25); return (S().stats.slides || 0) - s0; };
     const a = await run(false), b = await run(true); return (a > 0 && b < a) || `${a} vs ${b}`;
   });
 
@@ -488,7 +507,7 @@ export async function runSelfTest(g, only = '') {
     fresh(mkUp({ struts: 1 })); const a = await placeAtFloor('strut', -4, 5), b = await placeAtFloor('strut', -2.4, 5); if (!a.ok || !b.ok) return 'setup';
     selectTool('hammer'); g.stowed = false; aimPoint(-4, 0.3, 5, 1.6); adv(0.15); g.keys.KeyF = true; g.gPress(); g.keys.KeyF = false; const left1 = S().entities.filter((e) => e.type === 'strut').length;
     // holding the key down must not keep hitting
-    g.keys.KeyG = true; adv(1.0); g.keys.KeyG = false; const left2 = S().entities.filter((e) => e.type === 'strut').length; return (left1 === 1 && left2 === 1) || `after click ${left1}, after holding ${left2}`;
+    g.keys.Mouse0 = true; adv(1.0); g.keys.Mouse0 = false; const left2 = S().entities.filter((e) => e.type === 'strut').length; return (left1 === 1 && left2 === 1) || `after click ${left1}, after holding ${left2}`;
   });
   await T('tools.equipped-tool-means-f-does-not-grab', async () => {
     fresh(mkUp({ struts: 1, bag: 3 })); plushWall(30); craft('strut'); selectTool('strut'); g.stowed = false; standBeforeWall(); adv(0.1); const eye = p().eyePos(new V3()), dir = p().forward(new V3()); g.curTargetRef = g.findTarget(eye, dir); const n0 = S().carry.length; g.gPress(); return S().carry.length === n0 || 'grabbed with a tool equipped';
@@ -522,11 +541,11 @@ export async function runSelfTest(g, only = '') {
 
   // ================================================================== AUDIO: no random noises
   await T('audio.no-random-creaks-when-idle-in-pile', async () => {
-    fresh(); let creaks = 0; const orig = g.sound.creak.bind(g.sound); g.sound.creak = (...a) => { creaks++; return orig(...a); };
+    fresh(); let creaks = 0; const orig = g.sound.creak; g.sound.creak = function (...a) { creaks++; return orig.apply(this, a); };   // (never .bind(g.sound) a method and put it back: a positional voice is a child of g.sound, and a bound method pins `this` to the root, so every later sound.at() plays at full volume)
     p().pos.set(cellX(0) + 30 * 0.6, 12, 0); g.camSky = 0.1; g.settleT = 0; adv(60); g.sound.creak = orig; return creaks === 0 || creaks + ' creak sounds while idle';
   });
   await T('audio.quiet-world-makes-few-sounds', async () => {
-    fresh(); const log = {}; const wrap = (n) => { const o = g.sound[n].bind(g.sound); g.sound[n] = (...a) => { log[n] = (log[n] || 0) + 1; return o(...a); }; return () => { g.sound[n] = o; }; };
+    fresh(); const log = {}; const wrap = (n) => { const o = g.sound[n]; g.sound[n] = function (...a) { log[n] = (log[n] || 0) + 1; return o.apply(this, a); }; return () => { g.sound[n] = o; }; };
     const undo = ['creak', 'rumble', 'debris', 'squeak', 'chirp', 'cough', 'thump', 'soft', 'whoosh', 'noise', 'tone'].map(wrap); p().pos.set(0, 0, -1.4); adv(40); undo.forEach((f) => f()); const total = Object.values(log).reduce((a, b) => a + b, 0); return total <= 8 || 'sounds in 40 quiet seconds: ' + JSON.stringify(log);
   });
 
@@ -654,7 +673,7 @@ export async function runSelfTest(g, only = '') {
     let last = '';
     for (let attempt = 0; attempt < 4; attempt++) {   // the lane can be spoiled by earlier tests: try a fresh one
       fresh({ crew: 1, crewSlots: 3, crewBolt: 1, crewBelt: 1, timber: 1, belts: 1, power: 1 }); S().stats.plush = 1e9; const { i, k } = spot(12 + attempt * 9); const b = g.crew.spawn(); p().pos.set(cellX(i) - 1.5, 0, cellZ(k)); g.crew.order(b, 0, cellX(i) - 1.5, 0.3, cellZ(k)); for (let n = 0; n < 9000; n++) { g.time += 0.05; g.crew.update(0.05, g.time); g.logi.update(0.05); }
-      const frames = S().entities.filter((e) => e.type === 'frame' && e.auto).length, belts = tiles().filter((t) => t.type === 'belt' && !t.free).length; if (frames >= 1 && belts >= 2) return true; last = `auto frames ${frames} belts ${belts}`;
+      const frames = S().entities.filter((e) => e.type === 'frame' && e.auto).length, belts = tiles().filter((t) => t.type === 'belt' && !t.free).length; if (frames >= 1 && belts >= 2) return true; last += `[lane ${k - toK(0)}: auto frames ${frames} belts ${belts} bot ${b.state}] `;
     }
     return last;
   });
@@ -674,9 +693,14 @@ export async function runSelfTest(g, only = '') {
     const key = 'rotfactory.save.v1'; const raw = JSON.parse(localStorage.getItem(key)).S; const ok = raw && raw.hotbar && raw.hotbar.includes('strut') && raw.items.strut === 2 && raw.items.medkit === 1 && raw.mats.timber === 5 && raw.entities.some((e) => e.free);
     return !!ok || 'save is missing hotbar/items/mats/free gate: ' + Object.keys(raw || {}).join();
   });
-  await T('multiplayer.shared-state-roundtrip', async () => {
-    fresh(mkUp()); craft('mat:steel', 7); craft('strut', 2); const sent = []; const orig = g.netSend.bind(g); g.netSend = (m) => sent.push(JSON.parse(JSON.stringify(m))); g.net.open = true; g.net.role = 'host'; g.sendShared(); g.net.role = null; g.net.open = false; g.netSend = orig;
-    const m = sent.find((x) => x.t === 'shared'); if (!m || !m.mats || m.mats.steel !== 7 || m.items.strut !== 2) return 'shared message incomplete'; g.net.role = 'guest'; const keep = { items: S().items, mats: S().mats }; S().items = {}; S().mats = {}; g._sharedKey = null; g.applyShared(m); const ok = S().mats.steel === 7 && S().items.strut === 2; g.net.role = null; return ok || 'guest did not apply';
+  await T('multiplayer.shared-state-roundtrip', async () => {   // (since Wave 12 the shared message carries money, upgrades and gear; the bag of each player travels in `inv` messages: src/tests/mp_pinv.js)
+    fresh(mkUp()); craft('strut', 2); S().money = 777; const sent = []; const orig = g.netSend.bind(g); g.netSend = (m) => sent.push(JSON.parse(JSON.stringify(m))); g.net.open = true; g.net.role = 'host'; g.sendShared();
+    PIN.invFor(g, 'g').strut = 5; PIN.matsFor(g, 'g').steel = 7; sent.push(PIN.snapshotMsg(g)); g.net.role = null; g.net.open = false; g.netSend = orig;
+    const m = sent.find((x) => x.t === 'shared'), inv = sent.find((x) => x.t === 'inv');
+    if (!m || m.money !== 777 || !m.up || m.items !== undefined || m.mats !== undefined) return 'shared message wrong: ' + JSON.stringify(m && Object.keys(m));
+    if (!inv || !inv.f || inv.i.join() !== 'strut,5' || inv.m.join() !== 'steel,7') return 'inv message wrong ' + JSON.stringify(inv);
+    g.net.role = 'guest'; const keep = { items: S().items, mats: S().mats }; S().items = { mine: 1 }; S().mats = {}; g._sharedKey = null; g.applyShared(m); const kept = S().items.mine === 1 && S().money === 777; g.net.role = 'guest'; g.net.open = true;
+    PIN.guestReset(g); PIN.applyInv(g, inv); const ok = S().mats.steel === 7 && S().items.strut === 5 && !S().items.mine; g.net.role = null; g.net.open = false; S().items = keep.items; S().mats = keep.mats; PIN.reset(g); return (kept && ok) || `guest did not apply: kept ${kept} bag ${JSON.stringify(S().items)}`;
   });
   await T('multiplayer.guest-spend-command-consumes-on-host', async () => { fresh(mkUp({ firstaid: 1 })); craft('medkit', 2); g.netCmd && g.netCmd({ c: 'spend', d: { id: 'medkit' } }); return true; });
   await T('achievements.all-checks-run-without-throwing', async () => {
@@ -762,6 +786,7 @@ export async function runSelfTest(g, only = '') {
   if (typeof window !== 'undefined') window.__runFile = async (file, prefix = '') => {   // dev tooling: re-import ONE test file (cache busted) and run it against this ctx without the rest of the suite: `await __runFile('stack_plates.js')`
     const rs = [], T2 = async (name, fn) => {
       if (prefix && !name.startsWith(prefix)) return;
+      legacyFlag(name);
       if (WORLD_TESTS.some((x) => name.startsWith(x))) await newWorld();
       g.surgeT = 1e9; const before = g.errCount || 0;
       try { const r = await fn(); if ((g.errCount || 0) > before) rs.push({ name, ok: false, msg: 'frame errors: ' + (g.errLog || []).slice(-1)[0] }); else if (typeof r === 'string') rs.push({ name, ok: false, msg: r }); else if (r === false || r === null || r === 0) rs.push({ name, ok: false, msg: 'returned ' + r }); else rs.push({ name, ok: true }); } catch (e) { rs.push({ name, ok: false, msg: 'THROW ' + String(e && e.stack || e).slice(0, 500) }); }
@@ -770,7 +795,8 @@ export async function runSelfTest(g, only = '') {
     return { total: rs.length, failed: rs.filter((r) => !r.ok), ok: rs.filter((r) => r.ok).map((r) => r.name) };
   };
   if (typeof window !== 'undefined') window.__stCtx = ctx;   // dev tooling: lets a runner re-import one test file with a cache-busting query and run it against this ctx
-  for (const path of Object.keys(mods).sort()) { const fn = mods[path].default; if (typeof fn === 'function') await fn(ctx); }
+  { const fr = typeof window !== 'undefined' ? window.__fileRange : null, all = Object.keys(mods).sort();   // (dev tooling: window.__fileRange = ['audit_a', 'intake_core'] (or a list of such pairs) runs only the test files from the first name to the last, in the same order as a full run: to bisect which earlier test spoils a later one)
+    for (const path of all) { const base = path.replace(/^.*\//, '').replace(/\.js$/, ''); if (fr && !(Array.isArray(fr[0]) ? fr : [fr]).some((r) => base >= r[0] && base <= r[1])) continue; const fn = mods[path].default; if (typeof fn === 'function') await fn(ctx); } }
 
   return { results, errs: (g.errCount || 0) - errs0, helpers: { fresh, adv, stepSim, spot, dig, placeAtFloor, craft, selectTool, plan, placeNow, aimPoint, lookEast, tune, T, near, tiles, clearBodies, resetEntities, sleep, V3 } };
 }

@@ -1,6 +1,7 @@
 // Audit tests for the Mining & Supports upgrade category: every level of every upgrade must do what its text says.
 import { fmt } from '../util.js';
 import { BULK } from '../plushdata.js';
+import { SUP_EXTRA } from '../world.js';
 import { UPGRADES as CATALOG_UPGRADES } from '../catalog.js';
 const CATALOG_IDS = new Set(CATALOG_UPGRADES.map((u) => u.id));
 
@@ -107,7 +108,8 @@ export default async function (ctx) {
       let expect = 0; for (let s = 0; s < 60; s++) { const dx = cellX(i + c + s) - sup.x, dy = cellY(2) - sup.y, dz = cellZ(k) - sup.z; if (dx * dx + dy * dy + dz * dz < f.radius * f.radius) expect++; else break; }
       frameRes[tier] = m;
       if (Math.abs(m.anch - expect) > 1) return `anchored ${m.anch} cells, geometry says ${expect} (r ${f.radius})`;
-      if (m.B === null || Math.abs(m.ext - (m.anch + m.B)) > 1) return `roof stands ${m.ext} cells, anchor ${m.anch} + safe length ${m.B}`;
+      // (the roof a support holds stands SUP_EXTRA cells further than the plain safe length since the support reach tuning: world.js SUP_EXTRA, tests support_reach.*)
+      if (m.B === null || Math.abs(m.ext - (m.anch + m.B + SUP_EXTRA)) > 1) return `roof stands ${m.ext} cells, anchor ${m.anch} + safe length ${m.B} + support extra ${SUP_EXTRA}`;
       const idx = FRAME_IDS.indexOf(tier);
       if (idx > 0) { const pv = frameRes[FRAME_IDS[idx - 1]]; if (pv && m.ext < pv.ext) return `ext ${m.ext} below previous tier ${pv.ext}`; if (idx > 1) { const pv2 = frameRes[FRAME_IDS[idx - 2]]; if (pv2 && m.ext <= pv2.ext) return `ext ${m.ext} no better than two tiers down ${pv2.ext}`; } }
       return true;

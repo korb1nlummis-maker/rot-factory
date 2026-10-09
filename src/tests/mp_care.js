@@ -2,6 +2,7 @@
 // The host rolls the package, flies the drone and opens the crate; the guest sees them from `xrow` rows of the type 'care' and opens with the `careOpen` command.
 import * as CP from '../carepackage.js';
 import * as EXT from '../ext.js';
+import * as PIN from '../playerinv.js';
 import { mulberry32 } from '../util.js';
 
 export default async function (ctx) {
@@ -14,7 +15,7 @@ export default async function (ctx) {
   let toasts = [];
   const setup = (up = FULL) => {
     fresh(up); g.careOff = false; CP.teardown(g); S().care = undefined; S().gameMin = 100; g.mode = 'play'; g.dead = false; g.ui.closeModals(); S().ending = null; S().totalEarned = 0; S().stats.rar = [0, 0, 0, 0, 0, 0, 0]; S().stats.maxDepth = 0; S().dex = {}; S().entities = S().entities.filter((e) => e.free);
-    toasts = []; g._toast = g.ui.toast; g.ui.toast = (t) => { toasts.push(t); }; p().pos.set(0, 0, 2); g.camSky = 1;
+    toasts = []; if (!g._toast) g._toast = g.ui.toast; g.ui.toast = (t) => { toasts.push(t); }; p().pos.set(0, 0, 2); g.camSky = 1;
     const C = CP.ensure(g); C.queue.length = 0; return C;
   };
   const done = () => { if (g._toast) { g.ui.toast = g._toast; g._toast = null; } delete g.netSend; delete g.cmd; delete g.remote; role(null); g.net.role = undefined; g.careOff = true; CP.teardown(g); S().care = undefined; g.netOut.length = 0; g.ui.closeModals(); };
@@ -66,14 +67,14 @@ export default async function (ctx) {
     const asked = cmdSent && cmdSent[0] === 'careOpen' && cmdSent[1].id === cr.id;
     // the host runs it as the guest
     g.remote = { pos: new V3(cr.x + 1, 0, cr.z + 1) }; sent.length = 0;
-    g.netCmd('careOpen', cmdSent[1]); const items1 = json(S().items), money1 = S().money, shared = sent.filter((m) => m.t === 'shared');
+    g.netCmd('careOpen', cmdSent[1]); const items1 = json(PIN.invFor(g, 'g')), money1 = S().money, shared = sent.filter((m) => m.t === 'shared');
     g.netCmd('careOpen', cmdSent[1]); g.netCmd('careOpen', cmdSent[1]);   // the same command again (a double click, a resend): nothing more
-    return (asked && items1.medkit === 3 && items1.flare === 2 && money1 === 50 && S().items.medkit === 3 && S().money === 50 && C().crates.length === 0 && C().count === 1 && shared.length >= 1 && shared[0].items.medkit === 3
+    return (asked && items1.medkit === 3 && items1.flare === 2 && money1 === 50 && !S().items.medkit && S().money === 50 && C().crates.length === 0 && C().count === 1 && shared.length >= 1 && !shared[0].items
       && sent.some((m) => m.t === 'toast' && /care package/i.test(m.title))) || JSON.stringify({ asked, items1, money1, crates: C().crates.length, shared: shared.length });
   });
   await guard('mp.care.a-forged-open-is-refused', async () => {
     setup(); const C = () => S().care; role('host'); cap(); const cr = g.careDebug.drop(false, { land: true, quiet: true, items: [['medkit', 3]], fx: [['cash', 50]] }); S().items = {}; S().money = 0;
-    const snap = () => JSON.stringify([S().items, S().money, C().crates.length, C().count]); const s0 = snap();
+    const snap = () => JSON.stringify([S().items, PIN.invFor(g, 'g'), S().money, C().crates.length, C().count]); const s0 = snap();
     const bad = [];
     const tryIt = (label, d, pos) => { g.remote = pos === null ? null : { pos: pos || new V3(cr.x + 1, 0, cr.z + 1) }; try { g.netCmd('careOpen', d); } catch (e) { bad.push(label + ' threw ' + e.message); } if (snap() !== s0) bad.push(label + ' opened it'); };
     tryIt('far', { id: cr.id }, new V3(cr.x + 40, 0, cr.z)); tryIt('another floor', { id: cr.id }, new V3(cr.x, 30, cr.z)); tryIt('nobody there', { id: cr.id }, null);
@@ -83,13 +84,13 @@ export default async function (ctx) {
     // the guest's own game never opens anything on its own say (a guest runs no host code)
     role('guest'); g.remote = { pos: new V3(cr.x, 0, cr.z) }; try { CP.guestOpen(g, { id: cr.id }); } catch (e) { bad.push('guest threw'); } role('host'); if (snap() !== s0) bad.push('a guest-side call opened it');
     g.remote = { pos: new V3(cr.x + 1, 0, cr.z + 1) }; g.netCmd('careOpen', { id: cr.id, items: [['claw', 99]], fx: [['cash', 1e12]], x: 0 });   // extra fields never matter: what is in the crate is what the host rolled
-    return (bad.length === 0 && S().items.medkit === 3 && S().money === 50 && !S().items.claw) || bad.slice(0, 4).join('; ') + ' ' + snap();
+    return (bad.length === 0 && PIN.invFor(g, 'g').medkit === 3 && !S().items.medkit && S().money === 50 && !PIN.invFor(g, 'g').claw) || bad.slice(0, 4).join('; ') + ' ' + snap();
   });
   await guard('mp.care.the-host-opens-for-a-guest-who-walks-into-it', async () => {
     const C = setup(); role('host'); cap(); const cr = g.careDebug.drop(false, { land: true, quiet: true, items: [['medkit', 1]], fx: [] }); S().items = {}; p().pos.set(cr.x + 30, 0, cr.z);
     g.remote = { pos: new V3(cr.x + 5, 0, cr.z) }; for (let n = 0; n < 6; n++) { g.time += 0.1; CP.tick(g, 0.1); }
     const armed = C.crates.length === 1; g.remote.pos.set(cr.x + 0.4, 0, cr.z); for (let n = 0; n < 6; n++) { g.time += 0.1; CP.tick(g, 0.1); }
-    return (armed && C.crates.length === 0 && S().items.medkit === 1 && sent.some((m) => m.t === 'toast' && /opened/.test(m.title))) || `armed ${armed}, crates ${C.crates.length}, items ${JSON.stringify(S().items)}`;
+    return (armed && C.crates.length === 0 && PIN.invFor(g, 'g').medkit === 1 && !S().items.medkit && sent.some((m) => m.t === 'toast' && /opened/.test(m.title))) || `armed ${armed}, crates ${C.crates.length}, items ${JSON.stringify(PIN.invFor(g, 'g'))}`;
   });
   await guard('mp.care.the-schedule-runs-on-the-hosts-day-counter-and-a-guest-never-rolls', async () => {
     setup(); const C = () => S().care; role('host'); cap(); S().gameMin = 3 * 1440 + 100;
@@ -120,8 +121,8 @@ export default async function (ctx) {
   });
   await guard('mp.care.a-guest-pack-goes-in-the-guests-own-bag-when-there-is-one', async () => {
     setup(); const C = () => S().care; role('host'); cap(); const cr = g.careDebug.drop(false, { land: true, quiet: true, items: [['medkit', 3]], fx: [] }); S().items = { medkit: 1 };
-    S().ginv = { medkit: 98 }; g.remote = { pos: new V3(cr.x, 0, cr.z + 1) };
-    try { g.netCmd('careOpen', { id: cr.id }); const r = { host: S().items.medkit, guest: S().ginv.medkit, left: C().crates.length ? C().crates[0].items[0] : null }; return (r.host === 1 && r.guest === 99 && JSON.stringify(r.left) === '["medkit",2]') || JSON.stringify(r); } finally { delete S().ginv; }
+    PIN.invFor(g, 'g').medkit = 98; g.remote = { pos: new V3(cr.x, 0, cr.z + 1) };
+    try { g.netCmd('careOpen', { id: cr.id }); const r = { host: S().items.medkit, guest: PIN.invFor(g, 'g').medkit, left: C().crates.length ? C().crates[0].items[0] : null }; return (r.host === 1 && r.guest === 99 && JSON.stringify(r.left) === '["medkit",2]') || JSON.stringify(r); } finally { S().ginv = undefined; }
   });
   await guard('mp.care.garbage-rows-never-throw-and-never-put-a-crate-in-the-wrong-place', async () => {
     setup(); role('host'); cap();

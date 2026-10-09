@@ -189,9 +189,13 @@ export default async function (ctx) {
 
   await G('bins.controls-table-and-readouts-name-the-key-and-every-kind-shows-its-bin', async () => {
     const bad = [], e = K.beacon(-2, 4); K.run(0.2);
-    const rows = CONTROLS.flatMap((x) => x.rows).filter((r) => r.codes.includes('Semicolon'));
-    if (rows.length !== 2 || !rows.some((r) => r.keys.join('+') === ';') || !rows.some((r) => r.keys.join('+') === 'Shift+;')) bad.push('controls rows: ' + rows.map((r) => r.keys.join('+')));
-    if (rows.some((r) => /—/.test(r.what))) bad.push('em dash in the controls');
+    const all = CONTROLS.flatMap((x) => x.rows), rows = all.filter((r) => r.codes.includes('Semicolon')), bRows = all.filter((r) => r.codes.includes('KeyB'));
+    // the bin key is B and only B (the old ; no longer assigns a bin: only Shift+; is left, the copy), and B is shared with set-down by context
+    if (rows.length !== 1 || rows[0].keys.join('+') !== 'Shift+;' || !rows[0].ids.includes('copybin')) bad.push('semicolon rows: ' + rows.map((r) => r.keys.join('+')));
+    if (bRows.length !== 2 || !bRows.some((r) => r.ids.includes('bin') && r.keys.join('+') === 'B') || !bRows.some((r) => r.ids.includes('place'))) bad.push('B rows: ' + bRows.map((r) => r.ids.join(',') + ' ' + r.keys.join('+')));
+    const binRow = bRows.find((r) => r.ids.includes('bin')); if (binRow && !/set down|places/i.test(binRow.what)) bad.push('the bin row does not say that B sets a building item down');
+    const rows2 = rows.concat(bRows);
+    if (rows2.some((r) => /—/.test(r.what))) bad.push('em dash in the controls');
     const kinds = { truck: K.mkEarth('truck', toI(-6), toK(8)), excavator: K.mkEarth('excavator', toI(-6), toK(10)), borer: K.mach('borer', -10, 8, { dx: 1, dz: 0, w: 2, h: 3 }), claw: K.mach('claw', -10, 10), mech: K.rawTile('mech', toI(-8), toK(4)), belt: K.rawTile('belt', toI(-8), toK(2)), railstn: K.mach('railstn', -10, 12, { role: 'base' }), railcar: K.mach('railcar', -10, 14) };
     for (const [k, t] of Object.entries(kinds)) {
       const ref = { kind: t.items ? 'tile' : g.logi.byId.get(t.id) ? 'tile' : 'mach', id: t.id };
@@ -202,7 +206,7 @@ export default async function (ctx) {
       K.off.add(e.id); K.run(0.2); txt = infoFor(g, ref).lines.join(' | ');
       if (!/Depot A \(\d+ m\) has no power: Auto until it does/.test(txt)) bad.push(`${k} unpowered readout`);
       K.off.delete(e.id); K.run(0.2);
-      if (!/; picks its bin/.test(txt)) bad.push(k + ' does not name the key');
+      if (!/B picks its bin, Shift\+; copies it/.test(txt)) bad.push(k + ' does not name the keys: ' + txt.slice(-80));
     }
     return bad.length === 0 || bad.join(' || ');
   });

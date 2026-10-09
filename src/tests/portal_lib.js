@@ -18,7 +18,9 @@ export function makeKit(ctx) {
   const site = (o = {}) => {
     const span = o.span ?? 6, rows = o.rows ?? 24, len = o.len ?? 60, h = ARCH_SPANS[span].h;
     let i0, k0;
-    if (!o.dist) { let sp = null; for (const lane of [o.lane ?? 12, 12, 20, 6, 28, -6, -14, 36, -22, 44]) { try { sp = ctx.spot(lane); break; } catch (e) { /* a lane without a slope mouth */ } } if (!sp) throw new Error('no lane with a slope mouth'); i0 = sp.i + 6; k0 = sp.k - 14; clearBox(i0 - 8, k0, len + 12, span + 10, 14); }
+    // (the world is random: the Welcome Gate and its belt stand at the same place in every world and the slope mouth does not, so a site can land on a free tile that no clearing removes: that lane is skipped)
+    const tileIn = (a, b, c, d) => { for (const t of g.logi.tiles.values()) if (t.i >= a && t.i < a + c && t.k >= b && t.k < b + d) return true; return false; };
+    if (!o.dist) { let sp = null; for (const lane of [o.lane ?? 12, 12, 20, 6, 28, -6, -14, 36, -22, 44, 52, -30, 60]) { try { const q = ctx.spot(lane); if (tileIn(q.i + 6 - 30, q.k - 14, len + 40, span + 12)) continue; sp = q; break; } catch (e) { /* a lane without a slope mouth */ } } if (!sp) throw new Error('no lane with a slope mouth and no tile in the way'); i0 = sp.i + 6; k0 = sp.k - 14; clearBox(i0 - 8, k0, len + 12, span + 10, 14); }
     else { i0 = toI(o.dist); k0 = toK(o.z ?? 60); clearBox(i0 - 6, k0 + 5, 6, span, h); }   // a tunnel-sized room behind the mouth (a bigger hollow would put its roof in the weight of the first arches)
     // solid face: the pile from i0 + 4 on, as wide as the tunnel plus 5 cells each side (deep in the pile it is just the natural pile: only the room behind the mouth is carved)
     if (!o.dist) { clearBox(i0 - 8, k0, len + 12, span + 10, rows + 2); solidBox(i0 + 4, k0, len, span + 10, rows); }

@@ -201,15 +201,15 @@ export class Cables {
   remove(id, refund) {
     const list = this.list(), n = list.findIndex((c) => c.id === id);
     if (n < 0) return false;
-    list.splice(n, 1);
-    if (refund) this.game.giveItem('cable');
+    const rec = list[n]; list.splice(n, 1);
+    if (refund) this.game.giveItem('cable', 1, rec.own);   // (back to whoever laid it while both players are here)
     this.changed();
     return true;
   }
   // several cables at once (a pole with ten cords taken down, a collapse): the grid is solved once, not once per cable. Returns how many were there.
   removeMany(ids, refund) {
     const set = new Set(ids), list = this.list(); let n = 0;
-    for (let q = list.length - 1; q >= 0; q--) if (set.has(list[q].id)) { list.splice(q, 1); n++; if (refund) this.game.giveItem('cable'); }
+    for (let q = list.length - 1; q >= 0; q--) if (set.has(list[q].id)) { const own = list[q].own; list.splice(q, 1); n++; if (refund) this.game.giveItem('cable', 1, own); }
     if (n) this.changed();
     return n;
   }

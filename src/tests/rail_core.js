@@ -128,7 +128,7 @@ export default async function (ctx) {
     if (!row || !/Mine Rail/.test(row.what) || hasBad(row.what)) bad.push('controls row ' + JSON.stringify(row));
     if ('Backspace' in RESERVED_KEYS) bad.push('Backspace is still reserved');
     const e = rows.find((r) => r.codes.includes('KeyE') && /Rail Cart/.test(r.what)); if (!e || hasBad(e.what)) bad.push('E row');
-    const src = await (await fetch('/src/game.js')).text(); const a = src.indexOf('  onKey(e, down) {'), b = src.indexOf('  onMouse(e, down) {'); if (!src.slice(a, b).includes("e.code === 'Backspace'")) bad.push('onKey does not handle Backspace');
+    const src = await (await fetch('/src/game.js')).text(); const a = src.indexOf('  onKey(e, down) {'), b = src.indexOf('  onMouse(e, down) {'); const KBm = await import('../keybinds.js'); if (!KBm.hasCode('railHome', 'Backspace') || !src.slice(a, b).includes("case 'railHome'")) bad.push('the table does not bind Backspace to the rush key, or game.js does not run it');
     return bad.length === 0 || bad.join(' || ');
   });
 

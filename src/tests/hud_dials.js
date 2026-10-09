@@ -250,7 +250,8 @@ export default async function (ctx) {
   await T('hud.clock-dial-needs-the-helmet-and-shows-time-day-and-open-or-closed', async () => {
     fresh({}); const bad = []; S().gear = { ...(S().gear || {}), helmet: 0 };
     try {
-      S().gameMin = 3180; g._clkT = 0;   // day 3, 12:00 (the day starts at 07:00) g.updateClock(0.1); if (D('clock').on) bad.push('clock without the helmet'); if (D('clock').label !== 'DAY 3') bad.push('day label ' + D('clock').label);
+      S().gameMin = 3180; g._clkT = 0;   // day 3, 12:00 (the day starts at 07:00)
+      g.updateClock(0.1); if (D('clock').on) bad.push('clock without the helmet'); if (D('clock').label !== 'DAY 3') bad.push('day label ' + D('clock').label);
       S().gear.helmet = 1; g._clkT = 0; g.updateClock(0.1); let d = D('clock'); if (!d.on) return 'clock hidden with the helmet';
       if (d.val !== '12:00' || d.label !== 'DAY 3') bad.push('noon ' + JSON.stringify([d.val, d.label]));
       const mk = el('dial-clock').querySelector('.mk'); const cy = +mk.getAttribute('cy'); if (!(cy > 55)) bad.push('the sun should be at the bottom of the ring at 12:00, cy ' + cy);

@@ -36,7 +36,8 @@ export default async function (ctx) {
   await T('qa.razzo.blasts-at-the-edges-below-the-floor-and-far-outside-never-throw-or-hang', async () => {
     fresh({}); settle(); const bad = [];
     const pts = [[cellX(2), 1.2, cellZ(2)], [cellX(ctx.cfg.NX - 3), 1.2, cellZ(ctx.cfg.NZ - 3)], [cellX(2), 1.2, cellZ(ctx.cfg.NZ - 3)], [0, -8, 0], [0, 400, 0], [-5000, 1, 5000], [cellX(toI(0) + 40), 30, cellZ(toK(0) + 20)]];
-    for (const [x, y, z] of pts) { try { g.razzoBlast(x, y, z); } catch (e) { bad.push(`${x | 0},${y | 0},${z | 0} threw ${e.message}`); continue; } w().creaking.clear(); w().stabQueue.length = 0; const t0 = performance.now(); g.razzoBlast(x, y, z); const ms = performance.now() - t0;   // the first blast pays for generating the far terrain; time the second if (ms > 250) bad.push(`${x | 0},${y | 0},${z | 0} took ${ms.toFixed(0)} ms`);
+    for (const [x, y, z] of pts) { try { g.razzoBlast(x, y, z); } catch (e) { bad.push(`${x | 0},${y | 0},${z | 0} threw ${e.message}`); continue; } w().creaking.clear(); w().stabQueue.length = 0; const t0 = performance.now(); g.razzoBlast(x, y, z); const ms = performance.now() - t0;   // the first blast pays for generating the far terrain; time the second
+      if (ms > 250) bad.push(`${x | 0},${y | 0},${z | 0} took ${ms.toFixed(0)} ms`);
       for (const c of w().creaking.values()) if (!w().inside(c.i, c.j, c.k)) { bad.push(`${x | 0},${y | 0},${z | 0} marked a cell outside the world ${c.i},${c.j},${c.k}`); break; } w().creaking.clear(); w().stabQueue.length = 0; }
     return bad.length === 0 || bad.join('; ');
   });

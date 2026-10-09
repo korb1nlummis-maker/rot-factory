@@ -23,9 +23,9 @@ export default async function (ctx) {
   const eyeDir = () => [p().eyePos(new V3()), p().forward(new V3())];
   const target = () => { const [e, d] = eyeDir(); return g.findTarget(e, d); };
   const holdFrames = (n, dt = 0.016) => { // hold the grab key
-    g.keys.KeyG = true; g.gDownAt = 0; g.holdBlock = false; let grabs = 0, last = S().carry.length;
+    g.keys.Mouse0 = true; g.gDownAt = 0; g.holdBlock = false; let grabs = 0, last = S().carry.length;
     for (let q = 0; q < n; q++) { const [e, d] = eyeDir(); g.interact(dt, e, d); if (S().carry.length !== last) { grabs++; last = S().carry.length; } }
-    g.keys.KeyG = false; return grabs;
+    g.keys.Mouse0 = false; return grabs;
   };
   const finish = () => { clearCells(); clearBodies(); };
 
@@ -148,8 +148,8 @@ export default async function (ctx) {
   // ------------------------------------------------------------------ auto-grip
   await T('upg.hands.repeat.effect', async () => {
     const run = (up) => {
-      fresh({ bag: 8, reach: 4, ...up }); block(2.0, 8, 2); S().carry = []; g.grabCd = 0; g.keys.KeyG = true; g.gDownAt = 0; g.holdBlock = false;
-      const [e, d] = eyeDir(); g.interact(0.016, e, d); const first = S().carry.length; const cd = g.grabCd; g.keys.KeyG = false;
+      fresh({ bag: 8, reach: 4, ...up }); block(2.0, 8, 2); S().carry = []; g.grabCd = 0; g.keys.Mouse0 = true; g.gDownAt = 0; g.holdBlock = false;
+      const [e, d] = eyeDir(); g.interact(0.016, e, d); const first = S().carry.length; const cd = g.grabCd; g.keys.Mouse0 = false;
       const n = holdFrames(Math.round(2 / 0.016)); return { first, cd, per: S().carry.length };
     };
     const a = run({}), b = run({ gloves: 0 }); void b;

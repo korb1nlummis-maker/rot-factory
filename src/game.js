@@ -35,6 +35,7 @@ import { fanSpacing, staleAt } from './dust.js';
 import { FUEL_MAX_RARITY, BURN_SECONDS, ENERGY_KJ, burnTime } from './power.js';
 import { findInfoRef, infoFor } from './info.js';
 import * as EXT from './ext.js';
+import * as PI from './playerinv.js';   // per-player inventories in co-op (Wave 12)
 import * as BINS from './bins.js';   // bins: the SORT bin and every Depot Beacon, and what is assigned to sell at which
 import * as BINPANEL from './binspanel.js';   // the bins panel (; key), the picker and the beacon names
 import * as BUILD from './build.js';   // wave 3: floor pads, catwalks, walls, ramps, stairs
@@ -69,9 +70,13 @@ import * as NOTES from './notes.js';
 import { speciesIcon, needleFrames } from './icons.js';
 import { clamp, lerp, fmt, compaction, escHtml } from './util.js';
 
+import * as KB from './keybinds.js';   // the keybind table: every key the game answers to (keybinds.js), asked here instead of key codes
 import { VAC_DEFAULT_PCT, VAC_MIN_HALF, VAC_REFRESH, VAC_AIM_COS, vacDepth, rateText as vacShow } from './dials.js';   // the VACUUM dial's numbers
 const $ = (id) => document.getElementById(id);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
+export const LAMP_CONE_MAX = 0.12;   // the most the headlamp's dusty cone of light adds on top of the picture: it grew with the lamp power (0.3 with the best lamp in heavy dust: a grey veil that took a fifth of the contrast)
+const NOT_BUILD_KINDS = new Set(['hands', 'cable', 'cart', 'supply']);   // tools the set-down key does not place: with these in hand (or bare hands) the same key assigns a bin
+const SCREEN_KEYS = ['terminal', 'dex', 'journal', 'ach', 'crew'];   // the keys that close the window they opened
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const ARCH_PITCH = { 18: 0.55, 16: 0.65, 15: 0.8, 17: 0.85, 2: 0.8, 3: 0.75, 8: 0.7, 12: 1.15, 13: 1.3, 11: 1.35, 20: 1.2, 35: 1.4, 14: 1.1, 32: 1.25, 33: 1.3, 30: 1.5, 9: 0.9, 22: 0.85, 24: 1.2, 56: 0.6, 67: 0.75, 63: 0.7, 53: 0.9, 55: 1.4, 57: 1.35, 64: 1.3, 49: 1.1, 48: 1.1, 58: 1.2 };
 const START_POS = [0.0, 0.0, -1.4];
@@ -215,7 +220,7 @@ export class Game {
     this.player = new Player(this.world);
     if (saved && saved.loose) for (const b of saved.loose) this.sim.spawn(b[0], b[1], b[2], b[3], b[4], 0, 0, 0, 2);
     this.sim.binCatch = 0;
-    this.sim.player = { spheres: () => { const a = this.player.spheres(); if (this.remote && this.net.open) a.push(...this.remote.spheres()); return a; }, vel: this.player.vel };
+    this.sim.player = { spheres: () => { const a = this.player.spheres(); if (this.remote && this.net.open) a.push(...(typeof this.remote.spheres === 'function' ? this.remote.spheres() : [])); return a; }, vel: this.player.vel };
     this.sim.spawnHook = (sp, vr, x, y, z, vx, vy, vz, flag) => this.spawnHook(sp, vr, x, y, z, vx, vy, vz, flag);
     this.netBodies = new Map();
     this.slide = new Slides(this);
@@ -246,6 +251,7 @@ export class Game {
     for (const e of S.entities) this.addEntity(e);
     { const ids = new Set(S.entities.map((e) => e.id)); for (const e of [...S.entities]) if (e.type === 'fan' && e.mounted && !ids.has(e.frameId)) { const t = this.logi.byId.get(e.id); if (t) this.logi.remove(t); S.entities = S.entities.filter((x) => x.id !== e.id); } }   // a Support Fan whose frame is gone cannot hang in the air
     this.ensureFreeGate();
+    PI.afterLoad(this);   // per-player bags: checked and reset for this session
     S.cables = (Array.isArray(S.cables) ? S.cables : []).filter((c) => c && typeof c === 'object' && this.cables.ent(c.a) && this.cables.ent(c.b));   // hand-wired power cables whose ends still stand
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
@@ -315,7 +321,7 @@ export class Game {
     $('crewAllHome').onclick = () => { this.crewHomeAll(); this.ui.renderCrew(); };
     $('crewAllFollow').onclick = () => { for (const b of this.S.crew || []) this.crew.follow(b); this.ui.renderCrew(); };
     this.wireMulti();
-    { const c = document.getElementById('chatIn'); c.addEventListener('keydown', (e) => { if (e.code === 'Enter') { const t = c.value.trim(); if (t) { this.netSend({ t: 'say', text: t }); this.chatLine('You: ' + t); } c.classList.add('hidden'); c.blur(); } else if (e.code === 'Escape') { c.classList.add('hidden'); c.blur(); } e.stopPropagation(); }); }
+    { const c = document.getElementById('chatIn'); c.addEventListener('keydown', (e) => { if (e.code === 'Enter') { const t = c.value.trim(); if (t) { this.netSend({ t: 'say', text: t }); this.chatLine('You: ' + t); } c.classList.add('hidden'); c.blur(); } else if (KB.resolve(e) === 'pause') { c.classList.add('hidden'); c.blur(); } e.stopPropagation(); }); }   // (Enter sends the line you typed: a text box key, not an action. The pause key cancels it.)
     $('btnKeep').onclick = () => { this.ui.hideEnding(); this.mode = 'play'; this.requestLock(); };
     $('btnNew2').onclick = () => { this.ui.hideEnding(); start(true); };
 
@@ -324,7 +330,12 @@ export class Game {
     window.addEventListener('mousedown', (e) => this.onMouse(e, true));
     window.addEventListener('mouseup', (e) => this.onMouse(e, false));
     window.addEventListener('contextmenu', (e) => e.preventDefault());
-    window.addEventListener('wheel', (e) => { if (this.mode === 'play' && !this.ui.isModalOpen() && this.tools.some((t) => t)) { if (BP.plannerOn(this, this.curTool()) && this.bplan.start) BP.cycle(this, e.deltaY > 0 ? 1 : -1); else this.cycleTool(e.deltaY > 0 ? 1 : -1); } }, { passive: true });   // with a planned line started the wheel picks the route shape
+    window.addEventListener('wheel', (e) => {
+      if (this.mode !== 'play' || this.ui.isModalOpen()) return;
+      // an action the player put on the wheel (WheelUp / WheelDown in the keybind table) answers first; the wheel's own job is the fixed hbwheel row
+      for (const act of KB.candidates({ code: e.deltaY > 0 ? 'WheelDown' : 'WheelUp', shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey }, this.keyCtx(e))) if (this.runAction(act, e) !== false) return;
+      if (this.tools.some((t) => t)) { if (BP.plannerOn(this, this.curTool()) && this.bplan.start) BP.cycle(this, e.deltaY > 0 ? 1 : -1); else this.cycleTool(e.deltaY > 0 ? 1 : -1); }   // with a planned line started the wheel picks the route shape
+    }, { passive: true });
     window.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === this.canvas && this.mode === 'play') {
         const s = 0.0022 * this.sens;
@@ -413,75 +424,122 @@ export class Game {
   addEntity(ent) { if (LOGI.has(ent.type)) this.logi.add(ent); else this.machines.add(ent); }
 
   // ======================= input =======================
+  // Which key contexts are active right now. keybinds.js has the table and the priority between actions that share a key; this only says what is true:
+  // a window open leaves the always-on ones, a tool in hand says build / cable / hands, a selected bot or a wire being pulled says bot, and a Rail Cart
+  // under the crosshair (or under you) says rail (the jump key counts as a rail key only while you sit in the cart).
+  keyCtx(e, modal = this.ui.isModalOpen()) {
+    const c = new Set(['any', 'menu']);
+    if (modal || this.mode !== 'play') return c;
+    const t = this.curTool();
+    if (t.kind === 'hands') c.add('hands'); else if (t.kind === 'cable') c.add('cable'); else if (!NOT_BUILD_KINDS.has(t.kind)) c.add('build');
+    if (this.crewSel || (this.cables && this.cables.wiring)) c.add('bot');
+    if (this.railCtx(e)) c.add('rail');
+    return c;
+  }
+  railCtx(e) {
+    if (RAIL.seatedCar(this)) return true;
+    if (e && e.code && KB.hasCode('jump', e.code)) return false;
+    const a = EXT.aimedEnt(this);
+    return !!(a && (a.type === 'railcar' || (a.type === 'railstn' && RAIL.carBeside(this, a))));
+  }
+  // Every key press goes: typing guard, then the keybind table says which action(s) the key is in this context (keybinds.js candidates), then runAction.
+  // No handler below looks at a key code: the table is the only place that knows keys.
   onKey(e, down) {
-    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) { if (down && e.code === 'Escape' && this.mode === 'play' && this.ui.isModalOpen()) { e.target.blur(); this.ui.closeModals(); } return; } // typing in a box (Esc still closes the window it is in)
-    if (down && e.code === 'Enter' && this.mode === 'play' && this.net.open && !this.ui.isModalOpen()) { const c = document.getElementById('chatIn'); c.classList.remove('hidden'); c.value = ''; c.focus(); e.preventDefault(); return; }
-    if (e.code === 'KeyG') return; // G is retired: left click grabs, and clicking again throws. F is the flashlight.
-    if (e.repeat && down) { if (e.code === 'Tab') e.preventDefault(); return; }
-    if (e.code === 'Tab') e.preventDefault();
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) { if (down && this.mode === 'play' && this.ui.isModalOpen() && KB.resolve(e) === 'pause') { e.target.blur(); this.ui.closeModals(); } return; } // typing in a box (Esc still closes the window it is in)
+    const play = this.mode === 'play', modal = this.ui.isModalOpen();
+    const cands = KB.candidates(e, this.keyCtx(e, modal));
+    if (cands.length && ((play && !modal) || cands.includes('fps') || cands.includes('terminal')) && e.preventDefault) e.preventDefault();   // a key the game uses is never also the browser's (Tab, the F3 find bar, Backspace)
+    if (e.repeat && down) return;
     this.keys[e.code] = down;
+    // Alt and Ctrl are tracked from the flags of every key event too, so a missed Alt keydown or keyup (alt-tab) cannot leave a bare key action working with Alt held (keybinds.js down())
+    if (e.altKey === true && !this.keys.AltRight) this.keys.AltLeft = true; else if (e.altKey === false) this.keys.AltLeft = this.keys.AltRight = false;
+    if (e.ctrlKey === true && !this.keys.ControlRight) this.keys.ControlLeft = true; else if (e.ctrlKey === false) this.keys.ControlLeft = this.keys.ControlRight = false;
     if (!down) return;
-    if (e.code === 'F3') { e.preventDefault(); this.toggleFps(); return; }   // not the browser's find bar
-    if (e.code === 'Escape' && this.mode === 'title' && this.ui.isModalOpen()) { this.ui.closeModals(); return; }   // How to Play and Play Together, opened from the title
-    if (this.mode !== 'play') return;
-    if (e.code === 'Escape' && this.crewSel) this.crewDeselect();
-    if (e.code === 'Escape' && this.cables.wiring) this.cables.cancel('Wire cancelled.');
-    if (e.code === 'Escape') {   // the window says "Esc closes" and the title says "Esc pause": with the mouse free (no capture to give up) Esc has to do both itself
-      if (this.ui.isModalOpen()) { this.ui.closeModals(); return; }
-      if (document.pointerLockElement !== this.canvas && !this.ui.justClosed()) { this.openModal('pause'); return; }   // not when a panel's own Esc handler closed it on this same key press
-    }
-    if (this.ui.isModalOpen()) {
+    if (cands.includes('fps')) { this.toggleFps(); return; }
+    if (this.mode === 'title' && modal && cands.includes('pause')) { this.ui.closeModals(); return; }   // How to Play and Play Together, opened from the title
+    if (!play) return;
+    if (modal) {
+      if (cands.includes('pause')) { this.ui.closeModals(); return; }
       if (this.ui.openModal === 'inv') {
-        // inventory: a number puts the selected item into that hotbar slot, X clears it from the bar, I or Esc closes
-        if (e.code.startsWith('Digit')) { this.ui.invAssign(+e.code.slice(5) - 1); return; }
-        if (e.code === 'KeyX') { this.ui.invClear(); return; }
-        if (e.code === 'ArrowRight' || e.code === 'ArrowLeft' || e.code === 'ArrowUp' || e.code === 'ArrowDown') { this.ui.invMove(e.code); e.preventDefault(); return; }
-        if (e.code === 'KeyI') { this.ui.closeModals(); return; }
+        // inventory: a number puts the selected item into that hotbar slot, the knock-down key clears it from the bar, arrows move, the inventory key closes it
+        const hb = cands.find((a) => /^hb[1-9]$/.test(a)); if (hb) { this.ui.invAssign(+hb.slice(2) - 1); return; }
+        if (cands.includes('dismantle')) { this.ui.invClear(); return; }
+        if (KB.navOf(e.code)) { this.ui.invMove(e.code); e.preventDefault(); return; }
+        if (cands.includes('inv')) { this.ui.closeModals(); return; }
       }
-      if (e.code === 'Semicolon' && this.ui.openModal === 'binpanel') { BINPANEL.cycle(this); return; }   // ; in the bins panel: the next bin
-      if (e.code === 'Tab' || e.code === 'KeyN' || e.code === 'KeyJ' || e.code === 'KeyL' || e.code === 'KeyV') { if (this.ui.openModal !== 'pause') this.ui.closeModals(); }
+      if (cands.includes('bin') && this.ui.openModal === 'binpanel') { BINPANEL.cycle(this); return; }   // the bin key in the bins panel: the next bin
+      if (SCREEN_KEYS.some((a) => cands.includes(a)) && this.ui.openModal !== 'pause') this.ui.closeModals();
       return;
     }
-    if (e.code === 'Tab') this.openModal('shop');
-    else if (e.code === 'KeyN') this.openModal('dex');
-    else if (e.code === 'KeyL') this.openModal('journal');
-    else if (e.code === 'KeyV') this.openModal('crew');
-    else if (e.code === 'KeyT') this.crewFarmAhead();
-    else if (e.code === 'KeyY') this.crewHomeAll();
-    else if (e.code === 'KeyF') this.toggleLamp();
-    else if (e.code === 'KeyJ') this.openModal('ach');
-    else if (e.code === 'KeyM') PWP.toggleHud(this);   // the load meter readout of the grid you stand nearest to (powerparts.js)
-    else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < 9) this.selectTool(n, true); }
-    else if (e.code === 'KeyB') this.bPress();
-    else if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'ArrowDown') && this.frameEquipped()) { e.preventDefault(); if (e.code === 'ArrowDown') { this.frameYaw = null; this.ui.hint('Frames snap to the grid and to each other again.', 2); } }
-    else if (e.code === 'BracketRight' || e.code === 'ArrowRight') this.cycleTool(1);
-    else if (e.code === 'BracketLeft' || e.code === 'ArrowLeft') this.cycleTool(-1);
-    else if (e.code === 'KeyI') this.openModal('inv');
-    else if (e.code === 'KeyE') { if (!(e.shiftKey && EXT.copyKey(this))) this.useKey(); }   // Shift+E copies a machine's settings (catalog), E pastes them
-    else if (e.code === 'Semicolon') BINPANEL.destKey(this, e.shiftKey);   // the bins panel for what you aim at (Shift: copy its bin), see binspanel.js
-    else if (e.code === 'KeyO') this.toggleLamp();
-    else if (e.code === 'KeyZ') this.throwOne();
-    else if (e.code === 'KeyK') this.useMedkit();
-    else if (e.code === 'KeyP') this.punch();
-    else if (e.code === 'KeyQ' && this.cables.wiring) this.cables.cancel('Wire cancelled. <kbd>Q</kbd> again puts the cable away.');
-    else if (e.code === 'KeyQ' && BP.cancel(this)) { /* a route you were aiming is put down; Q again stows the tool */ }
-    else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.plan = null; this.rebuildTools(); const t = this.curTool(); this.ui.hint(this.stowed ? 'Put away. Hands free. <kbd>Q</kbd> takes it out again.' : (t.kind === 'hammer' ? 'Hammer out. <kbd>B</kbd> removes what you aim at. <kbd>Q</kbd> puts it away.' : t.kind === 'hands' ? 'Nothing in that slot: your hands are free. Pick a tool with <kbd>1-9</kbd>.' : 'Tool out. <kbd>B</kbd> or click uses it. <kbd>Q</kbd> puts it away.'), 2.5); }
-    else if (e.code === 'KeyX') this.deconstruct(e.shiftKey);   // Shift+X takes down a whole zoop group
-    else if (e.code === 'KeyU') this.useCart();
-    else if (e.code === 'Backquote') BI.toggle(this);   // belt intake on or off (beltintake.js)
-    else if ((e.code === 'Minus' || e.code === 'Equal') && e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); this.adjustVac(e.code === 'Equal' ? 1 : -1); }   // Alt + - and Alt + =: the VACUUM dial (Shift is sprint and a pad's zoop width, so Alt is the free modifier)
-    else if (e.code === 'Minus' || e.code === 'Equal') { const dir = e.code === 'Equal' ? 1 : -1; if (!BUILD.zoopKey(this, this.curTool(), dir, e.shiftKey) && !TRANSIT.zoopKey(this, this.curTool(), dir)) this.adjustScoop(dir); }   // a pad's zoop length; a jump pad's angle (transit.js)   // zoop length (width with Shift) of the pad in hand
-    else if (e.code === 'KeyR') {
-      // R punches (laptop friendly); with a ramp in hand it flips the ramp instead
-      const t = this.curTool();
-      if (BUILD.rotateKey(this, t, e.shiftKey)) { /* a build shell piece turned (R) or nudged (Shift+R) */ }
-      else if (TRANSIT.rotateKey(this, t, e.shiftKey)) { /* a door turned, or a jump pad's heading (transit.js) */ }
-      else if (t.kind === 'belt' && t.ramp) { this.rampMode = (this.rampMode + 1) % 2; this.machines.setGhost(null); }
-      else if (BP.rKey(this, t)) { /* a lift flips up/down, the line planner picks the next route shape (beltplan.js) */ }
-      else this.punch();
+    for (const act of cands) if (this.runAction(act, e) !== false) return;   // an action may decline (nothing to turn, no vacuum): the next one for the same key gets it
+  }
+
+  // One action of the keybind table, from a key, a mouse button or the wheel. Returns false when it did nothing and wants the next candidate to try.
+  runAction(act, e) {
+    const shift = !!(e && e.shiftKey);
+    switch (act) {
+      case 'terminal': this.openModal('shop'); return;
+      case 'dex': this.openModal('dex'); return;
+      case 'journal': this.openModal('journal'); return;
+      case 'ach': this.openModal('ach'); return;
+      case 'crew': this.openModal('crew'); return;
+      case 'crewDig': this.crewFarmAhead(); return;
+      case 'crewHome': this.crewHomeAll(); return;
+      case 'inv': this.openModal('inv'); return;
+      case 'flash': this.toggleLamp(); return;
+      case 'meter': PWP.toggleHud(this); return;   // the load meter readout of the grid you stand nearest to (powerparts.js)
+      case 'chat': {
+        if (!this.net.open) return false;
+        const c = document.getElementById('chatIn'); c.classList.remove('hidden'); c.value = ''; c.focus(); if (e && e.preventDefault) e.preventDefault(); return;
+      }
+      case 'pause':
+        if (this.ui.isModalOpen()) { this.ui.closeModals(); return; }
+        if (document.pointerLockElement !== this.canvas && !this.ui.justClosed()) this.openModal('pause');   // not when a panel's own Esc handler closed it on this same key press
+        return;
+      case 'botRelease':
+        if (this.crewSel) this.crewDeselect();
+        if (this.cables.wiring) this.cables.cancel('Wire cancelled.');
+        return false;   // and the same press goes on to the pause menu (when the mouse is not captured; while it is, the browser's own unlock opens it)
+      case 'grab': case 'cable': return this.gPress(act) === false ? false : undefined;   // the click goes to the cable when it is out, else to the grab key's own handler (which uses the tool in hand): the other one declines
+      case 'punch': if (e && e.type === 'mousedown' && BP.cancel(this)) return; this.punch(); return;   // (right click puts a route you are aiming down before it punches)
+      case 'throw': this.throwOne(); return;
+      case 'medkit': this.useMedkit(); return;
+      case 'cart': this.useCart(); return;
+      case 'dismantle': this.deconstruct(shift); return;   // Shift takes down a whole zoop group
+      case 'give': { const t = this.tools[this.buildIdx]; PI.giveKey(this, !this.stowed && t && t.id !== 'hammer' && t.have > 0 ? t.id : '', shift ? 10 : 1); return; }   // hand one (Shift: ten) of what is in your hand to your friend, within 3 m
+      case 'use': this.useKey('use'); return;
+      case 'railUse': if (RAIL.seatedCar(this)) return; return this.useKey('railUse') === false ? false : undefined;   // seated: hopping off is read from the key state (rail.js keyEdges)
+      case 'copycfg': return EXT.copyKey(this) ? undefined : false;   // Shift+E copies a machine's settings (catalog), E pastes them
+      case 'bin': BINPANEL.destKey(this, false); return;   // the bins panel for what you aim at, see binspanel.js
+      case 'copybin': BINPANEL.destKey(this, true); return;
+      case 'place': this.bPress(); return;
+      case 'stow':
+        if (this.cables.wiring) { this.cables.cancel(`Wire cancelled. ${KB.kbd('stow')} again puts the cable away.`); return; }
+        if (BP.cancel(this)) return;   // a route you were aiming is put down; the key again stows the tool
+        this.stowed = !this.stowed; this.machines.setGhost(null); this.plan = null; this.rebuildTools(); { const t = this.curTool(); this.ui.hint(this.stowed ? `Put away. Hands free. <kbd>{stow}</kbd> takes it out again.` : (t.kind === 'hammer' ? 'Hammer out. <kbd>{place}</kbd> removes what you aim at. <kbd>{stow}</kbd> puts it away.' : t.kind === 'hands' ? 'Nothing in that slot: your hands are free. Pick a tool with <kbd>1-9</kbd>.' : 'Tool out. <kbd>{place}</kbd> or click uses it. <kbd>{stow}</kbd> puts it away.'), 2.5); }
+        return;
+      case 'scoopLess': case 'scoopMore': { const dir = act === 'scoopMore' ? 1 : -1; if (!BUILD.zoopKey(this, this.curTool(), dir, shift) && !TRANSIT.zoopKey(this, this.curTool(), dir)) this.adjustScoop(dir); return; }   // a pad's zoop length; a jump pad's angle (transit.js); else the SCOOP dial
+      case 'vacLess': case 'vacMore': if (!(this.T && this.T.vacRate > 0)) return false; this.adjustVac(act === 'vacMore' ? 1 : -1); return;   // no vacuum yet: the same key steps the hotbar
+      case 'rotate': {
+        // a build shell piece turned, a door or a jump pad's heading, a ramp flipped, a lift flipped or the planner's route shape; nothing to turn: the punch key tries next
+        const t = this.curTool();
+        if (BUILD.rotateKey(this, t, false)) return;
+        if (TRANSIT.rotateKey(this, t, false)) return;
+        if (t.kind === 'belt' && t.ramp) { this.rampMode = (this.rampMode + 1) % 2; this.machines.setGhost(null); return; }
+        if (BP.rKey(this, t)) return;
+        return false;
+      }
+      case 'nudge': { const t = this.curTool(); if (BUILD.rotateKey(this, t, true) || TRANSIT.rotateKey(this, t, true)) return; return false; }   // a pad, catwalk or wall one cell off the grid
+      case 'planner': case 'shape': return BP.key(this, act === 'planner' ? 'Period' : 'Comma') ? undefined : false;   // lift height down/up, line planner on/off and route shape (beltplan.js)
+      case 'railHome': RAIL.rushKey(this); return;   // Mine Rail: sit in the nearest cart and rush home, or call one (rail.js)
+      case 'frameGrid': if (this.frameEquipped()) { this.frameYaw = null; this.ui.hint('Frames snap to the grid and to each other again.', 2); return; } return false;
+      case 'hbprev': this.cycleTool(-1); return;
+      case 'hbnext': this.cycleTool(1); return;
+      case 'frameL': case 'frameR': case 'sprint': case 'jump': case 'crouch': case 'fwd': case 'back': case 'left': case 'right': case 'align': case 'recall': return;   // held keys: updatePlay reads them from this.keys
+      default:
+        if (/^hb[1-9]$/.test(act)) { this.selectTool(+act.slice(2) - 1, true); return; }
+        return false;
     }
-    else if (e.code === 'Period' || e.code === 'Comma') BP.key(this, e.code);   // lift height down/up, line planner on/off and route shape (beltplan.js)
-    else if (e.code === 'Backspace') { e.preventDefault(); RAIL.rushKey(this); }   // Mine Rail: sit in the nearest cart and rush home, or call one (rail.js)
   }
 
   // A key whose release was missed (alt-tab, a menu that took focus, the pointer lock dropping) would keep walking you forever. Every way the
@@ -489,15 +547,18 @@ export class Game {
   clearKeys() { for (const k of Object.keys(this.keys)) this.keys[k] = false; this.grabWant = false; }
 
   onMouse(e, down) {
-    // the mouse looks around; left click grabs, right click punches
-    if (!e || this.mode !== 'play' || this.ui.isModalOpen() || !document.pointerLockElement) { if (!down && e && e.button === 0) this.keys.KeyG = false; return; }
-    if (down && e.button === 2) { if (!BP.cancel(this)) this.punch(); }   // (right click puts a route you are aiming down before it punches)
-    else if (e.button === 0) { this.keys.KeyG = down; if (down) this.gPress(); }
+    // the mouse looks around; every button is a key of the table ('Mouse0' grabs, 'Mouse2' punches by default, any other action can be put on a button)
+    const code = e ? 'Mouse' + e.button : '';
+    if (!e || this.mode !== 'play' || this.ui.isModalOpen() || !document.pointerLockElement) { if (!down && e) this.keys[code] = false; return; }
+    this.keys[code] = down;
+    if (!down) return;
+    for (const act of KB.candidates({ code, shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey }, this.keyCtx(e))) if (this.runAction(act, e) !== false) return;   // (a MouseEvent has no code: the button is 'Mouse0'..'Mouse4')
   }
 
   // ======================= tools =======================
   // inventory of crafted build items. With an item in hand a green outline shows where it will go; B sets it down.
   rebuildTools() {
+    if (this._bagSwap) { this._rtLater = true; return; }   // (a friend's command runs with the friend's bag swapped in: the host's own bar is redrawn when it is swapped back, playerinv.js)
     const S = this.S;
     S.items = S.items || {};
     if (!Array.isArray(S.hotbar) || S.hotbar.length !== 9) {
@@ -571,7 +632,7 @@ export class Game {
     BP.guard(this, this.curTool());   // a route you were aiming belongs to the belt or hose it was started with (beltplan.js)
     this.sound.tone('sine', 700, 900, 0.05, 0.05);
   }
-  giveItem(id, n = 1) { this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }
+  giveItem(id, n = 1, own = this._refundTo) { if (own !== undefined && PI.refund(this, own, id, n)) return; this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }   // (_refundTo: a piece taken down goes back to the bag of the player who placed it, playerinv.js)
 
   tune() { const T = computeTuning(effLevels(this.S), this.S.boosts); if (this.world) this.world.slipMul = 1 - 0.25 * T.climb; return T; }
   // the stats that unlock shop rows: a guest's list follows the host, who is the one that checks the purchase
@@ -734,9 +795,8 @@ export class Game {
     // --- input -> player
     const k = this.keys;
     const input = {
-      fwd: locked && !modal && k.KeyW ? 1 : 0, back: locked && !modal && k.KeyS ? 1 : 0, left: locked && !modal && k.KeyA ? 1 : 0, right: locked && !modal && k.KeyD ? 1 : 0,
-      sprint: !!(k.ShiftLeft || k.ShiftRight), jump: !!k.Space && locked && !modal, crouch: !!k.KeyC && locked,   // C only: Ctrl+W closes the browser tab, so Ctrl is not a crouch key
-        // either Shift sprints; crouch is C only (Ctrl+W would close the browser tab)
+      fwd: locked && !modal && KB.down(k, 'fwd') ? 1 : 0, back: locked && !modal && KB.down(k, 'back') ? 1 : 0, left: locked && !modal && KB.down(k, 'left') ? 1 : 0, right: locked && !modal && KB.down(k, 'right') ? 1 : 0,
+      sprint: KB.down(k, 'sprint'), jump: KB.down(k, 'jump') && locked && !modal, crouch: KB.down(k, 'crouch') && locked,   // the keys are the table's (keybinds.js); crouch is C, never Ctrl (Ctrl+W would close the browser tab)
     };
     const stats = { walk: T.walk * (this.lungSlow ?? 1) * this.softslide.slow(), crouchMul: T.crouchMul, jump: T.jump * this.softslide.jumpMul() };
     const pb = p.pos.clone();
@@ -772,7 +832,7 @@ export class Game {
     const ln = this._lampNear ?? 1;
     U.uLampColor.value.setRGB(2.6, 2.35, 1.9).multiplyScalar(T.lampPower * on * ln);
     this.camLamp.intensity = 22 * T.lampPower * on * ln * ln;
-    if (this.lampCone) { this.lampCone.visible = on > 0; this.lampCone.material.opacity = (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower; this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
+    if (this.lampCone) { this.lampCone.visible = on > 0; this.lampCone.material.opacity = Math.min(LAMP_CONE_MAX, (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower); this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
     this.camLamp.distance = T.lampRange + 4;
     // placed lights
     const gl = this.glowSources(cam.position, 8);
@@ -997,17 +1057,18 @@ export class Game {
 
     // vacuum burst (tap left click once the Plush Vacuum is owned); special targets always use the single grab
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE || tg.sp === PAD);
-    if (this.keys.KeyG && this.throwHold && this.curTool().kind === 'hands' && (this.S.carry.length || this.cartThrowable())) this.throwOne();   // hold the left button after a throw: rapid fire
-    if (!this.keys.KeyG || !(this.S.carry.length || this.cartThrowable())) this.throwHold = false;
+    const grabHeld = KB.down(this.keys, 'grab');   // the grab button (left click by default) is held
+    if (grabHeld && this.throwHold && this.curTool().kind === 'hands' && (this.S.carry.length || this.cartThrowable())) this.throwOne();   // hold the left button after a throw: rapid fire
+    if (!grabHeld || !(this.S.carry.length || this.cartThrowable())) this.throwHold = false;
     if (T.vac > 0 && !building && !special && this.vacNow() > 0) {   // the VACUUM dial at 0 switches the vacuum off: a click grabs like plain hands. With a tool out the button is the tool's (a hose or belt click starts a route), never a burst of the vacuum
-      if (this.keys.KeyG && !special && !this.throwHold) this.vacT = Math.max(this.vacT || 0, 0.3);
+      if (grabHeld && !special && !this.throwHold) this.vacT = Math.max(this.vacT || 0, 0.3);
       if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else { this.vacAcc = 0; this._vacRef = null; }
       this.ui.setGrab(0, false);
     } else {
       if (building || !(this.vacNow() > 0)) { this.vacT = 0; this.vacAcc = 0; this._vacRef = null; }   // the dial at 0 (or no vacuum) ends a burst: its timer only counts down inside the vacuum's own branch, and a frozen one would block holding the grab by hand
       // grabbing is instant (see gPress); hold the key to keep grabbing until your hands (or cart) are full
       this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
-      if (this.keys.KeyG && this.curTool().kind === 'hands' && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
+      if (grabHeld && this.curTool().kind === 'hands' && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
         // holding: fill your hands (and then the cart) as fast as the gloves allow, even when the crosshair drifts off the plush
         const t2 = tg || this.nearestGrab(eye, dir);
         if (t2) {
@@ -1295,14 +1356,15 @@ export class Game {
     else if (!auto) this.ui.hint('Nothing in reach to punch. Face the plush wall (or look up) and tap <kbd>R</kbd> or right click.', 2);
   }
 
-  holdGrab() { return this.grabWant || !!this.keys.KeyG; }
+  holdGrab() { return this.grabWant || KB.down(this.keys, 'grab'); }
 
   // G: tap once to grab what you are looking at (it finishes by itself). With nothing in reach it drops what you carry.
   // Left click. Empty hands: a tap grabs what you look at. Holding something: a single tap throws it.
   // Hold the button to keep grabbing until you are full (see interact).
-  gPress() {
+  gPress(act) {
     // a tool in your hand: click uses it (hammer hits, building items are set down). Empty slot = bare hands: grab and throw.
     const held = this.curTool();
+    if (act && (held.kind === 'cable') !== (act === 'cable')) return false;   // with the cable out only its own click works; the grab click is the other tools' (false: the next action for this click tries)
     if (held.kind !== 'hands') { this.useTool(held, true); return; }
     const tg = this.curTargetRef;
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE || tg.sp === PAD);
@@ -1326,10 +1388,7 @@ export class Game {
     this.grab.p = 0;
   }
 
-  bPress() {
-    if (this.stowed) { this.stowed = false; this.rebuildTools(); this.ui.hint(this.curTool().kind === 'hands' ? 'Nothing in that slot: your hands are free. Pick a tool with <kbd>1-9</kbd>.' : 'Tool out. <kbd>B</kbd> or click uses it, <kbd>Q</kbd> puts it away.', 2); return; }
-    this.useTool(this.curTool());
-  }
+  bPress() { this.useTool(this.curTool()); }   // the set-down key: only reached with something to set down in hand (keyCtx build); with bare hands the same key is the bin key
 
   useTool(t, click) {
     if (click && BP.clickLay(this, t)) return;   // a belt or hose and a click: anchor a route, or lay it (beltplan.js)
@@ -1727,6 +1786,7 @@ export class Game {
       try { $$('mpOffer').value = await this.net.host(); status('Send the code to your friend, then paste their reply below.'); } catch (e) { status('Could not make a code: ' + e.message); } finally { end(); }
     };
     const copyBox = (id, none) => { const t = $$(id); if (!t.value) { status(none); return; } t.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* ignore */ } status(ok ? 'Copied.' : 'Could not copy by itself. The code is selected: press Ctrl+C (Cmd+C).'); };
+    if ($$('mpForget')) $$('mpForget').onclick = () => { const n = this.net.role === 'host' || !this.net.open ? PI.clearBags(this) : 0; status(n ? `Dropped ${n} saved friend bag${n === 1 ? '' : 's'}.` : 'No saved friend bag to drop.'); };   // (a friend who left keeps their bag in your save for 24 hours of play)
     $$('mpCopyOffer').onclick = () => copyBox('mpOffer', 'No code yet: press Host (long codes) first.');
     $$('mpConnect').onclick = async () => { try { await this.net.finishHost($$('mpAnswerIn').value); status('Connecting…'); } catch (e) { status('That reply code did not work.'); } };
     $$('mpJoin').onclick = () => { hideAll(); $$('mpJoinShort').classList.remove('hidden'); status(''); $$('mpCodeIn').focus(); };
@@ -1746,7 +1806,7 @@ export class Game {
 
   netOpened() {
     this.ui.closeModalsSilently();
-    this.netSend({ t: 'hi', name: this.myName(), v: typeof __BUILD__ === 'undefined' ? 'dev' : __BUILD__ });
+    this.netSend({ t: 'hi', name: this.myName(), v: typeof __BUILD__ === 'undefined' ? 'dev' : __BUILD__, pid: PI.myPid() });
     if (this.net.role === 'host') this.ui.toast({ icon: '🤝', title: 'Friend connected', text: 'They are joining your warehouse.', ms: 4000 });
     this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
     this.creakOut = [];
@@ -1756,6 +1816,7 @@ export class Game {
   netClosed() {
     if (this.netBodies) this.netBodies.clear();
     if (this.net.role === 'guest') { this.S.crew = []; this.crew.clear(); this.crewViews = new Map(); this.S.cart = null; this.cart.clear(); this.S.hcart = null; this.cart2.clear(); }
+    if (this.net.role === 'host') PI.guestLeft(this);   // the friend's bag is kept for a rejoin
     this.guestReady = false; this.hostEco = null;
     if (this.dust) this.dust.hostLevel = 0;
     if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
@@ -1772,7 +1833,7 @@ export class Game {
       case 'hi':
         if (m.v && typeof __BUILD__ !== 'undefined' && m.v !== __BUILD__) this.ui.toast({ icon: '⚠️', title: 'Different versions', text: `You are on ${__BUILD__}, your friend is on ${m.v}. Both press Ctrl/Cmd+Shift+R to load the latest, or things will not match.`, ms: 9000 });
         this.remote = this.remote || new RemotePlayer(this.renderer.scene, m.name);
-        if (this.net.role === 'host') NG.beginWorld(this);   // the world goes out a few slices a frame (netgame.js); sendWorld() sends it all at once
+        if (this.net.role === 'host') { PI.hello(this, m); NG.beginWorld(this); }   // (the friend's bag is found or made before the world stream, which carries it)   // the world goes out a few slices a frame (netgame.js); sendWorld() sends it all at once
         break;
       case 'world': {
         // guest: fall into the host's warehouse with a fresh character
@@ -1780,6 +1841,7 @@ export class Game {
         this.guestReady = false;
         this.ui.closeModalsSilently();
         this.startPlay(true, m.seed, () => {
+          PI.guestReset(this);   // a new session of the friend's own bag: the host sends it in the world stream
           this.S.gameMin = m.gameMin || 0;
           this.S.name = this.myName();   // the joiner skips the hiring form but is still on the books
           this._dayShown = this.dayNumber(); this.syncLights();
@@ -1808,7 +1870,9 @@ export class Game {
         w._remoteApply = false;
         break;
       }
-      case 'pos': if (this.remote) { this.remote.set(m); WS.partnerStep(this, m); } break;
+      case 'pos': if (this.remote) { this.remote.set(m); WS.partnerStep(this, m); PI.heldSeen(this, m); } break;
+      case 'inv': if (this.net.role === 'guest') PI.applyInv(this, m); break;   // the host's word on my bag (playerinv.js)
+      case 'hint': if (this.net.role === 'guest') this.ui.hint(String(m.text || '').slice(0, 600), Math.max(1, Math.min(12, +m.s || 4))); break;   // what a command of mine told the host's screen
       case 'cmd': this.netCmd(m.c, m.d); break;
       case 'shared': this.applyShared(m); break;
       case 'dyn': this.applyDyn(m); break;
@@ -1853,7 +1917,7 @@ export class Game {
       }
       case 'razzo': this.razzoOnPlayer(m.x, m.y, m.z, m.mk); break;
       case 'hit': this.onPlayerHit(m.v); break;
-      case 'slide': if (this.guestReady) { this.slideSound(m.x, m.z, m.r); this.slideFeel(Math.hypot(m.x - this.player.pos.x, m.z - this.player.pos.z), m.r); } break;
+      case 'slide': if (this.guestReady && Number.isFinite(+m.x + +m.z + +m.r)) { this.slideSound(m.x, m.z, m.r); this.slideFeel(Math.hypot(m.x - this.player.pos.x, m.z - this.player.pos.z), m.r); } break;
       case 'sfail': this.supportFailFx(m.x, m.y, m.z, m.name, m.ratio); break;
       case 'swarn': this.supportWarnFx(m.x, m.z, m.name, m.ratio, m.sec, m.y); break;
       case 'sbreak': this.breakSupport(m.st, m.e); break;
@@ -1916,8 +1980,8 @@ export class Game {
     if (k === 'frame') { const why = this.machines.frameConflict(tool.fk, e); return why || (e.turned ? null : STACK.cubeWhy(this, e, tool.fk)); }   // the host recomputes the 4x4x4 section itself: a guest's list of cells to clear is never believed
     if (k === 'mfan') { if (!this.machines.items.has(e.frameId)) return 'That frame is gone'; for (const t of this.logi.tiles.values()) if (t.type === 'fan' && t.mounted && t.frameId === e.frameId) return 'This frame already has a fan'; return null; }
     if (k === 'beacon') { { const why = Number.isInteger(e.i) ? this.logi.cellTaken(e.i, e.j, e.k) : null; if (why) return why; } for (const it of this.machines.items.values()) if (it.ent.type === 'beacon' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 1.0) return 'A depot beacon is already here'; return null; }
-    if (k === 'claw') { for (const it of this.machines.items.values()) if (it.ent.type === 'claw' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 2.2) return 'Too close to another rig'; return this.machines.count('claw') >= T.rigMax ? `Rig limit reached (${T.rigMax})` : null; }
-    if (k === 'borer') return this.machines.count('borer') >= T.borerMax ? `Borer limit reached (${T.borerMax})` : null;
+    if (k === 'claw') { for (const it of this.machines.items.values()) if (it.ent.type === 'claw' && Math.hypot(it.ent.x - e.x, it.ent.z - e.z) < 2.2) return 'Too close to another rig'; return PI.ownedCount(this, 'claw') >= T.rigMax ? `Rig limit reached (${T.rigMax})` : null; }
+    if (k === 'borer') return PI.ownedCount(this, 'borer') >= T.borerMax ? `Borer limit reached (${T.borerMax})` : null;
     if (isEarth(k)) return earthConflict(this, k, e);
     return null;
   }
@@ -1937,19 +2001,24 @@ export class Game {
   netEntRemove(ent) { this.netSend({ t: 'ent-', id: ent.id }); }
 
   // ---------- commands from the guest, run by the host ----------
-  cmd(c, d) { this.netSend({ t: 'cmd', c, d }); }
+  cmd(c, d) { if (this.net.role === 'guest') PI.beforeCmd(this, c); this.netSend({ t: 'cmd', c, d }); }
 
   // the host runs every guest command as the guest: this._actor says whose cart a cart command means
-  netCmd(c, d) { const prev = this._actor; this._actor = 'g'; try { this.runNetCmd(c, d); } finally { this._actor = prev; } }
+  netCmd(c, d) {
+    if (typeof c !== 'string') return;
+    const prev = this._actor; this._actor = 'g';
+    PI.beginCmd(this);   // the friend's bag, hotbar and tool swapped in: everything the command reads or writes in S.items is the friend's (playerinv.js)
+    try { this.runNetCmd(c, d); } finally { PI.endCmd(this, c); this._actor = prev; }
+  }
 
   runNetCmd(c, d) {
     const S = this.S;
     switch (c) {
       case 'buy': { const lv = S.up[d.id] || 0; if (this.buy(d.id) && (S.up[d.id] || 0) > lv) { const u = upgradeById(d.id); if (u) this.netSend({ t: 'toast', icon: '🛒', title: u.name + (u.max > 1 ? ' ' + (lv + 1) : ''), text: u.names ? u.names[lv + 1] : 'Upgrade purchased' }); } break; }
       case 'careOpen': CARE.guestOpen(this, d); break;   // a guest opens a care package crate (the host checks it stands within reach of the guest and is still closed)
-      case 'craft': craft(this, d && d.id, d && d.n); if (this.ui.openModal === 'craft') this.ui.renderCraft(); break;   // the host's own open bench shows what the guest made
-      case 'craftGear': craftGear(this, d && d.id); if (this.ui.openModal === 'craft') this.ui.renderCraft(); break;
-      case 'place': { const tool = d.tool; const why = this.placeConflict(tool, d.ent); if (why) { this.netSend({ t: 'toast', icon: '⚠️', title: 'Could not place', text: why }); break; } this.plan = { ok: true, ent: d.ent }; this._forGuest = true; try { this.placeCurrent(tool); } finally { this._forGuest = false; } this.plan = null; break; }
+      case 'craft': { const n = PI.craftLimit(this, d && d.id, d && d.n); if (n < 1 && Math.floor(+(d && d.n)) >= 1) this.ui.hint('Your bag cannot hold any more of that.', 3); craft(this, d && d.id, n); break; }   // (a count the bag would cut is not paid for, playerinv.js)   // the host's own open bench shows what the guest made
+      case 'craftGear': craftGear(this, d && d.id); break;
+      case 'place': { const tool = d && d.tool; if (!PI.toolOk(this, tool)) { this.netSend({ t: 'toast', icon: '⚠️', title: 'Could not place', text: 'That is not what that item builds' }); break; } const why = this.placeConflict(tool, d.ent); if (why) { this.netSend({ t: 'toast', icon: '⚠️', title: 'Could not place', text: why }); break; } this.plan = { ok: true, ent: d.ent }; this._forGuest = true; try { this.placeCurrent(tool); } finally { this._forGuest = false; } this.plan = null; break; }
       case 'decon': this.doDecon(d); break;
       case 'cfg': EXT.runCfgCmd(this, d); break;
       case 'bplan': BP.runCmd(this, d); break;   // a guest's planned belt line: the host validates every tile and lays it
@@ -1974,12 +2043,14 @@ export class Game {
         break;
       }
       case 'feed': BI.hostFeed(this, d); break;   // a plush the guest hands to a belt or a sorter (belts re-check the range, the species and the rate: beltintake.js)
-      case 'intake': BI.hostToggle(this, d); break;   // the guest switched belt intake off or on (it governs the guest's cart, which the host runs)
       case 'sell': this.sell(d.sp, d.vr, { dist: d.dist, streak: d.streak, bin: BINS.binById(this, d.bin) ? d.bin : undefined }); break;
       case 'bindest': BINS.runCmd(this, d); break;   // a friend picked the bin of a bot or their own cart (machines and belt ends go through `cfg`)
       case 'reroll': this.contracts.reroll(d.i); break;
       case 'cart': this.useCart(d); break;
-      case 'spend': if ((S.items[d.id] || 0) > 0) { S.items[d.id]--; if (S.items[d.id] <= 0) delete S.items[d.id]; } break;
+      case 'spend': { const sid = d && d.id; if (PI.validId(sid) && (S.items[sid] || 0) > 0) { S.items[sid]--; if (S.items[sid] <= 0) delete S.items[sid]; } break; }
+      case 'hb': PI.runHb(this, d); break;   // the friend's hotbar layout and dials (what the host keeps for a rejoin)
+      case 'invsync': PI.resync(this); break;   // the friend lost track of its bag: it gets the whole bag again
+      case 'giveitem': PI.guestGive(this, d); break;   // the friend hands the host something (the host checks the 3 m and what the friend holds)
       case 'cartpop': { const gc = this.myCart(); if (gc && gc.load.length) gc.load.pop(); break; }
       case 'cartload': { const gc = this.myCart(); if (gc && gc.load.length < CART_CAP[gc.tier]) gc.load.push({ sp: d.sp, vr: d.vr }); break; }
       case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK && !BUILD.ownerAt(this, d.i, d.j, d.k) && !TRANSIT.doorAt(this, d.i, d.j, d.k)) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); const doc = NB.mouthDoc(this, d.i, d.j, d.k); if (doc) { if (doc.clue) NB.heard(this, doc, this.remote && this.remote.name); this.netSend({ t: 'note', entry: NB.entryOf(doc, 'A notice pinned to the barricade') }); } } break; }
@@ -2025,7 +2096,7 @@ export class Game {
   sendShared() {
     const S = this.S;
     this.netSend({
-      t: 'shared', money: S.money, te: S.totalEarned, up: S.up, gear: S.gear, items: S.items, mats: S.mats, boosts: S.boosts, contracts: S.contracts,
+      t: 'shared', money: S.money, te: S.totalEarned, up: S.up, gear: S.gear, boosts: S.boosts, contracts: S.contracts,
       gameMin: S.gameMin, golden: this.golden || 0, outage: this.outage || 0, ending: S.ending || null,
       clues: S.clues || [], clueLevel: S.clueLevel || 0, nd: [this.world.needle.i, this.world.needle.j, this.world.needle.k],
       eco: { md: S.stats.maxDist || 0, dx: this.dexN(), pl: S.stats.plush || 0 },   // what prices and shop locks are computed from: the host's, so both screens show what the host pays
@@ -2034,7 +2105,7 @@ export class Game {
 
   applyShared(m) {
     const S = this.S;
-    const key = m.up !== undefined ? JSON.stringify([m.up, m.gear, m.items, m.boosts, m.mats]) : this._sharedKey;   // (the light kind carries no upgrades, gear or items: they are sent when they change)
+    const key = m.up !== undefined ? JSON.stringify([m.up, m.gear, m.boosts]) : this._sharedKey;   // (the light kind carries no upgrades or gear: they are sent when they change. The bag is the friend's own: `inv` messages, playerinv.js)
     if (m.money > S.money + 0.5 && S.money > 0) this.ui.gain(m.money - S.money);
     S.money = m.money; S.totalEarned = m.te; if (m.contracts !== undefined) S.contracts = m.contracts || [];
     // Golden Hour and grid surges start on the host: the guest gets the same toast and sound when the shared timers flip
@@ -2051,7 +2122,7 @@ export class Game {
     if (Math.abs((S.gameMin || 0) - m.gameMin) > 3) S.gameMin = m.gameMin;
     if (key !== this._sharedKey) {
       this._sharedKey = key;
-      S.up = m.up; S.gear = m.gear; S.items = m.items; S.boosts = m.boosts; S.mats = m.mats || {};
+      S.up = m.up; S.gear = m.gear; S.boosts = m.boosts;
       this.T = this.tune();
       this.world.stabBonus = this.T.stabBonus;
       this.rebuildTools();
@@ -2349,7 +2420,16 @@ export class Game {
     this.sound.soft(0.08);
   }
 
-  useKey() {
+  // The use key, and the Rail Cart key (railUse) which is the cart half of it: aimed at a cart or its station the rail key loads, sits or hops, and the
+  // use key leaves the cart alone (catalog_rail.js reads g._ka). A direct call without a key (tests, other code) does everything, as before.
+  useKey(act) {
+    this._ka = act;
+    try {
+      if (act === 'railUse') return !!EXT.useKey(this);
+      this.useKeyAll();
+    } finally { this._ka = undefined; }
+  }
+  useKeyAll() {
     if (CARE.useKey(this)) return;   // E on a care package crate
     if (BINPANEL.pasteToCart(this)) return;   // a copied bin (Shift+;) pastes onto your own cart: it is no machine, so the catalog paste never sees it
     if (this.crewUseKey()) return;
@@ -2620,7 +2700,7 @@ export class Game {
     if (tool.kind === 'frame') {
       // Left / Right turn the frame smoothly and free it from the grid: it stands where you aim, at any angle, so tunnels can curve
       const now = performance.now(), fdt = Math.min(0.1, (now - (this._fyT || now)) / 1000); this._fyT = now;
-      const turn = (this.keys.ArrowRight ? 1 : 0) - (this.keys.ArrowLeft ? 1 : 0);
+      const turn = (KB.down(this.keys, 'frameR') ? 1 : 0) - (KB.down(this.keys, 'frameL') ? 1 : 0);
       if (turn) {
         if (this.frameYaw == null) this.frameYaw = this._lastFrameYaw ?? (Math.abs(Math.sin(yaw)) > 0.7071 ? Math.PI / 2 : 0);
         this.frameYaw += turn * (this.keys.ShiftLeft || this.keys.ShiftRight ? 0.5 : 1.4) * fdt;
@@ -2635,10 +2715,10 @@ export class Game {
     else if (tool.kind === 'beacon') { plan = this.machines.planBeacon(eye, dir); cost = this.beaconCost(); }
     else if (tool.kind === 'claw') {
       plan = this.machines.planRig(eye, dir); cost = this.rigCost();
-      if (plan.ok && this.machines.count('claw') >= T.rigMax) plan = { ok: false, why: `Rig limit reached (${T.rigMax})`, ent: plan.ent };
+      if (plan.ok && PI.ownedCount(this, 'claw') >= T.rigMax) plan = { ok: false, why: `Rig limit reached (${T.rigMax})`, ent: plan.ent };
     } else if (tool.kind === 'borer') {
       plan = this.machines.planBorer(eye, dir, yaw); cost = this.borerCost();
-      if (plan.ok && this.machines.count('borer') >= T.borerMax) plan = { ok: false, why: `Borer limit reached (${T.borerMax})`, ent: plan.ent };
+      if (plan.ok && PI.ownedCount(this, 'borer') >= T.borerMax) plan = { ok: false, why: `Borer limit reached (${T.borerMax})`, ent: plan.ent };
     } else if (isEarth(tool.kind)) {
       plan = this.machines.planEarth(tool.kind, eye, dir, yaw); cost = this.earthCost(tool.kind);
       if (plan.ok) { const why = earthConflict(this, tool.kind, plan.ent); if (why) plan = { ok: false, why, ent: plan.ent }; }
@@ -2650,11 +2730,11 @@ export class Game {
     if (catPlan) EXT.previewTool(this, tool, plan);
     else if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
-    if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk' || tool.kind === 'rail' || tool.kind === 'road') && !BP.plannerOn(this, tool)) {
+    if (plan && plan.ok && KB.down(this.keys, 'place') && (tool.kind === 'belt' || tool.kind === 'bulk' || tool.kind === 'rail' || tool.kind === 'road') && !BP.plannerOn(this, tool)) {
       const key = tool.kind === 'road' ? `${plan.ent.i0},${plan.ent.j},${plan.ent.k0}` : `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
       if (key !== this.lastPaint) { this.lastPaint = key; if (!(tool.kind === 'belt' && this.bridgeFrom(tool, plan, true))) this.placeCurrent(tool); }
     }
-    if (!this.keys.KeyB) this.lastPaint = '';
+    if (!KB.down(this.keys, 'place')) this.lastPaint = '';
     if (plan) {
       if (!plan.ok) this.ui.hint(plan.why || '', 0.4);
       else if (plan.hintText) this.ui.hint(plan.hintText, 0.4);   // a tool that explains itself (planner, lift, underground, upgrade in place)
@@ -2847,7 +2927,7 @@ export class Game {
     plan.gold = gold;
     if (tool.hose && e.type === 'belt') {   // a hose is aimed as the tube it will be (and the bend the last piece will take), not as a belt bed
       const L = this.logi, from = L.feederDir(e), pt = e.turnPrev ? (L.byId.get(e.turnPrev.id) || L.look(e.turnPrev.i, e.turnPrev.j, e.turnPrev.k)) : null;
-      const run = this._forGuest ? null : this.bridgeRun(tool, plan, !!this.keys.KeyB); plan.run = run ? run.cells.length : 0;   // a piece a few cells past the end lays the cells between too: aim shows all of them, and no mouth
+      const run = this._forGuest ? null : this.bridgeRun(tool, plan, KB.down(this.keys, 'place')); plan.run = run ? run.cells.length : 0;   // a piece a few cells past the end lays the cells between too: aim shows all of them, and no mouth
       const hkey = `hose${plan.ok}${gold ? 'g' : ''}${e.dir}|${from}|${e.i},${e.j},${e.k}|${pt ? pt.id + ':' + e.turnPrev.dir : ''}|${run ? run.from.dir + ':' + run.cells.map((c) => `${c.i},${c.k},${c.dir}`).join(';') : ''}`;
       if (this.machines.ghostKey !== hkey) {
         const mat = new THREE.MeshBasicMaterial({ color: gold ? 0xffc928 : plan.ok ? 0x5dffa0 : 0xff5a4a, transparent: true, opacity: gold ? 0.65 : 0.5, depthWrite: false });
@@ -3070,6 +3150,11 @@ export class Game {
   }
 
   doDecon(ref) {
+    const prev = this._refundTo; this._refundTo = PI.refundOwner(this, ref);   // a piece goes back to the bag of whoever placed it while both are here
+    try { return this.doDeconRaw(ref); } finally { this._refundTo = prev; }
+  }
+
+  doDeconRaw(ref) {
     if (ref.group && ref.kind === 'mach' && BUILD.removeGroup(this, ref)) return;   // the build shell's zoop undo: every piece with the same group id
     if (ref.kind === 'cart') { this.stowCart(); return; }
     if (ref.kind === 'cable') { if (this._actor === 'g' && !this.cables.guestMayRemove(ref.id)) return; if (this.cables.remove(ref.id, true)) WS.actSound(this, null).thump(0.12, 160); return; }   // (a friend takes a cable down only from beside it)
@@ -3083,7 +3168,8 @@ export class Game {
       this.netSend({ t: 'ent-', id: tile.id });
       this.cables.detach(tile.id, true);
       const give = [...(tile.items || []), ...(tile.q || []), ...(tile.kept || []), ...(tile.stored || []), ...(tile.buf || [])];
-      for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
+      if (this._actor === 'g' && this.net.open) { if (give.length) this.netSend({ t: 'give', items: give.slice(0, 100).map((it) => ({ sp: it.sp, vr: it.vr })) }); }   // (what a friend's hammer takes off a belt goes into the friend's hands, not the host's)
+      else for (const it of give) if (this.S.carry.length < this.T.carry) this.S.carry.push({ sp: it.sp, vr: it.vr }); else this.sim.spawn(it.sp, it.vr, cellX(tile.i), tile.j * C + 0.5, cellZ(tile.k), 0, 1, 0, 0);
       EXT.removed(this, tile);
       this.giveItem(EXT.itemOf(tile) || (tile.type === 'belt' ? (tile.detector ? 'gate' : tile.splitter ? 'splitter' : tile.rise ? 'ramp' : tile.hose ? 'hose' : 'belt') : tile.mounted ? 'mfan' : tile.type));
       this.ui.setCarry(this.S.carry, this.T.carry);
@@ -3288,12 +3374,12 @@ export class Game {
   vacNow() { return this.vacRateAt(this.vacPct()); }
   adjustVac(dir) {
     const max = (this.T && this.T.vacRate) || 0;
-    if (!max) { this.ui.hint('The Plush Vacuum is not unlocked yet. <kbd>Alt</kbd>+<kbd>-</kbd> and <kbd>Alt</kbd>+<kbd>=</kbd> set how hard it pulls, 10 percent at a time.', 2.5); return false; }
+    if (!max) { this.ui.hint('The Plush Vacuum is not unlocked yet. <kbd>{vacLess}</kbd> and <kbd>{vacMore}</kbd> set how hard it pulls, 10 percent at a time.', 2.5); return false; }
     const cur = this.vacPct(); let next = cur;
     do next += dir > 0 ? 10 : -10; while (next > 0 && next < 100 && this.vacRateAt(next) === this.vacRateAt(cur));   // (a small vacuum has fewer than ten different rates: every press changes the suction)
     next = Math.max(0, Math.min(100, next));
     this.S.vacSet = next; const rate = this.vacRateAt(next); this.ui.setVacuum(rate, max, next); this.sound.tone('triangle', 400 + next * 3, 420 + next * 3, 0.05, 0.05);
-    this.ui.hint(next === 0 ? 'Vacuum off: a click grabs like plain hands. <kbd>Alt</kbd>+<kbd>=</kbd> turns it up.' : `Vacuum ${next} percent: ${vacShow(rate)} of ${max} plush a second. <kbd>Alt</kbd>+<kbd>=</kbd> pulls harder, <kbd>Alt</kbd>+<kbd>-</kbd> gentler (gentler keeps a tunnel roof up).`, 2.4);
+    this.ui.hint(next === 0 ? 'Vacuum off: a click grabs like plain hands. <kbd>{vacMore}</kbd> turns it up.' : `Vacuum ${next} percent: ${vacShow(rate)} of ${max} plush a second. <kbd>{vacMore}</kbd> pulls harder, <kbd>{vacLess}</kbd> gentler (gentler keeps a tunnel roof up).`, 2.4);
     return true;
   }
 
@@ -3304,10 +3390,10 @@ export class Game {
   }
   adjustScoop(dir) {
     const max = (this.T && this.T.scoop) || 0;
-    if (!max) { this.ui.hint('Scoop Hands are not unlocked yet. - and = set how many plush a grab scoops, 3 at a time.', 2.5); return false; }
+    if (!max) { this.ui.hint('Scoop Hands are not unlocked yet. <kbd>{scoopLess}</kbd> and <kbd>{scoopMore}</kbd> set how many plush a grab scoops, 3 at a time.', 2.5); return false; }
     const cur = this.scoopNow(), next = Math.max(0, Math.min(max, dir > 0 ? cur + 3 : cur - 3 < 0 ? 0 : cur - 3));
     this.S.scoopSet = next; this.ui.setScoop(next, max); this.sound.tone('triangle', 500 + next * 4, 520 + next * 4, 0.05, 0.05);
-    this.ui.hint(`Scoop ${next} of ${max}. <kbd>=</kbd> scoops 3 more, <kbd>-</kbd> 3 fewer (fewer when you dig a tunnel).`, 2.2);
+    this.ui.hint(`Scoop ${next} of ${max}. <kbd>{scoopMore}</kbd> scoops 3 more, <kbd>{scoopLess}</kbd> 3 fewer (fewer when you dig a tunnel).`, 2.2);
     return true;
   }
 
@@ -3703,11 +3789,15 @@ export class Game {
     }
   }
 
+  // the wake-up after a death or a pass-out is a real-time timer (the screen fades first): kept so a test can cancel the ones still waiting (a late wake-up moves the player in whatever test is running then)
+  _deathT(fn, ms) { const h = setTimeout(() => { if (this._deathTimers) this._deathTimers.delete(h); fn(); }, ms); (this._deathTimers || (this._deathTimers = new Set())).add(h); return h; }
+  cancelDeaths() { if (!this._deathTimers) return; for (const h of this._deathTimers) clearTimeout(h); this._deathTimers.clear(); }
+
   blackout(why) {
     this.blacking = true;
     this.ui.blackout(true);
     this.sound.thump(0.3, 70);
-    setTimeout(() => {
+    this._deathT(() => {
       const S = this.S;
       for (const it of S.carry.splice(0, S.carry.length)) this.sim.spawn(it.sp, it.vr, this.player.pos.x + (Math.random() - 0.5), this.player.pos.y + 1, this.player.pos.z + (Math.random() - 0.5), 0, 2, 0, 0);
       this.ui.setCarry(S.carry, this.T.carry);
@@ -3718,7 +3808,7 @@ export class Game {
       this._poCount = (this._poCount || 0) + 1; if (this.time - (this._poLast ?? -1e9) < 240) this.ui.hint('<b>You keep passing out in the same place.</b> Ventilate it: Support Fans on your frames, a Vent Fan, or a Respirator. Or tunnel somewhere else.', 9); this._poLast = this.time;
       this.ui.toast({ icon: '😵', title: 'You passed out', text: why === 'air' ? 'You ran out of air. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.' : 'Dust. You woke up at the nearest depot. Whatever you carried spilled in the tunnel.', ms: 7000 });
       this.S.stats.passedOut = (this.S.stats.passedOut || 0) + 1;
-      setTimeout(() => { this.ui.blackout(false); this.blacking = false; }, 700);
+      this._deathT(() => { this.ui.blackout(false); this.blacking = false; }, 700);
     }, 1100);
   }
 
@@ -3753,6 +3843,7 @@ export class Game {
   }
 
   slideFeel(pd, recent = this.slide.recent) {
+    if (!Number.isFinite(pd) || !Number.isFinite(recent)) return;   // a garbled message must never leave the camera shake NaN
     const near = 1 - pd / 22;
     if (pd >= 22) return;
     // only a real slide (several topples at once) shakes the screen; a stray plush rolling does not
@@ -4003,7 +4094,7 @@ export class Game {
     this.ui.blackout(true);
     this.ui.setTrap(false);
     this.sound.thump(0.4, 60);
-    setTimeout(() => {
+    this._deathT(() => {
       const S = this.S;
       for (const it of S.carry.splice(0, S.carry.length)) this.sim.spawn(it.sp, it.vr, this.player.pos.x + (Math.random() - 0.5), this.player.pos.y + 1, this.player.pos.z + (Math.random() - 0.5), 0, 2, 0, 0);
       this.ui.setCarry(S.carry, this.T.carry);
@@ -4012,7 +4103,7 @@ export class Game {
       const woke = this.recall();
       S.stats.deaths = (S.stats.deaths || 0) + 1;
       this.ui.toast({ icon: '💀', title: 'You died', text: `You ${why}. You woke up ${woke && !woke.bay ? 'at ' + woke.name : 'on the floor of the sorting bay'}. Whatever you carried spilled where it happened.`, ms: 8000 });
-      setTimeout(() => { this.ui.blackout(false); this.blacking = false; this.dead = false; }, 800);
+      this._deathT(() => { this.ui.blackout(false); this.blacking = false; this.dead = false; }, 800);
     }, 1400);
   }
 
@@ -4107,14 +4198,14 @@ export class Game {
     this.updateVitals(dt);
     this.depthCheck(dt); this.climbRisk(dt); this.updateLoads(dt);
     // emergency recall: hold U
-    if (this.keys.KeyH) {
+    if (KB.down(this.keys, 'recall')) {
       this.recallHold += dt;
       if (this.recallHold > 2.5) { this.recallHold = 0; this.recall(); }
-      else this.ui.hint(`Recalling… hold <kbd>H</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
+      else this.ui.hint(`Recalling… hold <kbd>{recall}</kbd> (${(2.5 - this.recallHold).toFixed(1)}s)`, 0.3);
     } else this.recallHold = 0;
-    if (this.keys.Space && (p.embedded || p.buried > 0.3)) this.punch(true, true);
-    if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>R</kbd> (or hold <kbd>Space</kbd>) to punch your way out.', 8); }
-    if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>H</kbd> for an emergency recall to the nearest depot (or the sorting bay).', 8); }
+    if (KB.down(this.keys, 'jump') && (p.embedded || p.buried > 0.3)) this.punch(true, true);
+    if (p.buried > 1.5 && !this.unstuckHint2) { this.unstuckHint2 = true; this.ui.hint('Stuck in a hole? Tap <kbd>{punch}</kbd> (or hold <kbd>{jump}</kbd>) to punch your way out.', 8); }
+    if (p.buried > 6 && !this.unstuckHint) { this.unstuckHint = true; this.ui.hint('Stuck? Hold <kbd>{recall}</kbd> for an emergency recall to the nearest depot (or the sorting bay).', 8); }
 
     if (this.S.stats && this.T.scan > 0) this.sound.geiger(dt, this.sigLevel > 0 ? Math.pow(this.sigLevel, 0.7) : 0);
     // carried held plush bob

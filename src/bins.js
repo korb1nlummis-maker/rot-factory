@@ -9,6 +9,7 @@
 //   * this file imports nothing heavy (config, util, plushdata), so every machine file can import it without a cycle.
 import { cellX, cellZ } from './config.js';
 import { fmt } from './util.js';
+import * as KB from './keybinds.js';
 import { NEEDLE } from './plushdata.js';
 
 export const AUTO = 0, HALL = -1;
@@ -296,7 +297,8 @@ export function infoLines(g, e) {
   if (e.type === 'belt' && g.logi.nextOf(e)) return [];   // a belt that carries on has no bin to pick: only the end of a line says it
   const s = { k: 'ent', o: e }, lines = [`Bin: ${destText(g, s)}`];
   if (e.type === 'mech' && e.dest && mechRuntime(e).lockT && Math.abs((g.time || 0) - mechRuntime(e).lockT) < 3) lines.push('Held: the belt it feeds does not reach that bin');
-  lines.push('; picks its bin, Shift+; copies it');
+  const kt = (id) => { const c = KB.binds(id)[0]; return c ? KB.caps(c).join('+') : 'unbound'; };
+  lines.push(`${kt('bin')} picks its bin, ${kt('copybin')} copies it`);
   return lines;
 }
 export function beaconLines(g, e) {

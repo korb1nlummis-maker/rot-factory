@@ -1,0 +1,19 @@
+7:19:33 AM [vite] (client) Forced re-optimization of dependencies
+
+  VITE v8.3.2  ready in 145 ms
+
+  ➜  Local:   http://localhost:5831/
+  ➜  Network: use --host to expose
+7:29:59 AM [vite] (client) warning: 
+/Users/korb1nda11as/rot-factory/src/tests/holelight.js
+223 |      // de-optimised the live method with every odd input the tests fed it, which would be held against the code. The ...
+224 |      const { legacyScan } = await import('./holelight_legacy.js'); const R = g.renderer;
+225 |      const Fresh = (await import('../render.js?cost=' + Date.now())).Renderer.prototype.scanChunk, fake = { world: g.w...
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+226 |      const cost = (label, r) => {
+227 |        const chunks = K.chunksOf(r, 4).filter(([cx, cy, cz]) => R.scanChunk(cx, cy, cz, false).n > 0);
+The above dynamic import cannot be analyzed by Vite.
+See https://vite.dev/guide/features#dynamic-import for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+
+  Plugin: vite:import-analysis
+  File: /Users/korb1nda11as/rot-factory/src/tests/holelight.js

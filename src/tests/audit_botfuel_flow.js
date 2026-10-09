@@ -127,7 +127,7 @@ export default async function (ctx) {
   await G('botfuel.audit-flow-a-bot-that-sets-off-to-dig-fuel-on-its-own-makes-no-chirp', async () => {
     if (!hasFace()) return true;
     const gen = K.gen(-3.4, 3.0); K.grid(-3.4, 3.0, 2); const h = home(); const b = K.mkBot(h.x, h.z + 1);
-    let n = 0; const c0 = g.sound.chirp.bind(g.sound); g.sound.chirp = (...a) => { n++; return c0(...a); };
+    let n = 0; const c0 = g.sound.chirp; g.sound.chirp = function (...a) { n++; return c0.apply(this, a); };   // (not .bind(g.sound): put back bound, every later positional sound would play at full volume)
     try {
       K.step(3, 0.05, () => !!b.fuelJob); if (!b.fuelJob) return 'the bot never set off';
       const own = n; g.crew.order(b, 0, b.x, b.y, b.z);

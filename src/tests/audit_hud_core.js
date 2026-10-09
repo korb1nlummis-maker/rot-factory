@@ -133,7 +133,8 @@ export default async function (ctx) {
           if (hit(d.r, comp)) bad.push(`${tag}: ${d.id} is on the compass`); if (hit(d.r, bar) || hit(d.r, hh) || hit(d.r, hint)) bad.push(`${tag}: ${d.id} is on the hotbar or hint`);
           if (d.r.left < -0.5 || d.r.right > W + 0.5 || d.r.top < -0.5 || d.r.bottom > H + 0.5) bad.push(`${tag}: ${d.id} leaves the screen`);
         }
-        if (H >= 360 && hit(hint, comp)) bad.push(`${tag}: the hint is on the compass`);   // under 360 px high there is room for the compass and the dials but not for a line of hint as well if (bar.right > W + 0.5 || bar.left < -0.5 || bar.bottom > H + 0.5) bad.push(`${tag}: the hotbar leaves the screen`);
+        if (H >= 360 && hit(hint, comp)) bad.push(`${tag}: the hint is on the compass`);   // under 360 px high there is room for the compass and the dials but not for a line of hint as well
+        if (bar.right > W + 0.5 || bar.left < -0.5 || bar.bottom > H + 0.5) bad.push(`${tag}: the hotbar leaves the screen`);
         if (comp.top > 30) bad.push(`${tag}: the compass moved down to ${Math.round(comp.top)}`); if (doc.documentElement.scrollWidth > W) bad.push(`${tag}: the page scrolls sideways`);
         for (let a = 0; a < dials.length; a++) for (let b = a + 1; b < dials.length; b++) if (hit(dials[a].r, dials[b].r)) bad.push(`${tag}: ${dials[a].id} is on ${dials[b].id}`);
         const slot = q('#hotbar .slot').getBoundingClientRect(); if (slot.width < 28) bad.push(`${tag}: slots only ${slot.width.toFixed(0)} px`);

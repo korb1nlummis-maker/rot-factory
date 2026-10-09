@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { C, NX, NZ, NY, idx, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { BULK, PAD, isSpecialCell } from './plushdata.js';
 import * as B from './build.js';
+import * as KB from './keybinds.js';
 import * as M from './transitmesh.js';
 import { ghostBoxes } from './buildmesh.js';
 import { V } from './catalog.js';
@@ -998,7 +999,7 @@ export function useKey(g) {
   const grp = { door: 'doorcfg', jump: 'jumpcfg' }[e.type];
   if (grp && g.cfgClip && g.cfgClip.group === grp) { const r = g.pasteCfg(e); if (r.ok) { sound(g, (s) => s.place()); g.ui.hint('Settings pasted.', 2); } else { sound(g, (s) => s.error()); g.ui.hint(r.why || 'Could not paste', 2.5); } return true; }
   if (e.type === 'door') return useDoor(g, e);
-  if (e.type === 'jump') return useJump(g, e, !!(g.keys && g.keys.KeyC));
+  if (e.type === 'jump') return useJump(g, e, KB.down(g.keys, 'crouch'));
   if (e.type === 'callbtn') { const r = g.setCfg(e, { press: 1 }); if (r.ok) { sound(g, (s) => s.tone('triangle', 660, 660, 0.08, 0.06)); g.ui.hint('Called the elevator.', 1.5); } else { sound(g, (s) => s.error()); g.ui.hint(r.why || 'The elevator does not answer', 2.5); } return true; }
   if (e.type === 'plift' && pk && pk.row !== undefined && pk.ent === e) {   // a landing's call panel: bring the cab to that row
     if (isHost(g)) { const r = requestFloor(g, e, pk.row); if (r === 'ok' || r === 'queued' || r === 'here') { sound(g, (s) => s.tone('triangle', 660, 660, 0.08, 0.06)); g.ui.hint(r === 'here' ? 'The cab is here.' : 'Called the elevator.', 1.5); } else { sound(g, (s) => s.error()); g.ui.hint(r + '.', 3); } return true; }

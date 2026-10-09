@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { C, cellX, cellZ, toI, toJ, toK, idx, NX, NZ, NY } from './config.js';
 import { NEEDLE, SPECIAL_MIN, species } from './plushdata.js';
 import * as BINS from './bins.js';   // the bin a line unloads at
+import * as KB from './keybinds.js';
 
 export const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];
 export const POWER_SPEED = 8;        // m/s on a powered line
@@ -400,7 +401,7 @@ export function seat(g, car, who) {
   const R = sync(g);
   for (const c of R.cars) if (c !== car && c.riders && c.riders.includes(who)) unseat(g, c, who);
   car.riders.push(who); R.rowNow = true;
-  if (who === 'host') { R.lastPos = null; R.prevE = !!g.keys.KeyE; R.prevSp = !!g.keys.Space; }   // the key press that seated you must not also hop you off
+  if (who === 'host') { R.lastPos = null; R.prevE = railKey(g, 'KeyE'); R.prevSp = railKey(g, 'Space'); }   // the key press that seated you must not also hop you off
   return true;
 }
 export function unseat(g, car, who) {
@@ -1020,8 +1021,10 @@ function placeRider(g, R, car, who, host, dt) {
   void dt;
 }
 
+// the rail keys are E and Space (the table's railUse): bare, so Alt or Ctrl with them is not the hop off key (keybinds.js down() has the same rule)
+const railKey = (g, code) => KB.hasCode('railUse', code) && !!g.keys[code] && !(g.keys.AltLeft || g.keys.AltRight || g.keys.ControlLeft || g.keys.ControlRight);
 function keyEdges(g, R, car, who, host) {
-  const e = !!g.keys.KeyE, sp = !!g.keys.Space, edgeE = e && !R.prevE, edgeS = sp && !R.prevSp;
+  const e = railKey(g, 'KeyE'), sp = railKey(g, 'Space'), edgeE = e && !R.prevE, edgeS = sp && !R.prevSp;
   R.prevE = e; R.prevSp = sp;
   if (!car || !(edgeE || edgeS)) return;
   if (g.ui.isModalOpen()) return;

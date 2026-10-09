@@ -4,6 +4,7 @@
 import * as B from '../bench.js';
 import { BOT_ID } from '../crafting.js';
 import { benchKit } from './bench_lib.js';
+import * as PIN from '../playerinv.js';
 
 export default async function (ctx) {
   const { T, g, S, fresh } = ctx;
@@ -31,7 +32,7 @@ export default async function (ctx) {
       { t: 'cmd', c: 'craft', d: { id: 'gear:gloves', n: 1 } }, { t: 'cmd', c: 'craft', d: { id: 'mat:timber', n: 1e300 } }, { t: 'cmd', c: 'craft', d: { id: 'frame:timber', n: Infinity } },
       { t: 'cmd', c: 'craftGear', d: null }, { t: 'cmd', c: 'craftGear' }, { t: 'cmd', c: 'craftGear', d: { id: 7 } }, { t: 'cmd', c: 'craftGear', d: { id: 'gloves' } }, { t: 'cmd', c: 'craftGear', d: { id: '__proto__' } },
     ];
-    for (const m of forged) { try { g.netMessage(json(m)); } catch (e) { bad.push(`${JSON.stringify(m.d)} threw: ${e.message}`); } }
+    for (const m of forged) { try { g.netMessage(json(m)); } catch (e) { bad.push(`${JSON.stringify(m.d)} threw: ${e.message}`); } if (snap() !== s0) { bad.push(`${m.c} ${JSON.stringify(m.d)} changed the world: ${snap().slice(0, 160)}`); break; } }
     // a locked recipe is not made by a guest that names it (steel frames are not unlocked)
     try { g.netMessage(json({ t: 'cmd', c: 'craft', d: { id: 'frame:steel', n: 1 } })); } catch (e) { bad.push('locked recipe threw'); }
     if (snap() !== s0) bad.push('a forged command changed the world: ' + snap().slice(0, 120));
@@ -69,8 +70,9 @@ export default async function (ctx) {
     g.applyShared(shared({ up: { ...JSON.parse(JSON.stringify(S().up)), steel: 1 } }));
     const c2 = K.cardEl('frame:steel'); if (!c2 || c2.dataset.locked) bad.push('the guest card is still locked after the host unlocked it'); if (/Buy it at the terminal/.test(K.norm(K.detail().textContent))) bad.push('the guest pane still says locked');
     if (K.tabs().locked.total >= lockedBefore) bad.push('the Locked count did not shrink on the guest'); if (!K.detail().querySelector('button[data-n]:not(:disabled)')) bad.push('no live craft button for the unlocked row');
-    // and its items: the host's count of what the guest holds shows on the card
-    g.applyShared(shared({ items: { ...JSON.parse(JSON.stringify(S().items)), 'frame:steel': 4 } })); const own = (K.cardEl('frame:steel').querySelector('.bc-own') || {}).textContent; if (own !== '×4') bad.push('the card shows "' + own + '" for four held');
+    // and its items: the host's word on what the guest holds (an `inv` message) shows on the card
+    PIN.applyInv(g, { t: 'inv', q: 1, f: 1, pn: 1, i: Object.entries({ ...JSON.parse(JSON.stringify(S().items)), 'frame:steel': 4 }).flat(), m: [] });   // (the guest's own count comes in its `inv` message since Wave 12, not in the shared one)
+    const own = (K.cardEl('frame:steel').querySelector('.bc-own') || {}).textContent; if (own !== '×4') bad.push('the card shows "' + own + '" for four held');
     done(); return bad.length === 0 || bad.slice(0, 5).join('; ');
   }));
 

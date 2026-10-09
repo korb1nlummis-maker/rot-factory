@@ -81,7 +81,8 @@ export default async function (ctx) {
     // E in the cab: look up to go up, look down to go down (the real key path)
     adv(1.2); board(L0, 18); L0.cy = 10.8; adv(0.3); p().pos.set(L0.px, 10.8, L0.pz); adv(0.3); if (p().liftId !== L0.id) return 'setup: not in the cab';
     g.renderer.camera.position.copy(p().eyePos(new V3())); p().pitch = 0.7; if (!TR.useKey(g)) bad.push('E in the cab did nothing'); adv(0.3); if (L0.tg !== 30) bad.push('looking up with E: target ' + L0.tg);
-    for (let n = 0; n < 400 && (L0.mv || L0.tg !== null || L0.dw > 0 || Math.abs(L0.cy - 18.0) > 1e-6); n++) adv(0.05); adv(0.2); p().pitch = -0.7;   // (wait for the cab to be home and idle: a loaded machine or a brownout makes the trip longer than a fixed wait) g.renderer.camera.position.copy(p().eyePos(new V3())); TR.useKey(g); adv(0.3); if (L0.tg !== 18) bad.push('looking down with E: target ' + L0.tg); p().pitch = 0;
+    for (let n = 0; n < 400 && (L0.mv || L0.tg !== null || L0.dw > 0 || Math.abs(L0.cy - 18.0) > 1e-6); n++) adv(0.05); adv(0.2); p().pitch = -0.7;   // (wait for the cab to be home and idle: a loaded machine or a brownout makes the trip longer than a fixed wait)
+    g.renderer.camera.position.copy(p().eyePos(new V3())); TR.useKey(g); adv(0.3); if (L0.tg !== 18) bad.push('looking down with E: target ' + L0.tg); p().pitch = 0;
     return bad.length === 0 || bad.join(' || ');
   });
 

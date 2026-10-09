@@ -8,7 +8,7 @@
 //  * The One and every special id (fakes, caches, remains) are never pulled: they need a hand carry and a gate scan.
 //  * A bin that is closer than the belt wins (the existing autoDump); a belt that is closer takes over (the bin waits while the belt can still take plush).
 //  * Only bare hands or the hammer pull plush out of your hands (a build item in hand does not drain them); the cart is not in your hands, so it feeds whatever you hold.
-//    The ` key (Backquote) switches the whole thing off and on (S.beltIntakeOff, saved with the shift).
+//    There is no switch: once you own Conveyor Belts it is always on (an old saved S.beltIntakeOff is ignored and deleted).
 //  * Co-op: the host pulls from its own hands and cart and from the guest's cart. The guest's hands are on the guest's screen, so the guest client finds the belt itself and sends the existing
 //    `feed` command once per plush (flagged pull:1); the host re-checks the range, the species and the rate (hostFeed) and hands the plush back when it refuses or the belt is full.
 //
@@ -48,7 +48,7 @@ export const INTAKE_UPGRADE = {
   id: 'beltIntake', cat: 'machine', name: 'Belt Intake', max: RATE.length - 1, cost: PRICE, req: { id: 'belts', lvl: 1 },
   names: RATE.map((r, l) => `Intake Mk${l + 1}: ${r} a second within ${rangeText(RANGE[l])} m`),
   desc: `Plain belt tiles near you pull plush off your hands, then off your cart, like a bin does (the cart can be parked). Conveyor Belts already give you Intake Mk1: ${RATE[0]} plush a second within ${rangeText(RANGE[0])} m, in total for you (not per belt). `
-    + `Each level here raises the rate and the reach: ${RATE.map((r, l) => `Mk${l + 1} ${fmt(r)} a second, ${rangeText(RANGE[l])} m`).join('; ')}. A full belt backs up and the pull stops, so a fast intake wants a fast line (Belt Motors and the Mk marks). The One is never pulled. Press the backtick key to switch it off and on.`,
+    + `Each level here raises the rate and the reach: ${RATE.map((r, l) => `Mk${l + 1} ${fmt(r)} a second, ${rangeText(RANGE[l])} m`).join('; ')}. A full belt backs up and the pull stops, so a fast intake wants a fast line (Belt Motors and the Mk marks). The One is never pulled. It is always on: nothing to switch.`,
   effect: (t, l) => { t.intakeLevel = l; },
 };
 
@@ -56,19 +56,19 @@ export const INTAKE_UPGRADE = {
 export function intakeLines(g, t) {
   if (!eligible(t) || !owns(g.T)) return [];
   const o = intakeOf(g.T), out = [`Pulls up to ${fmt(o.rate)} plush per second from your hands and cart within ${rangeText(o.range)} m`];
-  if (g.S && g.S.beltIntakeOff) out.push('Belt intake is switched off: press the backtick key to turn it on');
   return out;
 }
 
 // ---------------------------------------------------------------- per game state
 function st(g) {
   let B = g._bi;
-  if (!B) B = g._bi = { b: {}, hold: {}, cache: {}, fx: {}, snd: 0, last: 0, gOff: false, sent: undefined, sinkAt: {} };
+  if (!B) B = g._bi = { b: {}, hold: {}, cache: {}, fx: {}, snd: 0, last: 0, sinkAt: {} };
   if (g.time < B.last) { B.b = {}; B.hold = {}; B.cache = {}; B.fx = {}; B.snd = 0; B.sinkAt = {}; }   // the clock went back (a new game): nothing carries over
   B.last = g.time;
   return B;
 }
 const capFor = (rate) => Math.max(2, rate * 0.25);
+// (the whole plush the bucket holds: a little slack for the float error of (now - then) at a big game clock, where a bucket that is exactly 1 token short by 1e-9 would pull a frame late: after 18 hours of play the pulls drifted a frame at a time)
 // a token bucket in game seconds: `rate` plush a second, a burst of a quarter second's worth (at least 2)
 function refill(bk, now, rate) {
   const cap = capFor(rate);
@@ -79,7 +79,6 @@ function refill(bk, now, rate) {
 
 // the per game state (tests read and set the token buckets through it)
 export const state = st;
-export const isOn = (g) => !(g.S && g.S.beltIntakeOff);
 // does a belt that wins hold back this autoDump timer ('_adT' hands, '_adC' cart, '_adCg' the guest's cart)
 export function beltHolds(g, key) {
   const B = g._bi; if (!B) return false;
@@ -87,31 +86,18 @@ export function beltHolds(g, key) {
   return h > 0 && h <= HOLD_S + 0.05;
 }
 
-// the key: on or off for the whole player
-export function toggle(g) {
-  if (!owns(g.T)) { g.ui.hint('Belt intake comes with Conveyor Belts.', 2); return false; }
-  g.S.beltIntakeOff = isOn(g) ? true : undefined;
-  const on = isOn(g), o = intakeOf(g.T);
-  g.ui.hint(on ? `Belt intake <b>on</b>: belts within ${rangeText(o.range)} m pull up to ${fmt(o.rate)} plush a second from your hands and cart. <kbd>\`</kbd> switches it off.` : 'Belt intake <b>off</b>: belts leave your hands and cart alone. <kbd>`</kbd> turns it back on.', 3);
-  g.sound.tone('triangle', on ? 420 : 520, on ? 560 : 360, 0.06, 0.05);
-  if (g.isGuest()) { const B = st(g); B.sent = !on; g.cmd('intake', { off: on ? 0 : 1 }); }
-  return true;
-}
-// the host learns whether the guest's cart should feed
-export function hostToggle(g, d) { st(g).gOff = !!(d && d.off); }
-
 // ---------------------------------------------------------------- finding the belts near a source
 // the eligible tiles within reach + 0.6 m, found by reading the cells around the source (or walking all the tiles when there are few), reused for GATHER_S
 function gather(g, key, x, y, z, reach) {
   const B = st(g), L = g.logi, now = g.time, c = B.cache[key];
-  if (c && c.n === L.tiles.size && now >= c.at && now - c.at < GATHER_S && Math.hypot(c.x - x, c.z - z) < 0.5 && Math.abs(c.y - y) < 0.7 && c.reach >= reach) return c.list;
+  if (c && c.n === L.tiles.size && c.ord === L.beltOrder && !L.dirty && now >= c.at && now - c.at < GATHER_S && Math.hypot(c.x - x, c.z - z) < 0.5 && Math.abs(c.y - y) < 0.7 && c.reach >= reach) return c.list;
   const list = [], r = reach + 0.6, ci = toI(x), ck = toK(z), cj = toJ(y), nn = Math.ceil(r / C) + 1;
   if (L.tiles.size <= 360) {
     for (const t of L.tiles.values()) if (eligible(t) && Math.abs(cellX(t.i) - x) <= r && Math.abs(cellZ(t.k) - z) <= r) list.push(t);
   } else {
     for (let j = cj - 4; j <= cj + 4; j++) for (let k = ck - nn; k <= ck + nn; k++) for (let i = ci - nn; i <= ci + nn; i++) { const t = L.tiles.get(idx(i, j, k)); if (t && eligible(t)) list.push(t); }
   }
-  B.cache[key] = { at: now, n: L.tiles.size, x, y, z, reach, list };
+  B.cache[key] = { at: now, n: L.tiles.size, ord: L.beltOrder, x, y, z, reach, list };   // (a line taken down and another laid in the same place with as many tiles, inside the 0.12 s, is a new list: the belt order is rebuilt whenever the tiles change)
   return list;
 }
 // the tiles of the gathered list that are within range now, nearest first: [{ t, d }]
@@ -164,7 +150,7 @@ function rings(B, dt) {
 function effects(g, B, key, src, tile, n) {
   const now = g.time, V = THREE.Vector3;
   if (n === 0) ring(g, B, key, tile);
-  if (!g.S.beltIntakeTold) { g.S.beltIntakeTold = true; const o = intakeOf(g.T); g.ui.hint(`A belt close to you pulls plush off your hands and cart (up to ${fmt(o.rate)} a second within ${rangeText(o.range)} m). <kbd>\`</kbd> switches that off.`, 4); }
+  if (!g.S.beltIntakeTold) { g.S.beltIntakeTold = true; const o = intakeOf(g.T); g.ui.hint(`A belt close to you pulls plush off your hands and cart (up to ${fmt(o.rate)} a second within ${rangeText(o.range)} m).`, 4); }
   const tx = cellX(tile.i), ty = tile.j * C + 0.2, tz = cellZ(tile.k);
   if (g.fliers && g.fliers.length < 80 && n < 4) g.fliers.push({ sp: src.sp, vr: src.vr, from: new V(src.fx, src.fy, src.fz), to: new V(tx, ty, tz), t: -n * 0.02, dur: 0.28, arc: 0.45 });
   if (!(B.fx[key] > now)) { B.fx[key] = now + 0.25; g.fx.sparkle(tx, ty + 0.15, tz, 2, 0.4, 0.8, 0.9); }
@@ -201,10 +187,10 @@ export function update(g, dt) {
   const B = st(g), S = g.S, now = g.time, guest = g.isGuest(), inf = intakeOf(T);
   rings(B, dt);
   if (!guest && g.net && g.net.open && g.net.role === 'guest') return;   // a guest that has not finished joining has no world of its own yet
-  if (guest) { const off = !isOn(g); if (B.sent !== off) { B.sent = off; g.cmd('intake', { off: off ? 1 : 0 }); } } else { B.sent = undefined; if (!(g.net && g.net.open)) B.gOff = false; }
-  const wantHands = isOn(g) && S.carry.length > 0 && !g.blacking && handsOk(g) && !g.ui.isModalOpen() && lastPullable(S.carry) >= 0;   // (out cold from dust or air: whatever you carry spills in the tunnel, nothing leaves your hands first)
-  const hostCart = !guest && isOn(g) && S.cart && S.cart.load.length > 0 && !sentToBin(g, S.cart) && lastPullable(S.cart.load) >= 0;
-  const guestCart = !guest && !B.gOff && S.gcart && S.gcart.load.length > 0 && !sentToBin(g, S.gcart) && g.net && g.net.open && lastPullable(S.gcart.load) >= 0;
+  if (S.beltIntakeOff !== undefined) delete S.beltIntakeOff;   // the old on/off switch is gone: a save that carries it is cleaned and ignored
+  const wantHands = S.carry.length > 0 && !g.blacking && handsOk(g) && !g.ui.isModalOpen() && lastPullable(S.carry) >= 0;   // (out cold from dust or air: whatever you carry spills in the tunnel, nothing leaves your hands first)
+  const hostCart = !guest && S.cart && S.cart.load.length > 0 && !sentToBin(g, S.cart) && lastPullable(S.cart.load) >= 0;
+  const guestCart = !guest && S.gcart && S.gcart.load.length > 0 && !sentToBin(g, S.gcart) && g.net && g.net.open && lastPullable(S.gcart.load) >= 0;
   if (!wantHands && !hostCart && !guestCart) return;
   if (!g.logi.tiles.size) return;
   const cam = g.renderer.camera.position, p = g.player.pos;
@@ -220,7 +206,7 @@ export function update(g, dt) {
         if (guest) guestHands(g, B, bk, near0, hx, hy, hz);
         else {
           const src = { key: 'h', arr: S.carry, x: p.x, y: p.y, z: p.z, range: inf.range, sinkD: sd, fx: hx, fy: hy, fz: hz, dex: true };
-          const r = pullSource(g, B, src, Math.floor(bk.tokens + 1e-9), near0);
+          const r = pullSource(g, B, src, Math.floor(bk.tokens + 1e-6), near0);
           if (r.moved) { bk.tokens -= r.moved; g.ui.setCarry(S.carry, T.carry); g.heldPop = -0.5; }
           if (r.winner || r.moved) B.hold[KEYS.hands] = now + HOLD_S;
         }
@@ -239,14 +225,14 @@ function cartPull(g, B, c, who, key, holdKey, inf, T, now) {
   const sd = B.sinkAt[key] && B.sinkAt[key].at > now - 0.15 ? B.sinkAt[key].d : (B.sinkAt[key] = { at: now, d: cartSinkDist(g, c, Math.max(3.2, T.autoDump * 0.8)) }).d;
   if (sd <= near0[0].d) return;
   const src = { key, arr: c.load, x: c.x, y: c.y, z: c.z, range: inf.range, sinkD: sd, fx: c.x, fy: c.y + 0.7, fz: c.z, dex: true };
-  const r = pullSource(g, B, src, Math.floor(bk.tokens + 1e-9), near0);
+  const r = pullSource(g, B, src, Math.floor(bk.tokens + 1e-6), near0);
   if (r.moved) bk.tokens -= r.moved;
   if (r.winner || r.moved) B.hold[holdKey] = now + HOLD_S;
 }
 
 // the guest's own hands: the belt is found on the guest's screen and each plush is sent as a `feed` (the host re-checks it and hands it back when it refuses)
 function guestHands(g, B, bk, cands, hx, hy, hz) {
-  const S = g.S, now = g.time; let n = Math.floor(bk.tokens + 1e-9), moved = 0, ptr = 0;
+  const S = g.S, now = g.time; let n = Math.floor(bk.tokens + 1e-6), moved = 0, ptr = 0;
   const pend = new Set();
   let winner = false; for (const c of cands) if (room(c.t)) { winner = true; break; }   // (a tile that cannot take a plush now, full or jammed with plush too close together, does not hold the bin back)
   while (moved < n && ptr < cands.length) {
@@ -279,7 +265,7 @@ export function hostFeed(g, d) {
   const B = st(g), rp = g.remote && g.remote.pos, now = g.time;
   if (!(g.net && g.net.open) || !rp) return back();
   const o = intakeOf(g.T), reach = d.pull ? o.range : 3.0;
-  if (d.pull && (!owns(g.T) || B.gOff)) return back();
+  if (d.pull && !owns(g.T)) return back();
   if (!(Math.hypot(rp.x - cellX(t.i), rp.z - cellZ(t.k)) <= reach + SLACK)) return back();   // (written so that a position that is not a number never passes)
   const dy = rp.y - deckY(t); if (!(dy >= -REACH_V - SLACK && dy <= REACH_V + SLACK)) return back();
   if (d.pull && !eligible(t)) return back();

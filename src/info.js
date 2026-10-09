@@ -1,4 +1,5 @@
 // The context readout: what the thing you are aiming at is, what it is doing and how to use it. One place so every item has one.
+import * as KB from './keybinds.js';
 import { FRAME_TYPES, STRUT_DEPTH, supportDepth, upgradeById } from './upgrades.js';
 import { RARITY, species } from './plushdata.js';
 import { capacityOf } from './loadtrace.js';
@@ -10,6 +11,7 @@ import { poleInfo } from './gridinfo.js';
 import { infoReplace, infoExtra } from './ext.js';
 import { frameRay } from './machines.js';
 import { pickBuilt } from './build.js';
+import * as PI from './playerinv.js';
 import { infoCube } from './stack.js';
 import { pick as pickTransit } from './transit.js';
 import { pickRail } from './rail.js';
@@ -72,7 +74,7 @@ function infoBase(g, ref) {
       ? ['ON: the warehouse lights stay on after closing, for the whole team.']
       : [`${money(cost)} for Night Shift.`, 'Keep the warehouse lights on after closing time instead of going dark.', g.S.money >= cost ? 'Press E to buy it.' : `You have ${money(g.S.money)}. Keep earning.`] };
   }
-  if (ref.kind === 'cart') { const c = g.S.cart; if (!c) return null; return { title: CART_NAMES[c.tier].toUpperCase(), lit: true, lines: [`Carrying ${c.load.length} of ${CART_CAP[c.tier]} plush`, `Mode: ${c.mode}`, `Bin: ${BINS.destText(g, { k: 'cart', o: c, key: 'cart' })}`, 'Plush you grab ride on it when your hands are full. Throw plush at it, or hammer it to stow. ; picks the bin it unloads at.'] }; }
+  if (ref.kind === 'cart') { const c = g.S.cart; if (!c) return null; return { title: CART_NAMES[c.tier].toUpperCase(), lit: true, lines: [`Carrying ${c.load.length} of ${CART_CAP[c.tier]} plush`, `Mode: ${c.mode}`, `Bin: ${BINS.destText(g, { k: 'cart', o: c, key: 'cart' })}`, 'Plush you grab ride on it when your hands are full. Throw plush at it, or hammer it to stow. ' + KB.keyText('bin') + ' picks the bin it unloads at.'] }; }
   if (ref.kind === 'tile') {
     const t = g.logi.byId.get(ref.id); if (!t) return null;
     if (t.type === 'gen') { const gi = g.genInfo(t); return { title: gi.title + (gi.lit ? ' · BURNING' : ' · OUT OF FUEL'), lit: gi.lit, lines: gi.lines }; }
@@ -112,7 +114,7 @@ function infoBase(g, ref) {
     if (e.type === 'marker') return { title: 'SURVEY MARKER', lit: true, lines: ['Shows on your compass so you can find your way back.'] };
     if (e.type === 'rope') return { title: 'ROPE ANCHOR', lit: true, lines: ['Everything within 6 m is roped in: the slope will not give way under you.'] };
     if (e.type === 'charge') return { title: e.dyn ? 'DYNAMITE' : 'BLASTING CHARGE', lit: false, lines: [`Fuse: ${Math.max(0, e.fuse || 0).toFixed(1)} s`, 'RUN.'] };
-    if (e.type === 'claw') return { title: 'CLAW RIG', lit: (e.pw ?? 0) > 0.05, lines: [powerLine(e), `${g.machines.count('claw')} of ${T.rigMax} rigs placed`, 'Plucks the highest plush in reach and sells it.'] };
+    if (e.type === 'claw') return { title: 'CLAW RIG', lit: (e.pw ?? 0) > 0.05, lines: [powerLine(e), `${PI.ownedCount(g, 'claw')} of ${T.rigMax} rigs placed${g.net && g.net.open ? ' by you' : ''}`, 'Plucks the highest plush in reach and sells it.'] };
     if (e.type === 'borer') return { title: 'TUNNEL BORER', lit: (e.pw ?? 0) > 0.05 && !e.done, lines: [e.done ? 'Finished or halted' : e.hold ? `Stopped short: ${e.hold}` : powerLine(e), `${e.steps || 0} steps bored, ${e.w}x${e.h} wide`, 'Lines the tunnel behind it with the strongest frame that holds at that depth.'] };
     if (isEarth(e.type)) return earthInfo(g, e);
     if (e.type === 'beacon') return { title: 'DEPOT BEACON', lit: (e.pw ?? 0) > 0.05, lines: ['Sorts and sells what you carry, fast travel and recall point.', 'E opens the travel menu.'] };

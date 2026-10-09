@@ -117,8 +117,8 @@ export default async function (ctx) {
     const { i, k } = spot(); p().pos.set(cellX(i + 4), 0, cellZ(k)); adv(0.3);
     const newSp = []; for (let a = GEN2_ARCH; a < ARCH_COUNT; a++) newSp.push(species.findIndex((s, id) => id > 0 && s && s.arch === a && s.pal === a % PAL_COUNT && !s.pat));
     const specials = [pd.NEEDLE, pd.BULK, pd.REMAINS, pd.CACHE, ...pd.DECOYS];
-    const all = [...newSp, ...specials]; const cells = [];
-    all.forEach((sp, n) => { const ci = i + 8 + (n % 10) * 2, ck = k + 2 + Math.floor(n / 10) * 3, cj = w().topAt(ci, ck) + 2; cells.push([ci, cj, ck, sp]); w().setCell(ci, cj, ck, sp, n & 127); });
+    const all = [...newSp, ...specials]; const cells = [];   // (all placed within a few metres of the camera: on a steep slope the old spread put the last ones 20 m away and up, where they were not instanced, and the count then depended on the world)
+    all.forEach((sp, n) => { const ci = i + 4 + (n % 10), ck = k + 2 + Math.floor(n / 10), cj = w().topAt(ci, ck) + 2; cells.push([ci, cj, ck, sp]); w().setCell(ci, cj, ck, sp, n & 127); });
     const cam = r.camera.position; for (let n = 0; n < 400 && (r.pending.length || w().dirtyChunks.size); n++) r.updateChunks(cam, 40);
     r.rebuildInstances(cam, true); const missing = [];
     for (const [, , , sp] of cells) { const a = species[sp].arch; if (r.hiCount[a] + r.loCount[a] < 1) missing.push(`${species[sp].name} (arch ${a}) not instanced as a cell`); }

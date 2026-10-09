@@ -2,6 +2,7 @@ import { FRAME_TYPES, GEAR, UPGRADES } from './upgrades.js';
 import { CART_CAP, CART_NAMES, CART_PRICE } from './cart.js';
 import { EARTH, earthTune } from './earth.js';
 import { catalogRecipes } from './catalog.js';
+import * as PI from './playerinv.js';
 
 // How to use each thing, shown on the bench card and as a hint right after you craft it.
 const USE = {
@@ -115,9 +116,9 @@ export function recipes(g) {
   const status = (r) => {
     if (r.kind === 'cart') { const t = +r.id.split(':')[1]; return cartTier >= t ? (cartTier === t ? (g.myCart() ? `In use: rolled out (${g.myCart().load.length}/${CART_CAP[t]})` : 'You have this one in your pack') : 'You already have a better cart') : (cartTier ? `Upgrade from your ${CART_NAMES[cartTier]}: +${CART_CAP[t] - CART_CAP[cartTier]} capacity` : 'You have no cart yet'); }
     if (r.kind === 'frame') { const f = FRAME_TYPES[r.fk]; return `Rated to ${isFinite(f.maxDepth) ? f.maxDepth + ' m' : 'any'} depth. Reach ${f.radius} m from the centre of its 2.4 m cube: set them flush (4 cells apart) for a solid lining, or leave a gap near the surface and let the reach cover it: closer together the deeper you go. ${FRAME_NOTE[r.fk] || ''}`; }
-    if (r.kind === 'claw') return `${g.machines.count('claw')} of ${g.T.rigMax} rigs placed`;
+    if (r.kind === 'claw') return `${PI.ownedCount(g, 'claw')} of ${g.T.rigMax} rigs placed${g.net && g.net.open ? ' by you' : ''}`;
     if (r.kind === 'mech') return `${g.logi.count('mech')} of ${g.T.mechMax} mechs placed`;
-    if (r.kind === 'borer') return `${g.machines.count('borer')} of ${g.T.borerMax} borers placed`;
+    if (r.kind === 'borer') return `${PI.ownedCount(g, 'borer')} of ${g.T.borerMax} borers placed${g.net && g.net.open ? ' by you' : ''}`;
     if (EARTH[r.kind]) return `${g.machines.count(r.kind)} of ${earthTune(g.T, r.kind).max} ${EARTH[r.kind].short.toLowerCase()}s placed`;
     return r.statusFn ? r.statusFn(g, r) : '';
   };

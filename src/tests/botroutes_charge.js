@@ -66,6 +66,10 @@ export default async function (ctx) {
   await X.guard('botroutes.charge.two-bots-take-the-two-slots-of-one-station-and-a-third-waits-for-one-to-free', async () => {
     const P = await X.platform(I0(), K0()); arena(P, P.ramp);
     const ch = X.charger(P.i0 + 2, P.k0 + 2, 1, { reserve: 8 });
+    // the bin is a few metres east of the arena: a bot that waits for a slot walks to the bin by the old straight walk, and with the fence round the platform in the way it hops up the plush
+    // and hangs on the rim in the air, where it can be asked for no way (a flake that depended on where it was at each second). The bin is moved north of the fence so the walk is clear.
+    const undoHome = X.homeAt(X.cellX(P.i0 - 7), X.cellZ(P.k0 - 8));
+    try {
     const bots = [0, 1, 2].map((n) => { const b = X.mkBot(X.cellX(P.i0 - 7 - n * 0.4), X.cellZ(P.k0 + 1 + n * 0.5)); b.battery = 0.2; return b; });
     X.run(0.3);
     const on = (b) => b.chg === ch.id; const n = bots.filter(on).length; if (n !== 2) return n + ' bots took the station, two slots: ' + bots.map((b) => b.state + '/' + b.chg).join();
@@ -73,7 +77,8 @@ export default async function (ctx) {
     const third = bots.find((b) => !on(b)); if (!third || third.state === 'chgwalk') return 'the third is on its way too';
     let max = 0; X.run(120, () => { max = Math.max(max, bots.filter((b) => (b.state === 'recharge' || b.state === 'chgwalk') && b.chg === ch.id).length); return bots.every((b) => b.battery > 0.9 && NAV.isGround(b) && !callOf(b)); });
     if (max > 2) return 'three bots at once: ' + max;
-    return bots.every((b) => b.battery > 0.85) || 'batteries ' + bots.map((b) => b.battery.toFixed(2)).join();
+    return bots.every((b) => b.battery > 0.85) || 'batteries ' + bots.map((b) => b.battery.toFixed(2)).join() + ' states ' + bots.map((b) => `${b.state}/${b.chg}/${b.x.toFixed(1)},${b.y.toFixed(1)},${b.z.toFixed(1)}`).join() + ' calls ' + RT.callsOf(g, ch.id).length + ' column ' + [0, 1, 2, 3, 4].map((j) => w().get(ctx.toI(bots[2].x), j, ctx.toK(bots[2].z))).join() + ' nav ' + NAV.codeOf(bots[2]) + ' vy ' + bots[2].vy.toFixed(2) + ' home ' + JSON.stringify(g.crew.home(bots[2])) + ' station ' + ch.i + ',' + ch.k + ' ' + X.dump();
+    } finally { undoHome(); }
   });
 
   await X.guard('botroutes.charge.a-fuel-trip-the-battery-cannot-finish-goes-to-the-nearest-open-charger-first', async (toasts) => {

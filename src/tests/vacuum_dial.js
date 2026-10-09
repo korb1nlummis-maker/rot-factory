@@ -80,26 +80,41 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('vacdial.alt-minus-and-alt-equals-turn-the-vacuum-and-the-plain-keys-still-turn-the-scoop', async () => {
+  await T('vacdial.bracket-keys-turn-the-vacuum-the-plain-keys-still-turn-the-scoop-and-the-old-alt-keys-do-nothing', async () => {
     const bad = []; own({ scoop: 4, vac: 5, cyclone: 4 });
-    key('Equal'); if (g.scoopNow() !== 6 || g.vacPct() !== 30) bad.push(`= : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
-    alt('Equal'); if (g.scoopNow() !== 6 || g.vacPct() !== 40) bad.push(`Alt+= : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
-    alt('Minus'); alt('Minus'); if (g.scoopNow() !== 6 || g.vacPct() !== 20) bad.push(`Alt+- twice: scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
-    key('Minus'); if (g.scoopNow() !== 3 || g.vacPct() !== 20) bad.push(`- : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
-    key('Equal', { shiftKey: true }); if (g.scoopNow() !== 6 || g.vacPct() !== 20) bad.push(`Shift+= is still the scoop: scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
-    key('Equal', { altKey: true, ctrlKey: true }); key('Equal', { altKey: true, metaKey: true }); if (g.vacPct() !== 20) bad.push('Ctrl+Alt or Cmd+Alt must not count: ' + g.vacPct());
-    // with a belt in hand (a tool that has its own use for - and =): Alt+= and the buttons still turn the vacuum
-    const ct = g.curTool; g.curTool = () => ({ kind: 'belt', id: 'belt' });
-    try { alt('Equal'); if (g.vacPct() !== 30) bad.push('Alt+= with a belt in hand: ' + g.vacPct()); g.ui.dials.el('vacuum').querySelector('.sb.up').click(); if (g.vacPct() !== 40) bad.push('the + button with a belt in hand: ' + g.vacPct()); } finally { g.curTool = ct; }
+    const steps = []; const cyc = g.cycleTool; g.cycleTool = (d) => { steps.push(d); };
+    try {
+      key('Equal'); if (g.scoopNow() !== 6 || g.vacPct() !== 30) bad.push(`= : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
+      key('BracketRight'); if (g.scoopNow() !== 6 || g.vacPct() !== 40) bad.push(`] : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
+      key('BracketLeft'); key('BracketLeft'); if (g.scoopNow() !== 6 || g.vacPct() !== 20) bad.push(`[ twice: scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
+      if (steps.length) bad.push('[ and ] with bare hands and the vacuum owned stepped the hotbar: ' + steps);
+      key('Minus'); if (g.scoopNow() !== 3 || g.vacPct() !== 20) bad.push(`- : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
+      key('Equal', { shiftKey: true }); if (g.scoopNow() !== 6 || g.vacPct() !== 20) bad.push(`Shift+= is still the scoop: scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
+      // the old Alt keys no longer touch the vacuum (and are not the scoop either: a bare key does not fire with Alt held)
+      const sc = g.scoopNow(); alt('Equal'); alt('Minus'); alt('Minus'); if (g.vacPct() !== 20 || g.scoopNow() !== sc) bad.push(`Alt+= and Alt+- must do nothing now: scoop ${g.scoopNow()} (was ${sc}) vacuum ${g.vacPct()}`);
+      key('BracketRight', { altKey: true }); key('BracketRight', { ctrlKey: true }); key('BracketRight', { metaKey: true }); if (g.vacPct() !== 20) bad.push('Alt, Ctrl or Cmd with ] must not count: ' + g.vacPct());
+      // with a belt in hand (a tool): [ and ] step the hotbar instead and leave the dial alone; the dial buttons still turn the vacuum
+      const ct = g.curTool; g.curTool = () => ({ kind: 'belt', id: 'belt' });
+      try {
+        key('BracketRight'); key('BracketLeft'); if (g.vacPct() !== 20) bad.push('[ ] with a belt in hand turned the vacuum: ' + g.vacPct());
+        if (steps.join() !== '1,-1') bad.push('[ ] with a belt in hand should step the hotbar +1 then -1, got ' + steps.join());
+        g.ui.dials.el('vacuum').querySelector('.sb.up').click(); if (g.vacPct() !== 30) bad.push('the + button with a belt in hand: ' + g.vacPct());
+      } finally { g.curTool = ct; }
+    } finally { g.cycleTool = cyc; }
+    // before the vacuum is owned [ and ] step the hotbar
+    own({ scoop: 4 }); const st2 = []; g.cycleTool = (d) => { st2.push(d); }; try { key('BracketRight'); key('BracketLeft'); } finally { g.cycleTool = cyc; } if (st2.join() !== '1,-1') bad.push('without the vacuum [ ] should step the hotbar, got ' + st2.join());
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('vacdial.the-controls-table-lists-the-alt-keys-and-says-what-they-do', async () => {
+  await T('vacdial.the-controls-table-lists-the-bracket-keys-and-says-what-they-do', async () => {
     const bad = []; const rows = CONTROLS.flatMap((gr) => gr.rows);
-    const r = rows.find((x) => x.keys.includes('Alt') && x.codes.includes('Minus') && x.codes.includes('Equal'));
-    if (!r) return 'no Alt + - and = row in CONTROLS';
+    const r = rows.find((x) => x.ids.includes('vacLess')), r2 = rows.find((x) => x.ids.includes('vacMore'));
+    if (!r || !r2) return 'no vacuum rows in CONTROLS';
+    if (r.keys.join('') !== '[' || r2.keys.join('') !== ']') bad.push('keys ' + r.keys.join('') + ' ' + r2.keys.join(''));
+    if (rows.some((x) => x.keys.includes('Alt'))) bad.push('a row still lists Alt');
     for (const word of ['VACUUM', '10 percent', '30 percent', '1 plush a second', 'narrows the cone', 'plain grab', 'own setting']) if (!r.what.includes(word)) bad.push('row lacks "' + word + '"');
-    const s = rows.find((x) => x.keys.join('') === '-='); if (!s || !/from 0/.test(s.what) || !/starting at 3/.test(s.what) || !/Alt/.test(s.what)) bad.push('the scoop row: ' + (s && s.what.slice(0, 160)));
+    const s = rows.find((x) => x.ids.includes('scoopLess')); if (!s || s.keys.join('') !== '-' || !/from 0/.test(s.what) || !/starting at 3/.test(s.what)) bad.push('the scoop row: ' + (s && s.what.slice(0, 160)));
+    const hb = rows.find((x) => x.ids.includes('hbprev')); if (!hb || hb.keys.join('') !== '[' || !/vacuum/i.test(hb.what)) bad.push('the hotbar row does not say it shares [ with the vacuum dial');
     return bad.length === 0 || bad.join('; ');
   });
 
@@ -126,7 +141,7 @@ export default async function (ctx) {
     setDial(0, 0); W.refill(); g.vacT = 0; g.grabCd = 0; let [eye, dir] = W.stand(); g.curTargetRef = g.findTarget(eye, dir); if (!g.curTargetRef) return 'no target at the wall';
     g.holdBlock = false; g.throwHold = false; g.gPress(); if (S().carry.length !== 1 || g.vacT > 0) bad.push(`0%: click took ${S().carry.length}, vacT ${g.vacT}`);
     // 0: holding the grab takes plush by hand, and never the burst
-    S().carry = []; g.keys = { KeyG: true }; g.gDownAt = 0; for (let n = 0; n < 30; n++) { g.grabCd = Math.max(0, g.grabCd - 0.033); g.interact(0.033, eye, dir); }
+    S().carry = []; g.keys = { Mouse0: true }; g.gDownAt = 0; for (let n = 0; n < 30; n++) { g.grabCd = Math.max(0, g.grabCd - 0.033); g.interact(0.033, eye, dir); }
     g.keys = {}; const held = S().carry.length; if (held < 3 || held > 40 || g.vacT > 0) bad.push(`0%: holding took ${held} (vacT ${g.vacT})`);
     setDial(50, 0); W.refill(); g.vacT = 0; g.grabCd = 0; [eye, dir] = W.stand(); g.curTargetRef = g.findTarget(eye, dir); g.gPress(); if (!(g.vacT > 0) || S().carry.length !== 0) bad.push(`50%: a click should start the burst (vacT ${g.vacT}, carry ${S().carry.length})`);
     g.vacT = 0; clearBodies(); S().carry = [];
@@ -212,7 +227,7 @@ export default async function (ctx) {
     g.net.open = true; g.net.role = 'guest'; g.guestReady = true; g.netSend = (...a) => { sent++; void a; };
     try {
       if (!g.isGuest()) return 'not a guest'; if (g.vacPct() !== 30 || g.scoopNow() !== 3) bad.push('a guest starts at the defaults: ' + g.vacPct() + ' ' + g.scoopNow());
-      alt('Equal'); alt('Equal'); key('Equal'); hud(); if (g.vacPct() !== 50 || g.scoopNow() !== 6) bad.push('guest keys: ' + g.vacPct() + ' ' + g.scoopNow()); if (VD().val !== '59' || VD().unit !== '/ 118') bad.push('guest dial ' + VD().val + VD().unit);
+      key('BracketRight'); key('BracketRight'); key('Equal'); hud(); if (g.vacPct() !== 50 || g.scoopNow() !== 6) bad.push('guest keys: ' + g.vacPct() + ' ' + g.scoopNow()); if (VD().val !== '59' || VD().unit !== '/ 118') bad.push('guest dial ' + VD().val + VD().unit);
       g.ui.dials.el('vacuum').querySelector('.sb.dn').click(); g.ui.dials.el('scoop').querySelector('.sb.dn').click(); if (g.vacPct() !== 40 || g.scoopNow() !== 3) bad.push('guest buttons: ' + g.vacPct() + ' ' + g.scoopNow());
       if (sent) bad.push(sent + ' network messages for a dial change: the setting is the guest\'s own');
       if (S().vacSet !== 40) bad.push('stored in the guest\'s own state: ' + S().vacSet);
@@ -237,7 +252,7 @@ export default async function (ctx) {
     hooks.release = (i, j, k) => { const r = rel(i, j, k); if (r) roof++; return r; };
     hooks.releaseIsland = (cs, from, n, is) => { isl += Math.max(0, n - from); return relI(cs, from, n, is); };
     const zc = (cellZ(lo) + cellZ(lo + wd - 1)) / 2; let s = 2, ticks = 0;
-    g.keys = { KeyG: true }; g.stowed = true; g.holdBlock = false; g.gDownAt = 0; g.vacT = 0; g.throwHold = false;
+    g.keys = { Mouse0: true }; g.stowed = true; g.holdBlock = false; g.gDownAt = 0; g.vacT = 0; g.throwHold = false;
     try {
       while (s < len && ticks < 30 * 240) {
         while (s < len && !prof(s).some((c) => w().get(c[0], c[1], c[2]))) s++;

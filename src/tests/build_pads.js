@@ -200,8 +200,8 @@ export default async function (ctx) {
     const pads = S().entities.filter((e) => e.type === 'pad'); if (pads.length !== 5 || new Set(pads.map((e) => e.grp)).size !== 1 || S().items['pad:timber'] !== n0 - 5) bad.push(`release placed ${pads.length}, items ${S().items['pad:timber']} of ${n0}`);
     if (g._bhold) bad.push('the hold is still set after the release');
     for (const e of pads) g.doDecon({ kind: 'mach', id: e.id });
-    // a left click works the same (the mouse sets KeyG), and putting the tool away cancels
-    const f2 = await start(); void f2; g.keys.KeyB = false; g.keys.KeyG = true; tick(); if (!g._bhold) bad.push('left click held: the hold ended'); g.keys.KeyG = false; tick(); if (S().entities.filter((e) => e.type === 'pad').length !== 1) bad.push('the click release did not place the one pad');
+    // a left click works the same (the mouse sets Mouse0), and putting the tool away cancels
+    const f2 = await start(); void f2; g.keys.KeyB = false; g.keys.Mouse0 = true; tick(); if (!g._bhold) bad.push('left click held: the hold ended'); g.keys.Mouse0 = false; tick(); if (S().entities.filter((e) => e.type === 'pad').length !== 1) bad.push('the click release did not place the one pad');
     for (const e of S().entities.filter((x) => x.type === 'pad')) g.doDecon({ kind: 'mach', id: e.id });
     await start(); drag(i + 16, k); await plan(); g.stowed = true; g.keys.KeyB = false; tick(); if (S().entities.some((e) => e.type === 'pad') || g._bhold) bad.push('stowing the tool did not cancel the drag'); g.stowed = false;
     // a refused anchor spot does not start a hold: the old refusal comes back
@@ -470,7 +470,7 @@ export default async function (ctx) {
 
   await guard('build.controls-list-the-shell-keys', async () => {
     const rows = CONTROLS.flatMap((gr) => gr.rows), bad = [];
-    for (const [keys, re] of [[['-', '='], /zoop/i], [['Shift', 'R'], /nudge/i], [['X'], /Shift\+X/]]) { const r = rows.find((x) => x.keys.join('+') === keys.join('+')); if (!r || !re.test(r.what)) bad.push('no row for ' + keys.join('+')); else if (/[—–]/.test(r.what)) bad.push('dash in ' + keys.join('+')); }
+    for (const [keys, re] of [[['-'], /zoop/i], [['='], /zoop/i], [['Shift', 'R'], /nudge/i], [['X'], /Shift\+X/]]) { const r = rows.find((x) => x.keys.join('+') === keys.join('+')); if (!r || !re.test(r.what)) bad.push('no row for ' + keys.join('+')); else if (/[—–]/.test(r.what)) bad.push('dash in ' + keys.join('+')); }
     const rr = rows.find((r) => r.codes.includes('Mouse2')); if (!rr || !/turns a floor pad/.test(rr.what)) bad.push('the R row does not mention turning build pieces');
     return bad.length === 0 || bad.join(' || ');
   });

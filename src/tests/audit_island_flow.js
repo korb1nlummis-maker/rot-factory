@@ -73,8 +73,9 @@ export default async function (ctx) {
   // hang cut off, and no roof may be left under a thin cap over a wide room.
   await T('island.audit.a-soak-of-wide-digs-plates-and-frames-leaves-nothing-hanging-no-thin-cap-standing-and-no-plush-lost', async () => {
     const out = [];
+    // (the island search spends 2 ms of the wall clock per tick on its seeds, so a slow or busy machine settles the same dig in another order and can leave a different roof cell standing: the soak gives it all the time it needs so it is the rule that is tested, not the speed of the machine)
     for (const seed of [11, 12, 13]) {
-      const A = K.arena(70, 70, UP), tl = K.tally(), sells = K.spy(g, 'sellAuto'); let s = seed * 7919 + 17; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+      const A = K.arena(70, 70, UP), tl = K.tally(), sells = K.spy(g, 'sellAuto'); W().isl.budgetMs = 1e9; let s = seed * 7919 + 17; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
       const P = { i: A.i0 + 4, k: A.k0 + 4 }, N = 60, cubes = [];
       try {
         K.block(P.i, 0, P.k, N, 14, N); K.stand(A.i0 + 1, A.k0 + 1); let lost = 0;

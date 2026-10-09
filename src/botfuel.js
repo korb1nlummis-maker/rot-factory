@@ -92,7 +92,7 @@ export const enabled = (g, b) => !!b && g.S.crewFuel !== false && !b.fuelOff;
 // the machines that eat plush, rebuilt twice a second (a world with thousands of belts is not walked for every bot)
 export function machines(g) {
   const c = g._fuelMach, now = g.time || 0;
-  if (c && c.L === g.logi && Math.abs(now - c.t) < 0.5 && c.n === g.logi.tiles.size) return c.list;
+  if (c && c.L === g.logi && Math.abs(now - c.t) < 0.5 && c.n === g.logi.tiles.size && c.list.every((t) => g.logi.byId.get(t.id) === t)) return c.list;   // (a machine taken down and another put up inside the half second leaves the count as it was: the list is only kept while every machine in it is still the one standing there)
   const list = []; for (const t of g.logi.tiles.values()) if (t.type === 'gen' || t.type === 'charger') list.push(t);
   g._fuelMach = { L: g.logi, t: now, n: g.logi.tiles.size, list };
   return list;

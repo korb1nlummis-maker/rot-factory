@@ -7,7 +7,7 @@
 //            more plus one RARE thing). Cash is minutes of your income, never more than 15% of the cheapest upgrade you could buy. Nothing here can be The One.
 //   Where    findSpot: the nearest clear floor spot around the base, never inside plush, a wall, a machine or the hall furniture.
 //   Net      the host rolls, flies and opens; a guest sees the same drone and crate from the `xrow` rows of the type 'care' (catalog.js TYPES, registered below) and
-//            opens one with the `careOpen` command. Items are the company's shared inventory (S.items), so whoever opens it, the pack is the same one.
+//            opens one with the `careOpen` command. Items go in the bag of whoever opens it (playerinv.js invFor): the host's S.items, or the friend's own bag.
 //   Cost     nothing but a counter per frame while no drone flies and no crate stands (`tick` returns early; a 2 s poll watches the clock and the milestones).
 //   Saves    S.care is plain JSON: the claimed ids, the schedule window, the queue, the crates on the ground and a drone in flight (which simply lands at load).
 import * as THREE from 'three';
@@ -18,6 +18,7 @@ import { recipes } from './crafting.js';
 import { UPGRADES, CATS, FRAME_TYPES, isUnlocked } from './upgrades.js';
 import { speciesCount, dexTally } from './plushdata.js';
 import * as BINS from './bins.js';
+import * as PI from './playerinv.js';
 import { mulberry32, fmt, clamp, escHtml } from './util.js';
 
 // ------------------------------------------------------------------ tuning
@@ -371,18 +372,18 @@ function applyFx(g, kind, v, opener) {
   }
   return true;
 }
-// put what fits into the shared inventory; what does not fit stays in the crate. Returns the text of what was handed over.
-// whose bag a pack goes in: today the company has one (S.items). When the per-player bags of DESIGN_SATISFACTORY.md section 19 exist (S.ginv, the guest's), a guest's pack goes there.
-export const invFor = (g, opener) => { const S = g.S; if (opener === 'g' && S.ginv && typeof S.ginv === 'object') return S.ginv; S.items = S.items || {}; return S.items; };
+// put what fits into the opener's own bag; what does not fit stays in the crate. Returns the text of what was handed over.
+// whose bag a pack goes in: the opener's (playerinv.js: 'g' is the friend's bag, anything else the host's)
+export const invFor = (g, opener) => PI.invFor(g, opener === 'g' ? 'g' : 'h');
 // a cart of any tier, in a bag or out on the floor, means you own one (the first cart is for someone who has none)
-const ownsCart = (g, inv) => !!(g.S.cart || g.S.gcart) || [inv, g.S.items || {}].some((b) => Object.keys(b).some((k) => k.startsWith('cart:') && b[k] > 0));
+const ownsCart = (g, inv, opener) => !!(opener === 'g' ? g.S.gcart : g.S.cart) || Object.keys(inv).some((k) => k.startsWith('cart:') && inv[k] > 0);
 export function grant(g, cr, opener = 'h') {
   const S = g.S, got = [], inv = invFor(g, opener);
   const items = [];
   for (const it of cr.items) {
     const [id, n] = it, have = inv[id] | 0, room = Math.max(0, capOf(id) - have);
     const unique = TABLE.some((t) => t.item === id && t.unique);
-    const give = unique && ownsCart(g, inv) ? 0 : Math.min(n, room);
+    const give = unique && ownsCart(g, inv, opener) ? 0 : Math.min(n, room);
     if (give > 0) { inv[id] = have + give; got.push([id, give]); }
     if (n - give > 0 && !unique) items.push([id, n - give]);   // (a unique thing that is not wanted is gone, not left to hold the crate shut for ever)
   }

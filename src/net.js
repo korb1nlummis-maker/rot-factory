@@ -205,6 +205,25 @@ export class RemotePlayer {
     const yaw = +msg.yaw, pitch = +msg.pitch;
     this.target.set(mx, my, mz); this.targetYaw = Number.isFinite(yaw) ? yaw : this.targetYaw; this.pitch = Number.isFinite(pitch) ? pitch : this.pitch; this.lampOn = msg.lamp !== false; this.fresh = performance.now(); }
 
+  // what they hold: the tool in their hand (its icon) and how many plush they carry, a small badge at their right hand (playerinv.js heldSeen)
+  setHeld(icon, n, id) {
+    const key = icon + '|' + n; if (key === this._heldKey) return;
+    this._heldKey = key; this.heldId = id || ''; this.heldIcon = icon || ''; this.heldPlush = n | 0;
+    if (!icon && !n) { if (this.held) this.held.visible = false; return; }
+    if (!this.held) {
+      const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; this._heldCv = cv;
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; this._heldTex = tex;
+      this.held = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+      this.held.scale.set(0.5, 0.25, 1); this.held.position.set(0.32, 1.12, 0.1); this.held.renderOrder = 19; this.group.add(this.held);
+    }
+    const c = this._heldCv.getContext('2d'); c.clearRect(0, 0, 128, 64);
+    c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillRect(0, 8, 128, 48);
+    c.font = '34px Helvetica, Arial'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
+    if (icon) c.fillText(icon, 6, 33);
+    if (n) { c.font = '700 24px Helvetica, Arial'; c.fillText((icon ? '' : '🧸') + '×' + n, icon ? 58 : 14, 34); }
+    this._heldTex.needsUpdate = true; this.held.visible = true;
+  }
+
   update(dt) {
     this.pos.lerp(this.target, Math.min(1, dt * 12));
     let d = ((this.targetYaw - this.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;

@@ -48,7 +48,7 @@ export default async function (ctx) {
     const { spot, w, p } = ctx; fresh({ bag: 4 }); g.T = g.tune(); g.stowed = true; const sp0 = spot(); const bad = [];
     const cell = (di) => { const i = sp0.i + di, j = 1, k = sp0.k; w().setCell(i, j, k, 3, 0); return { type: 'cell', i, j, k, sp: 3, vr: 0 }; };
     const carry = (n) => { S().carry = []; for (let q = 0; q < n; q++) S().carry.push({ sp: 4, vr: 0 }); g.ui.setCarry(S().carry, g.T.carry); };
-    g.keys.KeyG = false; g.holdBlock = false; g.throwHold = false;
+    g.keys.Mouse0 = false; g.holdBlock = false; g.throwHold = false;
     // holding 2 of 6 and aiming at a plush: a click picks it up (not a throw)
     carry(2); g.curTargetRef = cell(5); g.throwCd = 0; const n0 = g.sim.n; g.gPress(); if (S().carry.length !== 3) bad.push('click with room should grab: carry ' + S().carry.length); if (g.sim.n > n0) bad.push('it threw instead of picking up');
     // full and aiming at a plush: the click throws
@@ -56,10 +56,10 @@ export default async function (ctx) {
     // nothing aimed at: the click throws
     carry(3); g.curTargetRef = null; g.throwCd = 0; g.gPress(); if (S().carry.length !== 2) bad.push('no target should throw: ' + S().carry.length);
     // holding the button after that throw keeps throwing, several a second
-    carry(20); g.T.carry = 20; g.curTargetRef = null; g.throwCd = 0; g.keys.KeyG = true; g.gPress(); const cam = g.renderer.camera; const f = new cam.position.constructor(); g.player.forward(f);
+    carry(20); g.T.carry = 20; g.curTargetRef = null; g.throwCd = 0; g.keys.Mouse0 = true; g.gPress(); const cam = g.renderer.camera; const f = new cam.position.constructor(); g.player.forward(f);
     for (let n = 0; n < 20; n++) { g.time += 0.05; g.throwCd -= 0.05; g.interact(0.05, cam.position, f); }
     const thrown = 20 - S().carry.length; if (thrown < 5) bad.push('holding threw only ' + thrown + ' in a second');
-    g.keys.KeyG = false; g.interact(0.05, cam.position, f); if (g.throwHold) bad.push('throw hold stayed on after release'); g.curTargetRef = null;
+    g.keys.Mouse0 = false; g.interact(0.05, cam.position, f); if (g.throwHold) bad.push('throw hold stayed on after release'); g.curTargetRef = null;
     return bad.length === 0 || bad.join('; ');
   });
   await T('ui.stress-lens-boxes-can-be-switched-off-in-the-pause-menu', async () => {
@@ -89,9 +89,9 @@ export default async function (ctx) {
   });
   await T('hands.throwing-with-empty-hands-empties-the-cart-next-to-you', async () => {
     fresh({ cart: 3, bag: 2 }); g.T = g.tune(); g.stowed = true; const st = S(); st.items['cart:1'] = 1; g.useCart(); const c = st.cart; if (!c) return 'no cart'; const bad = [];
-    const P = g.player.pos; c.x = P.x + 1.5; c.z = P.z; c.mode = 'stay'; c.load = []; for (let q = 0; q < 6; q++) c.load.push({ sp: 3, vr: 0 }); st.carry = []; g.curTargetRef = null; g.throwCd = 0; g.keys.KeyG = false;
+    const P = g.player.pos; c.x = P.x + 1.5; c.z = P.z; c.mode = 'stay'; c.load = []; for (let q = 0; q < 6; q++) c.load.push({ sp: 3, vr: 0 }); st.carry = []; g.curTargetRef = null; g.throwCd = 0; g.keys.Mouse0 = false;
     const n0 = g.sim.n; g.gPress(); if (c.load.length !== 5) bad.push('one click did not throw from the cart: ' + c.load.length); if (g.sim.n <= n0) bad.push('no plush flew');
-    const cam = g.renderer.camera; const f = new cam.position.constructor(); g.player.forward(f); g.keys.KeyG = true; for (let n = 0; n < 24; n++) { g.time += 0.05; g.throwCd -= 0.05; g.interact(0.05, cam.position, f); } g.keys.KeyG = false; g.interact(0.05, cam.position, f);
+    const cam = g.renderer.camera; const f = new cam.position.constructor(); g.player.forward(f); g.keys.Mouse0 = true; for (let n = 0; n < 24; n++) { g.time += 0.05; g.throwCd -= 0.05; g.interact(0.05, cam.position, f); } g.keys.Mouse0 = false; g.interact(0.05, cam.position, f);
     if (c.load.length > 1) bad.push('holding did not empty the cart: ' + c.load.length + ' left');
     c.x = P.x + 12; c.load.push({ sp: 3, vr: 0 }, { sp: 3, vr: 0 }); g.throwCd = 0; const k = c.load.length; g.gPress(); if (c.load.length !== k) bad.push('threw from a cart 12 m away');
     return bad.length === 0 || bad.join('; ');

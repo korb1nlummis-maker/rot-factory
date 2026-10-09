@@ -2,6 +2,7 @@
 // by switching g.net.role and capturing g.netSend (the same way mp.vscan.* does). The host owns the ents, the Portal's progress and the trucks; the guest draws the same
 // thing, asks through commands the host rebuilds from a few integers, and a forged field never survives.
 import { makeKit, UP, ARCH, PORTAL } from './portal_lib.js';
+import { sectionCells } from '../arches.js';
 import * as HAUL from '../haul.js';
 import { EARTH, STATES, earthRow, applyEarthRow } from '../earth.js';
 import { infoFor } from '../info.js';
@@ -40,8 +41,8 @@ export default async function (ctx) {
   });
 
   await guard('mp.arch.guest-place-command-is-rebuilt-by-the-host-and-forgeries-change-nothing', async () => {
-    const st = K.site({ span: 6 }); const bad = []; K.clearBox(st.i0 - 24, st.lo, 20, 6, 5);
-    role('guest'); cap(); S().items['garch:6:steel'] = 3; g.rebuildTools(); selectTool('garch:6:steel'); aimPoint(cellX(st.i0 - 22), 0.2, cellZ(st.lo + 2), 2.4); await plan(); if (!g.plan || !g.plan.ok) return 'guest plan: ' + (g.plan && g.plan.why);
+    const st = K.site({ span: 6 }); const bad = []; K.clearBox(st.i0 - 32, st.lo - 4, 28, 14, 9);   // (the bay and the slope are random: clear where the guest stands, the aim and the arch, from the floor up, so the arch is set on the floor and nothing of the pile is in the way)
+    role('guest'); cap(); S().items['garch:6:steel'] = 3; g.rebuildTools(); selectTool('garch:6:steel'); aimPoint(cellX(st.i0 - 22), 0.2, cellZ(st.lo + 2), 2.4); await plan(); if (!g.plan || !g.plan.ok) return 'guest plan: ' + (g.plan && g.plan.why) + (g.plan && g.plan.ent ? ' ' + JSON.stringify(sectionCells(g.plan.ent).filter(([i, j, k]) => g.logi.cellTaken(i, j, k)).slice(0, 6).map(([i, j, k]) => [i - st.i0, j, k - st.lo, g.logi.tiles.has((j * 16384 + k) * 16384 + i) ? 'tile' : g.logi.cols.has((j * 16384 + k) * 16384 + i) ? 'col' : g.logi.held(i, j, k) ? 'held:' + (g.cellHeld && g.cellHeld(i, j, k) ? 'transit' : g._rail && g._rail.nodes.has((j * 16384 + k) * 16384 + i) ? 'rail' : 'level') : 'reserved'])) : '');
     const n0 = S().entities.length; g.placeCurrent(g.curTool()); const c = sent.find((m) => m.t === 'cmd' && m.c === 'place');
     if (!c || S().entities.length !== n0 || c.d.tool.id !== 'garch:6:steel' || c.d.tool.kind !== 'garch') return 'guest did not only send the command: ' + JSON.stringify(c && c.d && c.d.tool);
     done(); role('host'); cap(); const have = S().items['garch:6:steel']; g.netMessage(json(c)); let made = ents('garch'); if (made.length !== 1) bad.push('host built ' + made.length);

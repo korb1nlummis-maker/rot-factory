@@ -50,16 +50,14 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('mp.intake.the-guests-switch-reaches-the-host-and-stops-the-guests-hands-and-cart', async () => {
+  await T('mp.intake.there-is-no-switch-the-key-and-the-old-intake-command-change-nothing', async () => {
     setup(7); const ts = block(3); role('guest'); hands(20); p().pos.set(cellX(ci()), 0, cellZ(ck())); const bad = [];
-    tick(0.1); const first = cmds('intake'); if (first.length !== 1 || first[0].d.off !== 0) bad.push('the guest did not tell the host it is on: ' + JSON.stringify(first));
-    sent = []; io.tap('Backquote'); if (!S().beltIntakeOff) bad.push('the key did not switch the guest off'); const off = cmds('intake'); if (off.length !== 1 || off[0].d.off !== 1) bad.push('no off command: ' + JSON.stringify(off));
-    sent = []; const n0 = S().carry.length; tick(1, 0.05, clear(ts)); if (S().carry.length !== n0 || cmds('feed').length) bad.push('the guest fed while switched off'); if (cmds('intake').length) bad.push('the guest repeats the same switch every frame');
-    io.tap('Backquote'); sent = []; tick(0.2, 0.05, clear(ts)); if (!cmds('feed').length) bad.push('no feeds after switching on');
-    // the host side: the command sets the flag, and a guest cart stops feeding
+    tick(0.1); if (cmds('intake').length) bad.push('the guest still sends an intake command: ' + JSON.stringify(cmds('intake')));
+    sent = []; io.tap('Backquote'); { const ch = document.getElementById('chatIn'); ch.classList.add('hidden'); ch.blur(); }   /* (the backtick is the chat key now: in co-op it opens the box, which it never did before; it still sets no intake switch) */ if (S().beltIntakeOff !== undefined) bad.push('the key set a switch'); tick(0.2, 0.05, clear(ts)); if (cmds('intake').length) bad.push('the key made the guest send an intake command');
+    sent = []; hands(20); tick(0.5, 0.05, clear(ts)); if (!cmds('feed').length) bad.push('no feeds from the guest after the key');
+    // the host side: an old intake command does nothing, and a guest cart keeps feeding
     role('host'); cap(); friend(cellX(ci()), cellZ(ck())); const c = gcart(10, cellX(ci()) + 0.6, cellZ(ck())); S().carry = [];
-    g.netCmd('intake', { off: 1 }); tick(1, 0.05, clear(ts)); if (c.load.length !== 10) bad.push('the guest\'s cart fed after the guest switched off');
-    g.netCmd('intake', { off: 0 }); tick(1, 0.05, clear(ts)); if (c.load.length === 10) bad.push('the guest\'s cart did not feed after switching on');
+    g.netCmd('intake', { off: 1 }); tick(1, 0.05, clear(ts)); if (c.load.length === 10) bad.push('an old intake off command stopped the guest\'s cart feeding');
     return bad.length === 0 || bad.join('; ');
   });
 

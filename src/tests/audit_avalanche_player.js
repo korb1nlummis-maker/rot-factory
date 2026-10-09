@@ -41,17 +41,21 @@ export default async function (ctx) {
     try {
       reset({}); hi(30); const pos = { x: p().pos.x, y: p().pos.y, z: p().pos.z };
       const free = av().plan(pos, { rnd: () => 0.5, depth: 3 }); if (!free) return 'no plan';
-      let q = 0; for (let n = 0; n < free.n; n++) if (w().topAt(free.ci[n], free.ck[n]) >= 80) { q = n; break; }
+      // the first cell of the slab's footprint that is high enough and where a slab can start from (the slab is planned again from the tunnel, at the same column)
+      let q = -1; for (let n = 0; n < free.n && q < 0; n++) { const t0 = w().topAt(free.ci[n], free.ck[n]); if (t0 >= 30 && av().plan({ x: ctx.cellX(free.ci[n]), y: (t0 - 19) * C + 0.02, z: ctx.cellZ(free.ck[n]) }, { warn: 0.3, depth: 3 })) q = n; }
+      if (q < 0) return 'no cell of the slab is 18 cells up and plannable for the test (the world is random)';
       const ci = free.ci[q], ck = free.ck[q], t = w().topAt(ci, ck), top = t - 3 - 12, j0 = top - 4; if (j0 < 4) return 'the slope is too low at the test spot';
       for (let a = -5; a < 5; a++) for (let b = -5; b < 5; b++) for (let j = j0; j < top; j++) w().removeCell(ci + a, j, ck + b, false);   // a 10 x 10 x 4 cell room, 7 m of pile over it and 2 m of slab on top
+      // (a bare 6 m room under 7 m of pile is a roof that fails by itself, and the plush that falls on the player then is the stability rule, not the rider rule this test is about: a strong support holds it up, and only the room (its reach stops 3 m under the slab: a slab never starts on supported ground). fresh() clears the supports)
+      w().supports.push({ x: ctx.cellX(ci), y: j0 * C + 1.2, z: ctx.cellZ(ck), r: 6, b: 200, id: -777, kind: 'test', cap: 1e12, born: g.time });
       w().creaking.clear(); w().stabQueue.length = 0; g._shedT = g.time + 1e9;
       p().pos.set(ctx.cellX(ci), j0 * C + 0.02, ctx.cellZ(ck)); p().vel.set(0, 0, 0); p().footCell = { i: ci, j: j0 - 1, k: ck }; p().onGround = true; p().swept = 0; g.hp = 100;
-      const a = go({ warn: 0.3, depth: 3 }); if (!a) return 'no slab';
+      let a = null; for (let tr = 0; tr < 6 && !a; tr++) a = go({ warn: 0.3, depth: 3 }); if (!a) return 'no slab';   // (the planner rolls dice: a few tries)
       if (a.rider) bad.push('the player in the tunnel was marked as a rider at the start');
-      let swept = 0, vmax = 0; const y0 = p().pos.y;
-      ride(14, 0.05, () => { if (p().swept > 0) swept++; vmax = Math.max(vmax, Math.hypot(p().vel.x, p().vel.z)); });
+      let swept = 0, vmax = 0; const y0 = p().pos.y; const H = logHurts(); const co0 = S().stats.collapses || 0; let creak = 0;
+      try { ride(14, 0.05, () => { if (p().swept > 0) swept++; vmax = Math.max(vmax, Math.hypot(p().vel.x, p().vel.z)); creak = Math.max(creak, w().creaking.size); }); } finally { H.stop(); }
       if (swept) bad.push('the player in the tunnel was carried for ' + swept + ' frames'); if (vmax > 3) bad.push('and pushed to ' + vmax.toFixed(1) + ' m/s');
-      if (g.hp < 100) bad.push('and hurt: ' + (100 - g.hp));
+      if (g.hp < 100) bad.push('and hurt: ' + (100 - g.hp) + ' ' + JSON.stringify(H.log) + ` (collapses ${(S().stats.collapses || 0) - co0}, most creaking cells ${creak}, bodies ${ctx.sim().n})`);
       void y0;
       return bad.length === 0 || bad.join('; ');
     } finally { reset({}); }

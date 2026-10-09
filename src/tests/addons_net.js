@@ -15,6 +15,8 @@ export default async function (ctx) {
   const close = () => { delete g.netSend; g.net.open = false; g.net.role = null; g.guestReady = false; if (g.world) g.world.onSet = null; };
   const capture = () => { net.sent = []; g.netSend = (m) => { net.sent.push(json(m)); }; };
   const traces = (id, e) => !!(S().entities.some((x) => x.id === id) || L().byId.has(id) || L().objs.has(id) || g.machines.items.has(id) || w().supports.some((s) => s.id === id || s.id === 'shield' + id) || (e && e.i !== undefined && w().reserved.has(cellIdx(e.i, e.j, e.k))));
+  // since Wave 12 the guest's bag comes back in `inv` messages (playerinv.js), not in `shared`: the last count the host's answer gives for an id (undefined when it said nothing about it)
+  const bagIn = (out, id, mats) => { let v; for (const m of out) if (m.t === 'inv') { const a = mats ? m.m : m.i; if (a) for (let n = 0; n + 1 < a.length; n += 2) if (a[n] === id) v = a[n + 1]; } return v; };
   const guestSend = async (id, env, o = {}) => {
     open('guest'); capture(); const n0 = S().entities.length, c0 = S().items[id]; const r = await K.placeAny(id, env, o); const cmds = net.sent.filter((m) => m.t === 'cmd'); close(); return { r, cmds, n0, c0 };
   };
@@ -38,12 +40,12 @@ export default async function (ctx) {
       const ent = S().entities.find((e) => !ids0.has(e.id));
       if (id === 'bulk') {
         const c = msg.d.ent; if (w().get(c.i, c.j, c.k) !== BULK) bad.push('host did not build the bulkhead'); if (!g.netOut.length || g.netOut[3] !== BULK) bad.push('host did not announce the bulkhead cell: ' + g.netOut.slice(0, 5));
-        if (!out.some((m) => m.t === 'shared' && m.items.bulk === S().items.bulk)) bad.push('no shared update'); return bad.length ? bad.join('; ') : true;
+        if ((bagIn(out, 'bulk') || 0) !== (S().items.bulk || 0)) bad.push('no inv update'); return bad.length ? bad.join('; ') : true;
       }
       if (!ent) return 'host created no entity from the command: ' + bad.join(';');
       const plus = out.find((m) => m.t === 'ent+' && m.ent.id === ent.id);
       if (!plus) bad.push('host did not broadcast ent+'); else for (const f of RUNTIME) if (plus.ent[f] !== undefined) bad.push('ent+ carries runtime field ' + f);
-      const sh = out.find((m) => m.t === 'shared'); if (!sh || (sh.items[id] || 0) !== (S().items[id] || 0)) bad.push('shared update missing or stale');
+      if ((bagIn(out, id) || 0) !== (S().items[id] || 0)) bad.push('inv update missing or stale');
       // ---- the guest view builds a copy and drops it
       const D0 = JSON.stringify(K.describe(ent)); g.removeViewEnt(ent.id); if (traces(ent.id, ent)) bad.push('could not clear the host copy for the view test: ' + ent.id);
       open('guest'); capture(); if (plus) g.netMessage(json(plus));
@@ -64,7 +66,7 @@ export default async function (ctx) {
       open('host'); capture(); const kind = L().byId.has(e.id) ? 'tile' : 'mach'; g.netMessage(json({ t: 'cmd', c: 'decon', d: { kind, id: e.id } })); const out = net.sent.slice(); close();
       if ((S().items[item] || 0) !== had + 1) bad.push(`host returned ${(S().items[item] || 0) - had} ${item}`); if (traces(e.id, e)) bad.push('host kept traces');
       if (!out.some((m) => m.t === 'ent-' && m.id === e.id)) bad.push('host did not broadcast ent-');
-      if (!out.some((m) => m.t === 'shared' && (m.items[item] || 0) === (S().items[item] || 0))) bad.push('shared update missing');
+      if ((bagIn(out, item) || 0) !== (S().items[item] || 0)) bad.push('inv update missing');
       // the same command again, and one for an id that never existed: harmless
       open('host'); capture(); g.netMessage(json({ t: 'cmd', c: 'decon', d: { kind, id: e.id } })); g.netMessage(json({ t: 'cmd', c: 'decon', d: { kind: 'mach', id: 999999 } })); close(); if ((S().items[item] || 0) !== had + 1) bad.push('a repeated decon gave another item');
       return bad.length ? bad.join('; ') : true;
@@ -111,9 +113,9 @@ export default async function (ctx) {
     for (const id of RECIPE_IDS) {
       fresh(ALL_UP); S().money = 1e12; const r = ctx.recipes(g).find((x) => x.id === id); open('guest'); capture(); const ok = g.craftItem(id, id.startsWith('mat:') ? 10 : 1); const cmd = net.sent.find((m) => m.c === 'craft'); close();
       if (!ok || !cmd || cmd.d.id !== id) { bad.push(id + ' no craft command'); continue; } if (S().items[id] || (S().mats && Object.keys(S().mats).length)) { bad.push(id + ' guest crafted locally'); continue; }
-      const m0 = S().money; open('host'); capture(); g.netMessage(json(cmd)); const out = net.sent.slice(); close(); const sh = out.find((m) => m.t === 'shared');
-      if (!sh) { bad.push(id + ' no shared update'); continue; } if (m0 - S().money !== r.price * (id.startsWith('mat:') ? 10 : 1) && !id.startsWith('cart:')) bad.push(`${id} host charged ${m0 - S().money}`);
-      const got = id.startsWith('mat:') ? sh.mats[id.slice(4)] : sh.items[id]; if (got !== (id.startsWith('mat:') ? 10 : 1)) bad.push(`${id} shared shows ${got}`);
+      const m0 = S().money; open('host'); capture(); g.netMessage(json(cmd)); const out = net.sent.slice(); close(); const sh = out.find((m) => m.t === 'inv');
+      if (!sh) { bad.push(id + ' no inv update'); continue; } if (m0 - S().money !== r.price * (id.startsWith('mat:') ? 10 : 1) && !id.startsWith('cart:')) bad.push(`${id} host charged ${m0 - S().money}`);
+      const got = id.startsWith('mat:') ? bagIn(out, id.slice(4), true) : bagIn(out, id); if (got !== (id.startsWith('mat:') ? 10 : 1)) bad.push(`${id} the inv message shows ${got}`);
     }
     return bad.length ? bad.slice(0, 6).join('; ') : true;
   });

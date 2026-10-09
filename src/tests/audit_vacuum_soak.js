@@ -31,11 +31,11 @@ export default async function (ctx) {
         else if (a === 1) g.adjustVac(-1);
         else if (a === 2) S().vacSet = junk[Math.floor(rnd() * junk.length)];
         else if (a === 3) { const vac = Math.floor(rnd() * 6); S().up = { ...TOP, vac, cyclone: vac === 5 ? Math.floor(rnd() * 5) : 0 }; g.T = g.tune(); g.T.carry = 1e9; }
-        else if (a === 4) key(rnd() < 0.5 ? 'Minus' : 'Equal', { altKey: true });
+        else if (a === 4) key(rnd() < 0.5 ? 'BracketLeft' : 'BracketRight');
         else if (a === 5) { const b = g.ui.dials.el('vacuum').querySelector(rnd() < 0.5 ? '.sb.up' : '.sb.dn'); if (b) b.click(); }
         else if (a === 6) { W.refill(); const [eye, dir] = W.stand(0.8 + rnd() * 1.6, (rnd() - 0.5) * 14); g.vacT = 1; g.time += 0.1; S().carry = []; g.runVacuum(0.1, eye, dir); }
         else if (a === 7) hud();
-        else if (a === 8) { W.refill(); const [eye, dir] = W.stand(); g.curTargetRef = g.findTarget(eye, dir); g.holdBlock = false; g.throwHold = false; g.grabCd = 0; if (g.curTargetRef) g.gPress(); g.keys = { KeyG: rnd() < 0.5 }; g.gDownAt = 0; for (let q = 0; q < 6; q++) { g.time += 0.033; g.grabCd = Math.max(0, g.grabCd - 0.033); g.interact(0.033, eye, dir); } g.keys = {}; }
+        else if (a === 8) { W.refill(); const [eye, dir] = W.stand(); g.curTargetRef = g.findTarget(eye, dir); g.holdBlock = false; g.throwHold = false; g.grabCd = 0; if (g.curTargetRef) g.gPress(); g.keys = { Mouse0: rnd() < 0.5 }; g.gDownAt = 0; for (let q = 0; q < 6; q++) { g.time += 0.033; g.grabCd = Math.max(0, g.grabCd - 0.033); g.interact(0.033, eye, dir); } g.keys = {}; }
         else if (a === 9) key(rnd() < 0.5 ? 'Minus' : 'Equal');
         else if (a === 10) g.vacT = 0;
         S().carry = [];
@@ -105,11 +105,12 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  // Text: the Alt keys are documented once, in the controls table, and nothing else claims Alt.
-  await T('audvac.the-alt-keys-are-claimed-by-exactly-one-row-and-nothing-else-in-the-table-uses-alt', async () => {
+  // Text: the bracket keys are documented in the controls table (the vacuum rows and the hotbar rows share them), - and = are only the scoop, and nothing uses Alt.
+  await T('audvac.the-bracket-keys-are-claimed-by-the-vacuum-and-hotbar-rows-only-and-nothing-in-the-table-uses-alt', async () => {
     const bad = []; const rows = CONTROLS.flatMap((gr) => gr.rows); const alts = rows.filter((r) => r.keys.some((k) => /^Alt$/i.test(k)));
-    if (alts.length !== 1) bad.push(alts.length + ' rows list Alt');
-    const claim = rows.filter((r) => r.codes.includes('Minus') || r.codes.includes('Equal')); if (claim.length !== 2) bad.push(claim.length + ' rows claim the - and = keys (expected the scoop row and the Alt row)');
+    if (alts.length !== 0) bad.push(alts.length + ' rows list Alt');
+    const br = rows.filter((r) => r.codes.includes('BracketLeft') || r.codes.includes('BracketRight')).flatMap((r) => r.ids).sort().join(); if (br !== 'hbnext,hbprev,vacLess,vacMore') bad.push('bracket rows: ' + br);
+    const claim = rows.filter((r) => r.codes.includes('Minus') || r.codes.includes('Equal')); if (claim.length !== 2) bad.push(claim.length + ' rows claim the - and = keys (expected the two scoop rows)');
     return bad.length === 0 || bad.join('; ');
   });
 }

@@ -439,7 +439,7 @@ export function buildHall(scene) {
     g.textAlign = 'left'; g.font = `500 41px ${hand}`;
     const rules = [
       'Millions of plush. ONE matters: the Rotto.',
-      'Click = grab. - = scoop, Alt - = vacuum.',
+      'Click = grab. - = scoop, [ ] = vacuum.',
       'Stand near the bin: it eats what you carry.',
       'Cash buys bags, tools, belts, crew (E).',
       'Dig tunnels. Prop the roof. F = flashlight.',
@@ -580,13 +580,13 @@ export function buildHall(scene) {
     ['CONTROLS: MOVING AND HANDS', [
       '#Moving', ['W A S D', 'walk'], ['Shift', 'sprint'], ['Space', 'jump (hold: punch up)'], ['C', 'crouch'],
       '#Hands', ['Left click or Z', 'grab (hold) / throw'], ['Right click or P', 'punch'], ['E', 'use what you aim at'],
-      ['F  K', 'flashlight, medkit'], ['U', 'cart out / park'], ['H (hold)', 'recall to depot'], ['`', 'belt intake on / off'], [';', 'pick the bin it sells at'],
-    ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH', 'Backquote', 'Semicolon']],
+      ['F  K', 'flashlight, medkit'], ['U', 'cart out / park'], ['H (hold)', 'recall to depot'], ['B (bare hands)', 'pick the bin it sells at'],
+    ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH', 'KeyB']],
     ['CONTROLS: TOOLS AND SCREENS', [
       '#Tools and building', ['1 to 9, [ ]', 'pick a hotbar tool'], ['Q', 'tool away / out'], ['B (hold)', 'set down / lay belts'], ['Left Right', 'turn a frame (Down: grid)'],
-      ['X', 'take back what you aim at'], ['I', 'inventory'], ['-  =   Alt - =', 'scoop / vacuum dial'],
+      ['X', 'take back what you aim at'], ['I', 'inventory'], ['-  =   [ ]', 'scoop / vacuum dial'],
       '#Crew and screens', ['V', 'crew panel'], ['T / Y', 'dig ahead / call home'], ['Tab', 'upgrade terminal'], ['N  L  J', 'dex, journal, awards'], ['Esc', 'pause menu'],
-    ], 'Wires: Left click a machine, then another.', ['Digit1', 'KeyQ', 'KeyB', 'ArrowLeft', 'ArrowDown', 'KeyX', 'KeyI', 'Minus', 'Equal', 'KeyV', 'KeyT', 'KeyY', 'Tab', 'KeyN', 'KeyL', 'KeyJ', 'Escape']],
+    ], 'Wires: Left click a machine, then another.', ['Digit1', 'KeyQ', 'KeyB', 'ArrowLeft', 'ArrowDown', 'KeyX', 'KeyI', 'Minus', 'Equal', 'BracketLeft', 'BracketRight', 'KeyV', 'KeyT', 'KeyY', 'Tab', 'KeyN', 'KeyL', 'KeyJ', 'Escape']],
   ];
   hall.controlBoards.forEach(([title, rows, foot], n) => makeBoard(8.8, -8.6 + n * 3.2, title, rows, foot, -Math.PI / 2));
 
@@ -652,7 +652,7 @@ export function buildHall(scene) {
     '#Reading it',
     'Chevron arrows show which way it carries.',
     'A gold last piece feeds a bin. Stop there.',
-    '#Belt intake (backtick: on or off)',
+    '#Belt intake (always on)',
     ['Free with belts', '2 plush a second within 2 m'],
     ['Belt Intake upgrade', 'up to 256 a second, 6 m'],
     '#Vacuum Hose',
@@ -740,7 +740,7 @@ export function buildHall(scene) {
     hall.doorLight.intensity = camPos.x > HALL_HX - 80 ? 14 : 0;
     // the ceiling panel flickers in the warehouse, but never behind the title screen (it read as the logo blinking)
     hall.flicker[0].color.setScalar(hall.calm ? 1.9 : 0.7 + 2.5 * (Math.sin(t * 31) * Math.sin(t * 7.3) > -0.82 ? 1 : 0.15));
-    hall.binRim.material.color.setRGB(0.4, 2.2 + Math.sin(t * 3) * 0.5, 0.9);
+    hall.binRim.material.color.setRGB(0.3, 1.15 + Math.sin(t * 3) * 0.25, 0.55);   // the green rim of the bin: a soft green line, not a white ring with a bloom haze over the screen (it was 2.2 to 2.7 in green, three times the bloom threshold)
     hall.binLight.intensity = 5 + Math.sin(t * 9) * 0.8 + Math.sin(t * 23) * 0.6;
     motes.position.set(Math.round(camPos.x / 36) * 36, 0, Math.round(camPos.z / 36) * 36);
     const arr = mg.attributes.position.array;

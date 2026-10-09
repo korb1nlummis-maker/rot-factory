@@ -445,7 +445,7 @@ export function guard(g, tool) { const s = g.bplan; if (s && s.click && s.on && 
 export function dragTick(g, tool) {
   const s = g.bplan, h = s && s.hold; if (!h) return;
   if (!s.click || !s.on || !s.start || !plannerOn(g, tool) || (g.ui && g.ui.isModalOpen && g.ui.isModalOpen())) { s.hold = null; return; }
-  if (g.keys && g.keys.KeyG) return;   // the button is still down
+  if (g.keys && g.keys.Mouse0) return;   // the button is still down
   s.hold = null;
   if (!h.moved && !s.cord) return;
   const p = g.plan;

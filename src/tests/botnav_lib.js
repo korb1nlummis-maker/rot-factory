@@ -107,7 +107,8 @@ export function kit(ctx, o0 = {}) {
   // the same platform with a second ramp on its south side (rises toward -z, ends at the pad's south edge)
   const platform2 = async (i, k, o = {}) => {
     const P = await platform(i, k, o);
-    const r2 = await K.put('wramp', P.pad.i0 + 1, P.pad.k0 + 5, { dir: 3, back: 2.6 });   // (aimed one cell out: the planner snaps it against the pad's south edge) if (!r2.ok) throw new Error('ramp 2: ' + r2.why);
+    const r2 = await K.put('wramp', P.pad.i0 + 1, P.pad.k0 + 5, { dir: 3, back: 2.6 });   // (aimed one cell out: the planner snaps it against the pad's south edge)
+    if (!r2.ok) throw new Error('ramp 2: ' + r2.why);
     return { ...P, ramp2: r2.made[0] };
   };
   const clearAbove = (i0, k0, ni, nk, rows) => { for (let a = 0; a < ni; a++) for (let b = 0; b < nk; b++) for (let j = 0; j < rows; j++) if (w().get(i0 + a, j, k0 + b) && w().get(i0 + a, j, k0 + b) !== PAD && w().get(i0 + a, j, k0 + b) !== BULK) w().removeCell(i0 + a, j, k0 + b, false); };

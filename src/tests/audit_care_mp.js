@@ -11,7 +11,7 @@ export default async function (ctx) {
   const setup = () => {
     fresh(FULL); g.careOff = false; CP.teardown(g); S().care = undefined; S().gameMin = 100; g.mode = 'play'; g.dead = false; g.ui.closeModals(); S().ending = null; S().totalEarned = 0;
     S().stats.rar = [0, 0, 0, 0, 0, 0, 0]; S().stats.maxDepth = 0; S().dex = {}; S().entities = S().entities.filter((e) => e.free);
-    keep.toast = g.ui.toast; g.ui.toast = () => {}; keep.send = g.netSend; g.netSend = () => {}; p().pos.set(0, 0, 2); g.camSky = 1;
+    if (!keep.toast) keep.toast = g.ui.toast; g.ui.toast = () => {}; keep.send = g.netSend; g.netSend = () => {}; p().pos.set(0, 0, 2); g.camSky = 1;
     const C = CP.ensure(g); C.queue.length = 0; return C;
   };
   const done = () => { if (keep.toast) { g.ui.toast = keep.toast; keep.toast = null; } delete g.netSend; delete g.remote; role(null); g.net.role = undefined; g.careOff = true; CP.teardown(g); S().care = undefined; g.netOut.length = 0; g.ui.closeModals(); };

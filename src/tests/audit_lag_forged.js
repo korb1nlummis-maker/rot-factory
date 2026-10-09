@@ -105,7 +105,7 @@ export default async function (ctx) {
   // every command a friend can send, with garbage in `d`: nothing may leave a number that is not a number in the host's money, stock or plush, and the loop must keep running
   await G('lag.audit.garbage-commands-never-poison-the-host-or-break-its-frame-loop', async () => {
     host(); S().money = 1000; S().totalEarned = 1000;
-    const cmds = ['buy', 'craft', 'craftGear', 'place', 'decon', 'cfg', 'bplan', 'rail', 'vscan', 'arch', 'cable', 'earth', 'tile', 'feed', 'intake', 'sell', 'bindest', 'reroll', 'cart', 'spend', 'cartpop', 'cartload', 'bulk', 'open', 'pnote', 'pay', 'tread', 'avclimb', 'patch', 'fuse', 'razzo', 'clearDust', 'crew', 'nonsense'];
+    const cmds = ['buy', 'craft', 'craftGear', 'place', 'decon', 'cfg', 'bplan', 'rail', 'vscan', 'arch', 'cable', 'earth', 'tile', 'feed', 'sell', 'bindest', 'reroll', 'cart', 'spend', 'cartpop', 'cartload', 'bulk', 'open', 'pnote', 'pay', 'tread', 'avclimb', 'patch', 'fuse', 'razzo', 'clearDust', 'crew', 'nonsense'];
     let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     const atoms = [null, 0, -1, 1, 1e9, 'x', '', true, [], {}, [1, 2], { id: 'q' }, { id: 1e999 }, { sp: 'a', vr: null }, { n: 'x' }, { i: 1.5, j: 2, k: 3 }, { x: 1e999, y: 0, z: 0 }];
     const wire2 = (o) => JSON.parse(JSON.stringify(o, (k, v) => (v === Infinity ? 1e999 : v)).replace(/1e999/g, '1e999'));

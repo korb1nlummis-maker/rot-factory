@@ -1,10 +1,10 @@
 import { kit } from './island_lib.js';
 import { UP } from './portal_lib.js';
 import { PAD, BULK, CACHE, REMAINS, NEEDLE } from '../plushdata.js';
-import { ISLAND_CAP } from '../island.js';
+import { ISLAND_CAP, ISL_GRACE } from '../island.js';
 import { NX, NZ } from '../config.js';
 // island.*: plush that has been cut off from the pile falls (island.js). A group of plush cells joined face to face is held by the hall floor, a bulkhead or pad, a support's reach,
-// the world edge, or by being bigger than ISLAND_CAP cells; anything else waits 1 to 3 s (creaking, with dust and the roof warning) and then lets go as loose plush.
+// the world edge, or by being bigger than ISLAND_CAP cells; anything else waits 1 to 3 s plus ISL_GRACE (1.5 s: the time to set a support under it) (creaking, with dust and the roof warning) and then lets go as loose plush.
 // The tunnel rule of world.js stays as it was: a roof over a cavity with no anchor near still comes down cell by cell. What these tests add is the slab the tunnel rule lets stand
 // (a roof that is anchored but has been cut free of the pile around it) and a floating group in general.
 // Run: `await __selftest('island.')`. Every test starts in a fresh world (WORLD_TESTS in selftest.js).
@@ -29,7 +29,7 @@ export default async function (ctx) {
     return t;
   };
 
-  await T('island.a-slab-with-nothing-under-it-hangs-1-to-3-s-then-falls-as-loose-plush', async () => {
+  await T('island.a-slab-with-nothing-under-it-hangs-2-and-a-half-to-4-and-a-half-s-then-falls-as-loose-plush', async () => {
     const A = K.arena(40, 40, UP), creak = K.spy(g.sound, 'creak'), dust = K.spy(g.fx, 'dust'), rum = K.spy(g.sound, 'rumble'), tl = K.tally();
     try {
       const a = hang(A); K.stand(A.i0 + 2, A.k0 + 2); const f0 = flags(); tl.mark(); poke(a);
@@ -37,9 +37,10 @@ export default async function (ctx) {
       if (!(W().creaking.size > 0)) return 'no creaking marker shows the slab is about to go';
       K.run(0.8); const mid = K.count(a.i, a.j, a.k, 10, 3, 10);
       if (mid !== 300) return `the slab lost ${300 - mid} plush within a second of being cut off: it must hang a moment first`;
-      const t = K.until(() => flags().falls > f0.falls, 4); if (t < 0) return 'the slab never fell';
-      const wait = 0.8 + t; if (!(wait >= 1.0 && wait <= 3.1)) return `it waited ${wait.toFixed(2)} s, the rule is 1 to 3 s`;
-      if (!(Math.abs(wait - 1.6) < 0.45)) return `a 300 cell slab should wait about 1.6 s, it waited ${wait.toFixed(2)}`;
+      const t = K.until(() => flags().falls > f0.falls, 6); if (t < 0) return 'the slab never fell';
+      // (1 to 3 s by size, plus ISL_GRACE 1.5 s since the support reach tuning: a slab of 6 plush or more waits 2.5 to 4.5 s, a 300 cell one about 3.1 s; it was 1 to 3 s and 1.6 s)
+      const wait = 0.8 + t; if (!(wait >= 1.0 + ISL_GRACE && wait <= 3.1 + ISL_GRACE)) return `it waited ${wait.toFixed(2)} s, the rule is 1 to 3 s plus ${ISL_GRACE}`;
+      if (!(Math.abs(wait - (1.6 + ISL_GRACE)) < 0.45)) return `a 300 cell slab should wait about ${(1.6 + ISL_GRACE).toFixed(1)} s, it waited ${wait.toFixed(2)}`;
       K.run(0.5); if (!(sim().n > 100)) return `${sim().n} loose plush right after the fall`;
       if (K.count(a.i, a.j, a.k, 10, 3, 10) !== 0) return 'cells of the slab are still in the air';
       K.run(10);
@@ -153,8 +154,9 @@ export default async function (ctx) {
     const A = K.arena(50, 50, UP), tl = K.tally(); const a = { i: A.i0 + 10, j: 6, k: A.k0 + 10 };
     try {
       K.block(a.i, a.j, a.k, 19, 10, 20); K.stand(A.i0 + 2, A.k0 + 2); tl.mark(); W().stabQueue.push({ i: a.i + 4, j: 6, k: a.k + 4 });
-      const f0 = flags(); const t = K.until(() => flags().falls > f0.falls, 6); if (t < 0) return 'the 3,800 plush slab never fell';
-      if (!(t >= 2.6 && t <= 3.4)) return `a 3,800 cell slab waited ${t.toFixed(2)} s (3 s is the most)`;
+      const f0 = flags(); const t = K.until(() => flags().falls > f0.falls, 8); if (t < 0) return 'the 3,800 plush slab never fell';
+      // (3 s, the most a slab waits by size, plus ISL_GRACE since the support reach tuning)
+      if (!(t >= 2.6 + ISL_GRACE && t <= 3.4 + ISL_GRACE)) return `a 3,800 cell slab waited ${t.toFixed(2)} s (${3 + ISL_GRACE} s is the most)`;
       K.run(24);
       if (K.count(a.i, 14, a.k, 19, 2, 20) !== 0) return 'the top layers of the slab still hang';
       if (tl.net() !== 0) return `plush lost or made up: net ${tl.net()} (bodies ${sim().n})`;
@@ -207,7 +209,7 @@ export default async function (ctx) {
 
   await T('island.the-wait-grows-with-the-slab-and-with-the-creak-detector', async () => {
     const out = [];
-    for (const [nx, nz, nj, lo, hi, up] of [[3, 3, 1, 1.0, 1.4, UP], [20, 20, 3, 2.8, 3.4, UP], [20, 20, 3, 5.8, 6.5, { ...UP, creak: 3 }]]) {
+    for (const [nx, nz, nj, lo, hi, up] of [[3, 3, 1, 1.0 + ISL_GRACE, 1.4 + ISL_GRACE, UP], [20, 20, 3, 2.8 + ISL_GRACE, 3.4 + ISL_GRACE, UP], [20, 20, 3, 5.8 + ISL_GRACE, 6.5 + ISL_GRACE, { ...UP, creak: 3 }]]) {   // (every slab of 6 plush or more waits ISL_GRACE longer than the old 1 / 3 / 6 s since the support reach tuning)
       const A = K.arena(60, 60, up); g.T = g.tune(); const a = { i: A.i0 + 10, j: 4, k: A.k0 + 10 }; K.block(a.i, a.j, a.k, nx, nj, nz); const f0 = flags(); W().stabQueue.push({ i: a.i, j: 4, k: a.k });
       const seen = K.until(() => W().isl.list.size > 0, 1); const t = K.until(() => flags().falls > f0.falls, 9);
       if (seen < 0 || t < 0) { out.push(`${nx * nz * nj} cells: ${seen < 0 ? 'not noticed' : 'never fell'}`); continue; }

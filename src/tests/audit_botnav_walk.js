@@ -58,14 +58,14 @@ export default async function (ctx) {
     const P = await X.platform(I0(), K0()); arena(P, P.ramp);
     const t = X.gen(P.i0 + 2, P.k0 + 2, 1);
     const b = X.mkBot(X.cellX(P.i0 - 7), X.cellZ(P.k0 + 2)); b.carry = X.mix(5); g.crew.goHome(b);
-    let placed = false, inside = 0, idleHold = 0;
+    let placed = false, inside = 0, idleHold = 0, firstIn = '';
     const solidAtBot = (bb) => { const i = ctx.toI(bb.x), k = ctx.toK(bb.z), j0 = Math.floor(bb.y / C + 1e-6); for (let h = 0; h < 3; h++) if (w().solid(i, j0 + h, k)) return true; return false; };
-    X.watch(b, 40, null, { each: (bb) => {
-      if (!placed && bb.x > X.cellX(P.i0 - 5)) { placed = true; for (let k = P.k0 - 1; k <= P.k0 + 4; k++) for (let j = 0; j < 4; j++) if (!w().get(P.i0 - 1, j, k)) w().setCell(P.i0 - 1, j, k, 2, 0); }   // a plush wall across the ramp's foot (what an avalanche or a player's cube does)
-      if (placed && solidAtBot(bb)) inside++;
+    const trail = []; const rec = X.watch(b, 40, null, { dbg: 400, each: (bb) => {
+      trail.push([+g.time.toFixed(2), +bb.x.toFixed(2), +bb.y.toFixed(2), bb.state].join(' ')); if (!placed && bb.x > X.cellX(P.i0 - 5)) { placed = true; for (let k = P.k0 - 1; k <= P.k0 + 4; k++) for (let j = 0; j < 4; j++) if (!w().get(P.i0 - 1, j, k)) w().setCell(P.i0 - 1, j, k, 2, 0); }   // a plush wall across the ramp's foot (what an avalanche or a player's cube does)
+      if (placed && solidAtBot(bb)) { inside++; if (inside === 1) firstIn = `cells ${[0, 1, 2, 3].map((j) => w().get(ctx.toI(bb.x), j, ctx.toK(bb.z))).join()} at ${bb.x.toFixed(2)},${bb.y.toFixed(2)},${bb.z.toFixed(2)} cell ${ctx.toI(bb.x)} (wall at ${P.i0 - 1}) state ${bb.state} t ${g.time.toFixed(2)} DBG ${JSON.stringify((g._navDbg || []).slice(-30))} TRAIL ${trail.slice(-30).join('|')}`; }
     } });
     if (!placed) return 'the bot never came near the ramp';
-    if (inside > 0) return `the bot stood inside plush for ${inside} frames`;
+    if (inside > 0) return `the bot stood inside plush for ${inside} frames, first ${firstIn}`;
     // and it does not hang for ever: it says so, or it is back home within the stuck timer
     return toasts.some((m) => /No way up|stuck/i.test(m)) || (b.state === 'idle' && Math.hypot(b.x - g.crew.home().x, b.z - g.crew.home().z) < 4) || `after 40 s: ${b.state} at ${b.x.toFixed(1)}, ${b.y.toFixed(2)}, toasts: ${toasts.join(' / ')}`;
   });

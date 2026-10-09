@@ -183,14 +183,13 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('intake.the-backtick-key-switches-it-off-and-on-and-says-so', async () => {
+  await T('intake.the-backtick-key-does-nothing-intake-is-always-on', async () => {
     setup(7); const ts = block(5); hands(30); stand(cellX(ci()), cellZ(ck())); const bad = [];
-    io.clearHint(); io.tap('Backquote'); if (!S().beltIntakeOff) bad.push('the key did not switch it off'); if (!/off/i.test(io.hint())) bad.push('hint: ' + io.hint());
-    tick(1, 0.05, clear(ts)); if (S().carry.length !== 30) bad.push('plush were pulled while it was off');
-    const c = cart(10, cellX(ci()) + 0.6, cellZ(ck())); tick(1, 0.05, clear(ts)); if (c.load.length !== 10) bad.push('the cart was pulled while it was off');
-    io.clearHint(); io.tap('Backquote'); if (S().beltIntakeOff) bad.push('the key did not switch it on'); if (!/on/i.test(io.hint()) || !/20|256/.test(io.hint())) bad.push('hint: ' + io.hint());
-    tick(1, 0.05, clear(ts)); if (S().carry.length === 30) bad.push('nothing pulled after switching it on');
-    B.setup({}); io.clearHint(); io.tap('Backquote'); if (S().beltIntakeOff) bad.push('the key switched off an intake you do not own'); if (!/Conveyor/.test(io.hint())) bad.push('no belts hint: ' + io.hint());
+    io.clearHint(); io.tap('Backquote'); if (S().beltIntakeOff !== undefined) bad.push('the key set a switch: ' + S().beltIntakeOff); if (io.hint()) bad.push('the key showed a hint: ' + io.hint());
+    tick(1, 0.05, clear(ts)); if (S().carry.length === 30) bad.push('nothing was pulled after the key');
+    const c = cart(10, cellX(ci()) + 0.6, cellZ(ck())); io.tap('Backquote'); tick(1, 0.05, clear(ts)); if (c.load.length === 10) bad.push('the cart was not pulled after the key');
+    io.tap('Backquote'); if (S().beltIntakeOff !== undefined) bad.push('a second press set a switch');
+    B.setup({}); io.clearHint(); io.tap('Backquote'); if (S().beltIntakeOff !== undefined) bad.push('the key set a switch without belts'); if (io.hint()) bad.push('hint without belts: ' + io.hint());
     return bad.length === 0 || bad.join('; ');
   });
 
@@ -238,7 +237,7 @@ export default async function (ctx) {
     }
     setup(0); const lift = g.placeEntity('belt', { i: ci(), j: 0, k: ck() + 3, dir: 0, rise: 0, lift: { h: 3 }, items: [] }, { quiet: true, rebuild: false });
     if (/Pulls up to/.test(line(lift))) bad.push('a lift says it pulls');
-    S().beltIntakeOff = true; if (!/switched off/.test(line(one(ci(), ck() + 6)))) bad.push('the readout does not say it is switched off');
+    S().beltIntakeOff = true; if (/switched off|backtick|off and on/i.test(line(one(ci(), ck() + 6)))) bad.push('the readout still talks about a switch'); delete S().beltIntakeOff;
     B.setup({}); const nb = one(); if (/Pulls up to/.test(line(nb))) bad.push('the readout talks about intake without belts owned');
     return bad.length === 0 || bad.join('; ');
   });
@@ -250,17 +249,17 @@ export default async function (ctx) {
     for (let n = 0; n < 60 * 8; n++) B.step(1 / 60);                         // and long enough for the line to empty into the vault
     const inHands = S().carry.length, inVault = vault.stored.length, onBelts = total(line);
     if (inHands + inVault + onBelts !== 30) bad.push(`conservation: ${inHands} in hands + ${inVault} vaulted + ${onBelts} on belts`);
-    if (inVault < 15 || inVault > 17) bad.push('2 s at 8 a second should vault about 16, vaulted ' + inVault);
+    if (inVault < 15 || inVault > 17) bad.push('2 s at 8 a second should vault about 16, vaulted ' + inVault + ' ' + JSON.stringify({ inHands, onBelts, g_time: +g.time.toFixed(2), bucket: BI.state(g).b.host, inf: intakeOf(g.T), tool: g.curTool().kind, modal: g.ui.isModalOpen(), blacking: g.blacking, dead: g.dead, pitch: p().pitch, yaw: p().yaw, pos: [p().pos.x, p().pos.y, p().pos.z], tiles: line.map((t) => [t.i, t.k, t.dir, t.items.length, +(t.pw || 0).toFixed(2)]) }));
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('intake.save-and-load-keep-the-level-and-the-switch', async () => {
+  await T('intake.save-and-load-keep-the-level-and-an-old-switch-is-ignored', async () => {
     setup(4); S().beltIntakeOff = true; g.noSave = false; g.mode = 'play'; const ok = g.save(); g.noSave = true; if (!ok) return 'save failed';
     const { loadSaved } = await import('../state.js'); const saved = loadSaved(); if (!saved) return 'nothing saved';
-    if (saved.S.up.beltIntake !== 4 || saved.S.beltIntakeOff !== true) return 'the save does not carry it: ' + saved.S.up.beltIntake + ' ' + saved.S.beltIntakeOff;
+    if (saved.S.up.beltIntake !== 4 || saved.S.beltIntakeOff !== true /* (an old save that still carries the dead flag) */) return 'the save does not carry it: ' + saved.S.up.beltIntake + ' ' + saved.S.beltIntakeOff;
     g.loadWorld(saved.S, saved); g.noSave = true; g.mode = 'play'; const bad = [];
-    if (g.T.intakeLevel !== 4 || intakeOf(g.T).rate !== 32) bad.push('level after load ' + g.T.intakeLevel); if (!S().beltIntakeOff) bad.push('the switch did not survive');
-    delete S().beltIntakeOff; const t = one(); hands(5); stand(cellX(ci()) - 1, cellZ(ck())); g._bi = null; tick(0.1); if (!t.items.length) bad.push('it does not pull after a load');
+    if (g.T.intakeLevel !== 4 || intakeOf(g.T).rate !== 32) bad.push('level after load ' + g.T.intakeLevel);
+    const t = one(); hands(5); stand(cellX(ci()) - 1, cellZ(ck())); g._bi = null; tick(0.1); if (!t.items.length) bad.push('an old switch kept it off after a load'); if (S().beltIntakeOff !== undefined) bad.push('the old switch was not deleted');
     return bad.length === 0 || bad.join('; ');
   });
 

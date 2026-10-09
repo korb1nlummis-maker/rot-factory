@@ -1,4 +1,5 @@
 import { escHtml } from './util.js';
+import * as KB from './keybinds.js';
 import { CONTROLS } from './controls.js';
 import { CATS, UPGRADES, GEAR, isUnlocked, needsText } from './upgrades.js';
 import { STATUS } from './crew.js';
@@ -13,6 +14,7 @@ import { Dials, rateText } from './dials.js';
 import * as BINS from './bins.js';   // the bin a bot unloads at, shown and picked on each crew row
 import * as BINPANEL from './binspanel.js';
 import * as CARE from './carepackage.js';   // the Care Package log on the achievements screen, the upgrade discount
+import * as PI from './playerinv.js';   // per-player bags: the gift click
 import * as NB from './notebook.js';   // the Notes tab of the journal, the crew panel's finds
 import { KINDS, clueLine as NOTES_LINE } from './notes.js';
 
@@ -93,7 +95,8 @@ export class UI {
   // ---------------- HUD bits ----------------
   show(id) { $(id).classList.remove('hidden'); }
   hide(id) { $(id).classList.add('hidden'); }
-  hint(html, secs = 4) { const h = $('hint'); h.innerHTML = html; h.style.opacity = 1; this.hintTimer = secs; }
+  hint(html, secs = 4) { const h = $('hint'); h.innerHTML = KB.fill(html);   // {id} in a hint is the current key of that action
+    h.style.opacity = 1; this.hintTimer = secs; }
 
   toast({ icon, img, title, text, cls = '', ms = 3800 }) {
     const el = document.createElement('div');
@@ -160,7 +163,7 @@ export class UI {
       if (it) {
         el.innerHTML = `${it.icon}${it.count != null ? `<span class="c">${typeof it.count === 'number' ? it.count : it.count}</span>` : ''}${it.slot >= 0 ? `<span class="b">${it.slot + 1}</span>` : ''}`;
         el.title = it.name;
-        el.onclick = () => { this.invSel = it.id; this.renderInventory(); };
+        el.onclick = (e) => { if (e && e.shiftKey && it.tool && it.id !== 'hammer' && g.net && g.net.open) { PI.giveKey(g, it.id, 1); this.renderInventory(); return; } this.invSel = it.id; this.renderInventory(); };   // Shift+click hands one to your friend (within 3 m, playerinv.js)
         if (it.tool) { el.draggable = true; el.ondragstart = (e) => { this.invSel = it.id; e.dataTransfer.setData('text/plain', it.id); }; }
       }
       grid.appendChild(el);
@@ -196,7 +199,7 @@ export class UI {
     const it = list.find((x) => x.id === this.invSel);
     $('invInfo').innerHTML = it
       ? `<h3>${it.icon} ${it.name}${it.count != null ? ` <small>×${it.count}</small>` : ''}</h3><p>${it.desc || ''}</p>${it.status ? `<p style="color:var(--accent2);font-size:12px">${it.status}</p>` : ''}${it.use ? `<p style="color:var(--dim);font-size:12px"><b>How to use:</b> ${it.use}</p>` : ''}<p style="font-size:12px;color:var(--ink)">${it.tool ? (it.slot >= 0 ? `On hotbar slot <b>${it.slot + 1}</b>. Press another number to move it, <b>X</b> to take it off the bar.` : 'Press a number <b>1-9</b> (or click a hotbar slot, or drag it there) to put it on your hotbar.') : 'Not a hotbar item.'}</p>`
-      : '<p style="color:var(--dim)">Click an item to see what it does. Put tools and building items on the hotbar below, then use the number keys in the world.</p>';
+      : '<p style="color:var(--dim)">Click an item to see what it does. Put tools and building items on the hotbar below, then use the number keys in the world.' + (g.net && g.net.open ? ' This pack is yours alone: Shift+click an item to hand one to your friend (within 3 m).' : '') + '</p>';
     if (it && it.slot >= 0) { const btn = document.createElement('button'); btn.id = 'invPutBack'; btn.className = 'btn'; btn.textContent = 'Put back in pack'; btn.onclick = () => { g.clearHotbarSlot(it.slot); this.renderInventory(); }; $('invInfo').appendChild(btn); }
   }
   invAssign(slot) { const g = this.game; if (slot < 0 || slot > 8) return; const it = g.inventoryList().find((x) => x.id === this.invSel); if (!it || !it.tool) { this.hint('Pick a tool or building item first.', 1.5); return; } g.assignHotbar(it.id, slot); this.renderInventory(); }
@@ -258,11 +261,11 @@ export class UI {
     if (!(max > 0)) { this.dials.set('scoop', { on: false }); return; }
     this.dials.set('scoop', { on: true, frac: Math.min(1, n / max), val: String(n), unit: '/ ' + max, sub: '', state: n >= max && max > 12 ? 'warn' : 'ok', dim: n === 0, canDn: n > 0, canUp: n < max, text: `scoop ${n} of ${max} plush per grab; the minus and plus buttons (or the - and = keys) change it by three` });
   }
-  // the vacuum dial: the suction in use (plush a second) out of the most the owned vacuum draws, and what share of it that is. Alt+- and Alt+= (or the buttons) change it in tens of percent. 0 is off.
+  // the vacuum dial: the suction in use (plush a second) out of the most the owned vacuum draws, and what share of it that is. [ and ] with bare hands (or the buttons) change it in tens of percent. 0 is off.
   setVacuum(rate, max, pct) {
     if (!(max > 0)) { this.dials.set('vacuum', { on: false }); return; }
     const r = Number.isFinite(rate) ? Math.max(0, Math.min(max, rate)) : 0, pc = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
-    this.dials.set('vacuum', { on: true, frac: Math.min(1, r / max), val: rateText(r), unit: '/ ' + rateText(max), sub: '', state: pc >= 100 && max > 18 ? 'warn' : 'ok', dim: pc === 0, canDn: pc > 0, canUp: pc < 100, text: pc === 0 ? `vacuum off, 0 of ${rateText(max)} plush per second; a click grabs like plain hands` : `vacuum ${rateText(r)} of ${rateText(max)} plush per second, ${pc} percent of its suction; the minus and plus buttons (or Alt with - and =) change it by ten percent` });
+    this.dials.set('vacuum', { on: true, frac: Math.min(1, r / max), val: rateText(r), unit: '/ ' + rateText(max), sub: '', state: pc >= 100 && max > 18 ? 'warn' : 'ok', dim: pc === 0, canDn: pc > 0, canUp: pc < 100, text: pc === 0 ? `vacuum off, 0 of ${rateText(max)} plush per second; a click grabs like plain hands` : `vacuum ${rateText(r)} of ${rateText(max)} plush per second, ${pc} percent of its suction; the minus and plus buttons (or [ and ] with bare hands) change it by ten percent` });
   }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setCartLine(n, cap, mode) {

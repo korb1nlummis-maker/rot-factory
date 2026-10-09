@@ -8,7 +8,7 @@ import * as WS from '../worldsound.js';
 const SRC = import.meta.glob('../*.js', { query: '?raw', import: 'default', eager: true });
 // file: [own methods, ui methods, positional count]
 const TABLE = {
-  'beltintake.js': [{ tone: 1 }, {}, 1],
+  'beltintake.js': [{}, {}, 1],
   'beltplan.js': [{ tone: 3, place: 1 }, { error: 5 }, 2],
   'bench.js': [{}, { error: 4 }, 0],
   'binspanel.js': [{ place: 4, tone: 1 }, { error: 5 }, 0],
@@ -181,7 +181,9 @@ export default async function (ctx) {
     fresh({}); const bad = [];
     // x = 30 is under 14 m of pile, x = 0 is the open bay
     g.sound._occ = null;
-    const buried = g.sound.voice(26, 1.5, -1.4, 'work', { x: 4, y: 1.5, z: -1.4, yaw: 0 }), clear = g.sound.voice(26, 25, -1.4, 'work', { x: 4, y: 25, z: -1.4, yaw: 0 });
+    // (the world is random: the slope is not 25 m high at x = 26 in every one, so the pair in the air is put 3 m above the highest ground between the two points)
+    let top = 0; for (let x = 0; x <= 30; x += 0.5) top = Math.max(top, g.world.topAt(toI(x), toK(-1.4)) * 0.6); const yAir = top + 3;
+    const buried = g.sound.voice(26, 1.5, -1.4, 'work', { x: 4, y: 1.5, z: -1.4, yaw: 0 }), clear = g.sound.voice(26, yAir, -1.4, 'work', { x: 4, y: yAir, z: -1.4, yaw: 0 });
     const r = (v) => v.gain / rolloff(v.d, 30);
     if (!(r(buried) < r(clear) * 0.7)) bad.push(`a buried source is ${r(buried).toFixed(2)} against ${r(clear).toFixed(2)} in the air`);
     if (![...g.sound._occ.values()].some((e) => e.split)) bad.push('no pair was marked as one under the pile and one in the hall');

@@ -17,12 +17,12 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('truth.world.keys-brackets-wheel-and-left-right-arrows-step-through-the-hotbar-tools', async () => {
+  await T('truth.world.keys-brackets-and-the-wheel-step-through-the-hotbar-tools-and-the-arrows-do-not', async () => {
     fresh(WORLD_UP()); craft('strut', 2); craft('flare', 2); craft('marker', 2); const bad = []; g.stowed = false; g.selectTool(0);
     const order = []; for (const code of ['BracketRight', 'BracketRight', 'BracketRight', 'BracketRight']) { io.tap(code); order.push(g.buildIdx); }
     if (order.join() !== '1,2,3,0') bad.push('] did not step 2,3,4 then wrap to 1 (got ' + order.join() + ')');
     io.tap('BracketLeft'); if (g.buildIdx !== 3) bad.push('[ did not step back to slot 4 (' + g.buildIdx + ')');
-    io.tap('ArrowRight'); if (g.buildIdx !== 0) bad.push('Right arrow did not step the hotbar (' + g.buildIdx + ')'); io.tap('ArrowLeft'); if (g.buildIdx !== 3) bad.push('Left arrow did not step back (' + g.buildIdx + ')');
+    io.tap('ArrowRight'); io.tap('ArrowLeft'); if (g.buildIdx !== 3) bad.push('the arrows step the hotbar, but only the wheel, [ ] and the number keys do (' + g.buildIdx + ')');   // (the arrows turn a frame; they are not a hotbar key in the table)
     io.wheel(100); if (g.buildIdx !== 0) bad.push('wheel down did not step on (' + g.buildIdx + ')'); io.wheel(-100); if (g.buildIdx !== 3) bad.push('wheel up did not step back (' + g.buildIdx + ')');
     return bad.length === 0 || bad.join('; ');
   });
@@ -100,16 +100,25 @@ export default async function (ctx) {
   await T('truth.world.keys-q-and-b-hints-only-say-tool-out-when-a-tool-really-came-out', async () => {
     fresh(WORLD_UP()); craft('strut'); const bad = []; g.stowed = true; g.rebuildTools();
     io.tap('Digit9'); io.clearHint(); io.tap('KeyQ'); io.tap('KeyQ'); if (g.curTool().kind !== 'hands') bad.push('slot 9 is not empty'); if (/Tool out/.test(io.hint())) bad.push('Q on an empty slot said "' + io.hint() + '"');
-    g.stowed = true; g.rebuildTools(); io.clearHint(); io.tap('KeyB'); if (/Tool out/.test(io.hint()) && g.curTool().kind === 'hands') bad.push('B on an empty slot said "' + io.hint() + '"');
+    g.stowed = true; g.rebuildTools(); io.clearHint(); io.tap('KeyB'); if (/Tool out/.test(io.hint()) && g.curTool().kind === 'hands') bad.push('B on an empty slot said "' + io.hint() + '"'); if (io.modal() !== 'binpanel') bad.push('B with bare hands is the bin key: it should list the bins, not ' + io.modal()); g.ui.closeModals();
     g.stowed = true; g.rebuildTools(); io.tap('Digit2'); io.tap('KeyQ'); io.clearHint(); io.tap('KeyQ'); if (g.curTool().id !== 'strut' || !/Tool out/.test(io.hint())) bad.push('Q with the strut selected: ' + io.hint());
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('truth.world.keys-enter-opens-chat-only-while-playing-together', async () => {
-    fresh(WORLD_UP()); const bad = []; const c = document.getElementById('chatIn'); const open0 = g.net.open; try {
-      g.net.open = false; c.classList.add('hidden'); io.tap('Enter'); if (!c.classList.contains('hidden')) bad.push('Enter opened the chat box in a single player game');
-      g.net.open = true; io.tap('Enter'); if (c.classList.contains('hidden')) bad.push('Enter did not open the chat box while playing together'); c.classList.add('hidden'); c.blur();
-    } finally { g.net.open = open0; c.classList.add('hidden'); }
+  await T('truth.world.keys-backtick-opens-chat-only-while-playing-together-and-enter-no-longer-does', async () => {
+    fresh(WORLD_UP()); const bad = []; const c = document.getElementById('chatIn'); const open0 = g.net.open; const shut = () => { c.classList.add('hidden'); c.blur(); };
+    try {
+      g.mode = 'play'; g.ui.closeModals(); g.net.open = false; shut(); io.tap('Backquote'); if (!c.classList.contains('hidden')) bad.push('the backtick opened the chat box in a single player game');
+      g.net.open = true; io.tap('Enter'); if (!c.classList.contains('hidden')) bad.push('Enter still opens the chat box'); io.tap('Backquote'); if (c.classList.contains('hidden')) bad.push('the backtick did not open the chat box while playing together'); if (document.activeElement !== c) bad.push('the chat box did not take the keyboard');
+      // a backtick typed inside the open box is a letter in the box: it neither closes it nor is it swallowed
+      const typed = new KeyboardEvent('keydown', { code: 'Backquote', key: '`', bubbles: true, cancelable: true }); c.dispatchEvent(typed); if (c.classList.contains('hidden')) bad.push('a backtick typed in the chat box closed it'); if (typed.defaultPrevented) bad.push('a backtick typed in the chat box was prevented, so it cannot be typed');
+      shut();
+      // not while typing in another box, not in a menu or window
+      const inp = document.getElementById('mpCodeIn'); const ev = new KeyboardEvent('keydown', { code: 'Backquote', key: '`', bubbles: true, cancelable: true }); inp.dispatchEvent(ev); if (!c.classList.contains('hidden')) bad.push('the backtick opened chat while typing in another box');
+      for (const m of ['inv', 'pause', 'shop', 'journal']) { g.ui.open(m); io.tap('Backquote'); if (!c.classList.contains('hidden')) bad.push('the backtick opened chat over the ' + m + ' window'); shut(); g.ui.closeModals(); }
+      // a shift or alt variant is not the chat key
+      io.tap('Backquote', { altKey: true }); io.tap('Backquote', { ctrlKey: true }); if (!c.classList.contains('hidden')) bad.push('Alt or Ctrl with the backtick opened chat'); shut();
+    } finally { g.net.open = open0; shut(); g.ui.closeModals(); }
     return bad.length === 0 || bad.join('; ');
   });
 }

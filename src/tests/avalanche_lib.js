@@ -12,7 +12,7 @@ export function kit(ctx) {
   const hi = (y = 26, lane = 10, dir = 1) => {
     const a0 = dir < 0 ? Math.PI : 0; let best = null;
     for (const [dy, lo, hiT] of [[0.65, 0.6, 1.5], [1.3, 0.55, 1.8], [2.5, 0.5, 2.5]]) {
-      for (let r = 14; r < 60 && !best; r += 0.6) for (let a = 0; a < 6.283 && !best; a += 0.02) {
+      for (let r = 14; r < 150 && !best; r += 0.6) for (let a = 0; a < 6.283 && !best; a += 0.02) {
         const ang = a0 + (lane - 10) * 0.05 + a, x = Math.cos(ang) * r, z = Math.sin(ang) * r, i = toI(x), k = toK(z), t = w().topAt(i, k);
         if (Math.abs(t * C - y) > dy) continue;
         const sl = g.avalanche.slope(i, k); if (!sl || sl.tan < lo || sl.tan > hiT) continue;
@@ -20,7 +20,7 @@ export function kit(ctx) {
       }
       if (best) break;
     }
-    if (!best) throw new Error('no walkable slope at ' + y + ' m');
+    if (!best) throw new Error('no walkable slope at ' + y + ' m within 150 m of the bay (the world is random: the search covers rings out to 150 m, three slope bands)');
     const { i, k, t } = best;
     p().pos.set(cellX(i), t * C, cellZ(k)); p().footCell = { i, j: t - 1, k }; p().onGround = true; p().vel.set(0, 0, 0); p().swept = 0;
     return { i, k, t, y: p().pos.y, x: p().pos.x, z: p().pos.z };
