@@ -3,16 +3,20 @@ import { C, NX, NZ, HALL_HX, HALL_HZ, cellX, cellY, cellZ, toI, toJ, toK } from 
 import { resolveSphere } from './sim.js';
 import { compaction, clamp } from './util.js';
 import { NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
+import * as NB from './notebook.js';   // flags: what a bot finds beside it (remains, a supply cache), and the Bot Scholar
 import { DX, DZ, CHARGE_RATE, CHARGER_RANGE } from './logistics.js';
 import { CART_CAP } from './cart.js';
+import * as FUEL from './botfuel.js';   // keeping plush-fed machines (generators, Charging Stations) fueled: a top-up before unloading, scooping fuel while idle
 import * as BINS from './bins.js';   // which bin a bot unloads at (its own, the one its cart is bound for, or the SORT bin)
+import * as NAV from './botnav.js';   // multi-level walking: ramps, stairs, ladders, lifts and doors (a bot on a built floor, or an errand that ends on one)
+import * as RT from './botroutes.js';   // call routes: a machine that needs a bot lays its route up and the way back down; a low battery maps the nearest reachable open charger
 
 const NAMES = ['Pip', 'Bolt', 'Nub', 'Clank', 'Sprocket', 'Widget', 'Doodle', 'Tinker', 'Gizmo', 'Rivet', 'Dot', 'Fidget', 'Cog', 'Bleep'];
 const COLORS = [0xd9a21c, 0xc9742b, 0x7fa6b8, 0x93b85d, 0xb87aa4, 0xd4c13a];
 const DIRNAME = ['East', 'South', 'West', 'North'];
 // battery rules: below LOW a bot needs power; with no station it waits at the bin and trickles up to OK
 export const LOW_BATTERY = 0.25, OK_BATTERY = 0.35, TRICKLE = 0.02;
-export const STATUS = { haulgo: 'Fetching your cart load', held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', chgwalk: 'Heading to a charger', recharge: 'Recharging at a station', lowbat: 'Waiting for a Charging Station', dwalk: 'Carrying plush to a drop-off', dgive: 'Handing plush over', blocked: 'Blocked', stuck: 'Stuck' };
+export const STATUS = { haulgo: 'Fetching your cart load', held: 'Held at the gate', idle: 'Hanging around', follow: 'Following you', goto: 'Heading out', farm: 'Digging', advance: 'Advancing', return: 'Hauling back', unload: 'Unloading', charge: 'Charging', chgwalk: 'Heading to a charger', recharge: 'Recharging at a station', lowbat: 'Waiting for a Charging Station', dwalk: 'Carrying plush to a drop-off', dgive: 'Handing plush over', fwalk: 'Fueling a machine', fgive: 'Fueling a machine', blocked: 'Blocked', stuck: 'Stuck' };
 
 const M = {
   dark: new THREE.MeshStandardMaterial({ color: 0x1d2024, roughness: 0.7, metalness: 0.6 }),
@@ -69,6 +73,7 @@ export class Crew {
     this.objs = new Map();
     this.connCache = new Map();
     this.t = 0;
+    NAV.install(game); RT.install(game);
     this.marker = null;
   }
 
@@ -79,9 +84,9 @@ export class Crew {
   // where a bot unloads: a spot just south of its bin. No bot (or Auto) is the SORT bin, as it has always been; a bot with a bin of its own that works uses that one.
   home(b) {
     const hp = this.game.hall.binPos;
-    if (!b) return { x: hp.x, z: hp.z + BINS.UNLOAD_OFFSET, id: BINS.HALL, name: BINS.HALL_NAME };
+    if (!b) return { x: hp.x, z: hp.z + BINS.UNLOAD_OFFSET, y: 0, id: BINS.HALL, name: BINS.HALL_NAME };
     const r = BINS.botBin(this.game, b);
-    return { x: r.bin.x, z: r.bin.z + BINS.UNLOAD_OFFSET, id: r.bin.id, name: r.bin.name };
+    return { x: r.bin.x, z: r.bin.z + BINS.UNLOAD_OFFSET, y: r.bin.y || 0, id: r.bin.id, name: r.bin.name };
   }
   // can the bot walk this path (from where it stands) on the battery it has left? (a walking bot spends 0.004 per second, slower on a bigger battery)
   canReach(b, path) {
@@ -99,7 +104,8 @@ export class Crew {
     S.crew = S.crew || [];
     if (!g.isGuest()) while (S.crew.length < Math.min(1, T.crewMax)) this.spawn();
     for (const [id, o] of [...this.objs]) if (!S.crew.some((b) => b.id === id)) { g.machines.disposeObj(o); this.root.remove(o); this.objs.delete(id); }
-    for (const b of S.crew) { delete b.arm; delete b.aim; delete b.advTo; if (b.state === 'advance') b.state = 'farm'; if (!this.objs.has(b.id)) this.build(b); }
+    RT.afterLoad(this);   // (the calls in S.botCalls are laid again; a bot above the ground gets its way down)
+    for (const b of S.crew) { delete b.arm; delete b.aim; delete b.advTo; if (b.state === 'advance') b.state = 'farm'; if (!g.isGuest()) FUEL.afterLoad(this, b); if (!this.objs.has(b.id)) this.build(b); }
   }
 
   spawn() {
@@ -154,8 +160,9 @@ export class Crew {
     return null;
   }
 
-  order(b, dir, ox, oy, oz) {
+  order(b, dir, ox, oy, oz, quiet = false) {
     const g = this.game;
+    this.clearFuel(b); b.scoopHome = false;   // a dig order of its own ends any fuel errand (and makes the face it was sent to the player's, no longer the errand's)
     const face = this.findFace(ox, Math.max(0, toJ(oy)), oz, dir);
     if (!face) { g.ui.toast({ icon: '🤖', title: b.name, text: `Nothing to dig ${DIRNAME[dir]} of here.` }); return false; }
     b.dir = dir;
@@ -167,7 +174,7 @@ export class Crew {
     b.path = [[ox, oz], [cellX(face.i), cellZ(face.k)]];
     b.pi = 0;
     b.timer = 0;
-    g.sound.chirp(1.0 + Math.random() * 0.4);
+    if (!quiet) g.sound.chirp(1.0 + Math.random() * 0.4);   // (a bot that sets off to dig fuel on its own is not an order of the player's: no chirp for it from across the world)
     return true;
   }
 
@@ -178,6 +185,7 @@ export class Crew {
   }
 
   goHome(b) {
+    b.fuelJob = null; b.divert = null;   // heading to the bin ends any fuel errand (a bot that still carries plush tops machines up on the way, see the end of this function)
     b.hallTrip = false;   // (a trip to the SORT bin that was never finished must not stand for the next one: the battery is asked again below)
     let h = this.home(b);
     const way = () => { const p = [...b.trail.slice().reverse()]; if (b.origin) p.push(b.origin); p.push([h.x, h.z]); return p; };
@@ -190,11 +198,15 @@ export class Crew {
       b.hallTrip = true; h = this.home(b); path = way();
     }
     b.path = path; b.pi = 0; b.state = 'return';
+    if (b.carry.length && !b.fuelDone && !b.fuelJob) FUEL.tryTopUp(this, b);   // a machine in reach that has room is fueled before the walk to the bin
   }
 
-  stand(b) { b.state = 'idle'; b.order = null; b.origin = null; b.trail = []; b.deliver = null; b.chg = null; }
-  follow(b) { b.state = 'follow'; b.origin = null; b.trail = []; b.deliver = null; b.chg = null; }
-  sendHome(b) { b.deliver = null; b.chg = null; this.goHome(b); }
+  stand(b) { this.clearFuel(b); b.scoopHome = false; b.state = 'idle'; b.order = null; b.origin = null; b.trail = []; b.deliver = null; b.chg = null; }
+  follow(b) { this.clearFuel(b); b.scoopHome = false; b.state = 'follow'; b.origin = null; b.trail = []; b.deliver = null; b.chg = null; }
+  sendHome(b) { this.clearFuel(b); b.fuelDone = true; b.deliver = null; b.chg = null; this.goHome(b); }   // 'Go home and unload' goes straight to the bin
+  // any order of the player's ends a fuel errand (the bot keeps what it carries)
+  // (a scooping bot's own dig order, flagged scoopHome, outlives the errand on purpose: only a dig order of the player's, stand and follow take it away; until then the bot walks home along its trail and drops it, see resumeDig, thinkFarm and afterUnload)
+  clearFuel(b) { b.fuelJob = null; b.divert = null; b.stay = false; b.fuelDone = false; b.fuelHops = 0; FUEL.phaseDown(this.game, b); }
 
   // ------------------------------------------------------------------ routes along the bot's own trail
   // the points the bot has walked, from the dig face back to where the order started
@@ -221,6 +233,7 @@ export class Crew {
   }
   // back to the dig: from where the bot stands out along its trail to the face
   resumeDig(b) {
+    if (b.scoopHome && b.origin) { this.goHome(b); return; }   // the face was a fuel errand's, not an order of the player's: nobody dug there on purpose, so home it goes
     const P = this.trailPts(b);
     if (!b.origin) { b.state = 'idle'; return; }
     const a = this.nearIdx(P, b.x, b.z);
@@ -230,20 +243,11 @@ export class Crew {
 
   // ------------------------------------------------------------------ charging stations
   // the nearest charger that still holds charge and is within range, or null
-  chargerFor(b) {
-    const L = this.game.logi;
-    let best = null, bd = CHARGER_RANGE;
-    for (const t of L.tiles.values()) {
-      if (t.type !== 'charger' || !((t.reserve || 0) > 0.05)) continue;
-      const d = Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z);
-      if (d < bd) { bd = d; best = t; }
-    }
-    return best;
-  }
+  chargerFor(b) { return RT.chargerFor(this, b, CHARGER_RANGE); }   // (botroutes.js: holds charge, a free slot, and a way there through the graph)
   startCharge(b, t, next) {
     if (next) b.chgNext = next;
     else if (b.state !== 'chgwalk' && b.state !== 'recharge') {
-      b.chgNext = ['return', 'unload'].includes(b.state) ? 'home' : ['dwalk', 'dgive'].includes(b.state) ? 'deliver' : b.state === 'follow' ? 'follow' : b.origin ? 'dig' : 'idle';
+      b.chgNext = ['return', 'unload', 'fwalk', 'fgive'].includes(b.state) ? 'home' : ['dwalk', 'dgive'].includes(b.state) ? 'deliver' : b.state === 'follow' ? 'follow' : b.origin ? 'dig' : 'idle';
     }
     b.chg = t.id;
     b.path = this.routePath(b, cellX(t.i), cellZ(t.k), 0.8); b.pi = 0; b.state = 'chgwalk'; b.scanT = 0;
@@ -260,7 +264,7 @@ export class Crew {
   }
   thinkRecharge(b, dt) {
     const g = this.game, t = g.logi.byId.get(b.chg);
-    if (!t || t.type !== 'charger') { this.dryCharge(b); return; }
+    if (!t || t.type !== 'charger' || !FUEL.chargerPowered(t)) { this.dryCharge(b); return; }   // gone, or its cable or grid went dead
     b.tx = cellX(t.i) + (b.x < cellX(t.i) ? -0.8 : 0.8); b.tz = cellZ(t.k);
     if (Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z) < 2.0 && b.battery < 0.95 && (t.reserve || 0) > 0) {
       const take = Math.min(CHARGE_RATE * dt, 1 - b.battery, t.reserve);
@@ -280,18 +284,19 @@ export class Crew {
   }
 
   // below LOW: a station with charge if there is one, else home (the bin is where it waits)
-  lowBattery(b) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs); else this.goHome(b); }
+  lowBattery(b) { FUEL.dropJob(this.game, b); const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs); else this.goHome(b); }
   enterLowbat(b) {
     b.state = 'lowbat'; b.lowT = 0;
     if (!b.lowToast) {
       b.lowToast = true;
-      const any = [...this.game.logi.tiles.values()].some((t) => t.type === 'charger');
-      this.game.ui.toast(any ? { icon: '🪫', title: 'Feed a Charging Station', text: `${b.name} is out of power and the station is empty`, ms: 6000 } : { icon: '🪫', title: 'Build a Charging Station', text: `${b.name} is out of power`, ms: 6000 });
+      const cs = [...this.game.logi.tiles.values()].filter((t) => t.type === 'charger'), any = cs.length > 0;
+      this.game.ui.toast(any && !cs.some(FUEL.chargerPowered) ? { icon: '🪫', title: 'Wire a Charging Station', text: `${b.name} is out of power: a Charging Station needs a cable from a live grid`, ms: 6000 } : any ? { icon: '🪫', title: 'Feed a Charging Station', text: `${b.name} is out of power and the station is empty`, ms: 6000 } : { icon: '🪫', title: 'Build a Charging Station', text: `${b.name} is out of power`, ms: 6000 });
     }
   }
   // back from the bin: unloaded. Too weak to work means a station or the bin's trickle, else back to the dig
   afterUnload(b) {
-    b.cleared = false; b.hallTrip = false; b.haulDest = 0;
+    b.cleared = false; b.hallTrip = false; b.haulDest = 0; FUEL.afterUnload(b);
+    if (b.scoopHome) { b.scoopHome = false; b.origin = null; b.trail = []; }   // a scooping errand is over: no dig order of the player's is waiting
     if (b.battery < LOW_BATTERY) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs, b.origin ? 'dig' : 'idle'); else this.enterLowbat(b); return; }
     if (b.origin) { b.path = [b.origin, ...b.trail]; b.pi = 0; b.state = 'goto'; } else b.state = 'idle';
   }
@@ -372,7 +377,9 @@ export class Crew {
         return { act: 'fuel', ok: true, tile: t, dir: nf.dir, text: `Keep this Generator fuelled: dig ${w} of it and deliver plush here`, toast: `Digging ${w} and keeping the generator fuelled.` };
       }
       if (t.type === 'charger') {
+        if (!FUEL.chargerPowered(t)) return no('Not wired: run a cable to this Charging Station from a live grid');
         if (!((t.reserve || 0) > 0.02)) return no('This Charging Station is empty');
+        if (RT.slotsFree(g, t, b) <= 0) return no('This Charging Station is taken: two bots are on it already');   // (botroutes.js: two slots, one each side)
         return { act: 'charge', ok: true, tile: t, text: `Recharge at this Charging Station (${(t.reserve || 0).toFixed(1)} left), then carry on`, toast: 'Going to recharge, then back to work.' };
       }
       if (t.type === 'sorter' || t.type === 'vault' || t.type === 'belt') {
@@ -409,6 +416,7 @@ export class Crew {
     const it = this.intent(b, tgt);
     if (!it.ok) { if (!quiet) { g.sound.error(); g.ui.hint(it.text, 2.5); } return { ok: false, act: null, msg: it.text }; }
     if (it.act !== 'charge') { b.chg = null; b.chgNext = null; }
+    this.clearFuel(b);
     let ran = true;
     switch (it.act) {
       case 'fuel': ran = this.order(b, it.dir, cellX(it.tile.i), it.tile.j * C, cellZ(it.tile.k)); if (ran) b.deliver = it.tile.id; break;
@@ -447,9 +455,15 @@ export class Crew {
       case 'blocked': case 'stuck': base = 'Blocked, nothing more to dig that way'; break;
       default: base = STATUS[b.state] || b.state;
     }
+    { const fs = FUEL.statusText(g, b); if (fs) base = fs; }
+    { const ns = NAV.statusText(b), rt = RT.statusText(g, b), lc = (w) => w.charAt(0).toLowerCase() + w.slice(1); if (ns && rt) base = RT.codeOf(g, b) === RT.CODE.down ? `${rt}, ${lc(ns)}` : `${ns}, ${lc(rt)}`; else if (ns || rt) base = ns || rt; }   // 'Called to Generator A', 'Heading back down', 'Going to charge' (botroutes.js) and 'Taking the ramp' (botnav.js)
     if (dn && b.state !== 'dwalk' && b.state !== 'dgive') base += `, drop-off ${dn}`;
-    return `${base}, battery ${pct}%, carrying ${b.carry.length} plush${b.dest && b.state !== 'return' && b.state !== 'unload' ? `, unloads at ${BINS.destText(g, { k: 'bot', o: b })}` : ''}`;   // (hauling back and unloading already name the bin)
+    return `${base}, battery ${pct}%, carrying ${b.carry.length} plush${b.notes && b.notes.length ? ` and ${b.notes.length} note${b.notes.length === 1 ? '' : 's'}` : ''}${b.dest && b.state !== 'return' && b.state !== 'unload' ? `, unloads at ${BINS.destText(g, { k: 'bot', o: b })}` : ''}`;   // (hauling back and unloading already name the bin)
   }
+
+  // the few words for the head of a crew row and the bot panel
+  navCode(b) { const r = RT.codeOf(this.game, b); return r === RT.CODE.down ? r : NAV.codeOf(b) || r; }   // the host's nav status for the crew row (a guest shows the same words)
+  headStatus(b) { const rt = RT.statusText(this.game, b), ns = RT.codeOf(this.game, b) === RT.CODE.down ? rt : NAV.statusText(b) || rt; if (ns) return ns; const j = b.fuelJob; if (j && j.k === 'scoop' && ['goto', 'farm', 'advance'].includes(b.state)) return 'Scooping fuel'; return STATUS[b.state] || b.state; }
 
   // a ring on the floor and an arrow over the selected bot
   updateMarker(time) {
@@ -509,6 +523,7 @@ export class Crew {
       const o = this.objs.get(b.id) || (this.build(b), this.objs.get(b.id));
       if (b.gx !== undefined) { b.x += (b.gx - b.x) * k; b.y += (b.gy - b.y) * k; b.z += (b.gz - b.z) * k; b.yaw = b.gyaw ?? b.yaw; }
       this.animate(b, o, dt, time);
+      FUEL.guestFx(this, b, dt);
     }
     this.updateMarker(time);
   }
@@ -545,6 +560,9 @@ export class Crew {
   update(dt, time) {
     const g = this.game, T = g.T;
     this.assignHaul(dt);
+    NAV.tick(g, dt);   // the version poll and the path searches (1 ms a frame for the whole crew)
+    RT.tick(this, dt);   // the calls: records of bots that are gone, the debug lines
+    FUEL.divertThink(this, dt);   // a starving machine and a crew that is all digging: the nearest digger is pulled off for fuel
     for (const b of this.bots) {
       const o = this.objs.get(b.id) || (this.build(b), this.objs.get(b.id));
       this.think(b, dt, time, o);
@@ -558,16 +576,17 @@ export class Crew {
     const g = this.game, T = g.T, pp = g.player.pos;
     const h = this.home(b), hh = this.home();   // h: where this bot unloads; hh: the SORT bin, where bots wait, loiter and trickle charge
     b.battery = clamp(b.battery, 0, 1);
+    if (RT.think(this, b, dt)) return;   // a bot above the ground on its way down (a call that is over, or an order given up there) walks the route first; the states below wait
     switch (b.state) {
       case 'haulgo': {
         const c = g.S[b.haulKey || 'cart'];
         if (!c || !c.load.length) { this.stand(b); break; }
         b.tx = c.x; b.tz = c.z;
         if (c.dest) b.haulDest = c.dest;   // a cart bound for a bin takes its load there, whatever bin the bot itself unloads at
-        if (Math.hypot(c.x - b.x, c.z - b.z) < 1.7) {
+        if (Math.hypot(c.x - b.x, c.z - b.z) < 1.7 && Math.abs((c.y || 0) - b.y) < 1.5) {   // (a cart on a platform is not reached from the floor under it)
           const take = Math.min(this.capacity(b), c.load.length);
           for (let n = 0; n < take; n++) b.carry.push(c.load.pop());
-          g.sound.chirp(1.4);
+          g.sound.at(b.x, 0.8, b.z, 'bot').chirp(1.4);
           b.scanned = false;
           this.goHome(b);
         }
@@ -585,6 +604,7 @@ export class Crew {
         // loiter around the bin
         b.tx = hh.x + Math.sin(time * 0.3 + b.id) * 2.0; b.tz = hh.z + Math.cos(time * 0.27 + b.id * 1.7) * 1.6;
         this.charge(b, dt, hh);
+        FUEL.idleThink(this, b, dt);   // a load goes to the machines that have room first, an empty bucket goes scooping for a machine that is running dry
         break;
       }
       case 'follow': {
@@ -592,7 +612,7 @@ export class Crew {
         if (d > 2.6) { b.tx = pp.x + (b.id % 3 - 1) * 0.8; b.tz = pp.z + 1.0; } else { b.tx = b.x; b.tz = b.z; }
         break;
       }
-      case 'goto': case 'return': case 'chgwalk': case 'dwalk': {
+      case 'goto': case 'return': case 'chgwalk': case 'dwalk': case 'fwalk': {
         // standing in the gate while it scans the load
         if (b.scanT > 0) {
           b.scanT -= dt; b.tx = b.x; b.tz = b.z;
@@ -604,7 +624,10 @@ export class Crew {
           if (b.state === 'goto') { b.state = 'farm'; b.timer = this.digTime(b, b.x, b.z); }
           else if (b.state === 'chgwalk') { b.state = 'recharge'; b.timer = 0; }
           else if (b.state === 'dwalk') { b.state = 'dgive'; b.timer = 0; b.stall = 0; }
+          else if (b.state === 'fwalk') { b.state = 'fgive'; b.timer = 0; b.stall = 0; }
           else {
+            if (b.carry.length && !b.fuelDone && FUEL.tryTopUp(this, b)) break;   // at the bin, about to unload: the machines in reach that have room are fueled first
+            b.fuelDone = true;
             // robots check in at the nearest detector gate before they unload
             const gate = !b.scanned ? g.logi.bestGate(b.x, b.z, h.x, h.z) : null;
             if (gate) { b.scanned = true; b.gatePending = gate.id; b.path = [[cellX(gate.i), cellZ(gate.k)], [h.x, h.z]]; b.pi = 0; break; }
@@ -612,21 +635,23 @@ export class Crew {
           }
           break;
         }
+        { const nv = NAV.walk(this, b, dt); if (nv === 1) { break; } if (nv === 2) { b.pi = b.path.length; break; } }   // a bot on a built floor, or an errand that ends on one: botnav.js walks it (0 is the old straight walk)
         b.tx = p[0]; b.tz = p[1];
-        if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) { b.pi++; if (b.gatePending && b.pi === 1) { b.scanT = 0.9; const gt = g.logi.byId.get(b.gatePending); if (gt) { g.logi.setGate(gt, false); g.sound.tone('sine', 700, 1100, 0.3, 0.04); } } }
+        if (Math.hypot(p[0] - b.x, p[1] - b.z) < 0.45) { b.pi++; if (b.gatePending && b.pi === 1) { b.scanT = 0.9; const gt = g.logi.byId.get(b.gatePending); if (gt) { g.logi.setGate(gt, false); g.sound.at(b.x, 0.8, b.z, 'scan').tone('sine', 700, 1100, 0.3, 0.04); } } }
         b.battery -= dt * 0.004 / T.crewBattery;
         break;
       }
       case 'unload': {
         b.tx = h.x; b.tz = h.z;
         if (Math.hypot(b.x - h.x, b.z - h.z) > 5) { b.state = 'return'; b.path = [[h.x, h.z]]; b.pi = 0; break; }   // nothing is sold from afar (a bot whose bin changed under it, or that was set down far away, walks there first)
+        if (b.notes && b.notes.length) NB.deliver(g, b);   // a Scholar bot hands over the notes it carried: they land in your journal (once each)
         // nothing is sold before it has been scanned at a detector gate (when one exists)
         if (!b.cleared && b.carry.length && g.logi.bestGate(b.x, b.z, h.x, h.z)) { b.state = 'return'; b.path = []; b.pi = 0; b.scanned = false; break; }
         b.timer -= dt;
         if (b.timer <= 0) {
           b.timer = 0.12;
           const it = b.carry.shift();
-          if (it) { g.sellAuto(it.sp, it.vr, 1, h.id); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.3 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(1.5 + Math.random() * 0.5); }
+          if (it) { g.sellAuto(it.sp, it.vr, 1, h.id); g.fx.coin(h.x, 1.0, h.z - 1.2, 1); if (Math.random() < 0.3 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.at(b.x, 0.8, b.z, 'bot').chirp(1.5 + Math.random() * 0.5); }
           else this.afterUnload(b);
         }
         break;
@@ -635,27 +660,31 @@ export class Crew {
       case 'lowbat': this.thinkLowbat(b, dt, time, hh); break;
       case 'recharge': this.thinkRecharge(b, dt); break;
       case 'dgive': this.thinkDeliver(b, dt); break;
+      case 'fgive': FUEL.thinkGive(this, b, dt); break;
       case 'farm': case 'advance': this.thinkFarm(b, dt, time); break;
       case 'blocked': case 'stuck': {
         b.timer -= dt;
         if (b.timer <= 0) {
           this.goHome(b);
           b.origin = null; // give up on this face, it is blocked
-          g.ui.toast({ icon: '🤖', title: `${b.name} is blocked`, text: 'It cannot dig any further that way and is heading home.', ms: 4000 });
+          const why = b.blockWhy; b.blockWhy = null;
+          g.ui.toast({ icon: '🤖', title: `${b.name} is blocked`, text: why ? `${why === 'remains' ? 'Remains' : 'A supply cache'} lie dead ahead. It stopped short and left them untouched. Open them yourself (E).` : 'It cannot dig any further that way and is heading home.', ms: 4000 });
         }
         break;
       }
     }
+    NAV.steer(this, b, dt);   // idle, follow, haul and the low battery wait: up and down the same ramps, stairs, ladders and lifts
     // low battery heads home
     if (b.battery >= 0.5) b.lowToast = false;
     if ((b.state === 'farm' || b.state === 'advance' || b.state === 'goto' || b.state === 'follow') && b.battery < LOW_BATTERY) this.lowBattery(b);
     else if (b.state === 'idle' && b.battery < LOW_BATTERY) { const cs = this.chargerFor(b); if (cs) this.startCharge(b, cs); else this.enterLowbat(b); }
     // stuck detection: wants to move but does not
-    if (['goto', 'return', 'advance', 'chgwalk', 'dwalk'].includes(b.state)) {
+    if (['goto', 'return', 'advance', 'chgwalk', 'dwalk', 'fwalk'].includes(b.state)) {
       b.stuckT = (b.stuckT || 0) + dt;
       if (b.lastX === undefined) { b.lastX = b.x; b.lastZ = b.z; }
       if (Math.hypot(b.x - b.lastX, b.z - b.lastZ) > 0.5) { b.stuckT = 0; b.lastX = b.x; b.lastZ = b.z; }
-      if (b.stuckT > 25) { this.beam(b); }
+      if (b.state === 'fwalk' && b.stuckT > 6 && FUEL.phaseStuck(this, b)) { /* a machine on another level: phased up beside it */ }
+      else if (b.stuckT > 25) { this.beam(b); }
     } else { b.stuckT = 0; b.lastX = undefined; }
   }
 
@@ -672,7 +701,7 @@ export class Crew {
       g.needleAlarm(gate);
       // pulled aside into the bay beside the lane, flagged, until you come and take it
       b.state = 'held'; b.heldGate = gate.id; b.path = []; b.pi = 0;
-    } else { g.logi.setGate(gate, false); gate.flash = 0.25; b.cleared = true; g.S.stats.botScans = (g.S.stats.botScans || 0) + 1; g.gateDing(0.05, 0.03); }
+    } else { g.logi.setGate(gate, false); gate.flash = 0.25; b.cleared = true; g.S.stats.botScans = (g.S.stats.botScans || 0) + 1; g.gateDing(0.05, 0.03, b.x, 0.9, b.z); }
   }
 
   charge(b, dt, h) {
@@ -681,7 +710,7 @@ export class Crew {
 
   beam(b) {
     const g = this.game, h = this.home();   // (phased back to the SORT bin: it unloads there this trip, whatever bin it has)
-    b.hallTrip = true;
+    b.hallTrip = true; FUEL.dropJob(g, b, true);
     g.fx.sparkle(b.x, b.y + 0.4, b.z, 16, 0.5, 0.9, 1);
     b.x = h.x; b.z = h.z; b.y = 0.6; b.vy = 0; b.stuckT = 0;
     // phased to base, but still goes through the gate before anything is sold
@@ -692,6 +721,7 @@ export class Crew {
 
   thinkFarm(b, dt, time) {
     const g = this.game, w = g.world, T = g.T;
+    if (b.scoopHome && !b.fuelJob) { this.goHome(b); return; }   // the fuel errand was cut short (an order, a low battery, a load): the pile is not dug on without the fuel rule
     const bi = toI(b.x), bk = toK(b.z), bj = b.faceCell ? b.faceCell.j : Math.max(0, toJ(b.y));
     const dx = DX[b.dir], dz = DZ[b.dir];
     if (b.state === 'advance') {
@@ -704,8 +734,11 @@ export class Crew {
     b.tx = cellX(bi) + dx * 0.1; b.tz = cellZ(bk) + dz * 0.1;
     b.timer -= dt;
     b.battery -= dt * 0.003 / T.crewBattery;
+    if (NB.botScan(g, b, dt)) { this.goHome(b); return; }   // flags remains and caches beside it; a Scholar bot lifts a note out and carries it home
+    if (b.fuelJob && FUEL.scoopCheck(this, b)) return;   // scooping fuel: enough in the bucket for the machine, off it walks
     if (b.carry.length >= this.capacity(b)) { this.fullTrip(b); return; }
     if (b.timer > 0) return;
+    if (b.divert && FUEL.startDivert(this, b)) return;   // the cell it was on is dug: it digs fuel for a starving machine from this face (priority errand)
     // work volume
     const W = 2 + Math.floor(b.level / 6), H = 3 + (b.level >= 10 ? 1 : 0);
     const half = Math.floor((W - 1) / 2);
@@ -714,20 +747,20 @@ export class Crew {
     for (let f = 1; f <= (b.level >= 6 ? 2 : 1); f++) for (let l = -half; l < W - half; l++) for (let v = 0; v < H; v++) {
       const i = bi + dx * f + px * l, k = bk + dz * f + pz * l, j = bj + v;
       const s = w.get(i, j, k);
-      if (!s || isSpecialCell(s) || w.reserved.has((j * NZ + k) * NX + i)) continue;
+      if (!s || isSpecialCell(s) || w.reserved.has((j * NZ + k) * NX + i) || (b.fuelJob && !FUEL.legalCell(this, b, s))) continue;   // (a scooping bot digs only what the machine will take)
       const sc = f * 10 + Math.abs(l) * 3 + v;
       if (sc < bs) { bs = sc; best = [i, j, k]; }
     }
     if (best) {
-      const belt = this.beltFor(b);
+      const belt = b.fuelJob ? null : this.beltFor(b);   // (a scooping bot keeps what it digs: it is fuel for one machine)
       const it = w.removeCell(best[0], best[1], best[2]);
       if (!it) { b.timer = 0.3; return; }
       b.arm = performance.now() / 1000;
       b.aim = [cellX(best[0]), cellY(best[1]), cellZ(best[2])];
       g.mechDug(it, cellX(best[0]), cellY(best[1]), cellZ(best[2]));
-      if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.carry.length >= this.capacity(b)) { this.fullTrip(b); b.timer = this.digTime(b, b.x, b.z); return; } }
+      if (!(belt && g.logi.accept(belt, it, null))) { b.carry.push({ sp: it.sp, vr: it.vr }); if (b.fuelJob && FUEL.scoopCheck(this, b)) { this.gainXp(b, 1); return; } if (b.carry.length >= this.capacity(b)) { this.fullTrip(b); b.timer = this.digTime(b, b.x, b.z); return; } }
       this.gainXp(b, 1);
-      if (Math.random() < 0.15 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.chirp(0.9 + Math.random() * 0.5);
+      if (Math.random() < 0.15 && Math.hypot(b.x - g.player.pos.x, b.z - g.player.pos.z) < 20) g.sound.at(b.x, 0.8, b.z, 'bot').chirp(0.9 + Math.random() * 0.5);
       b.timer = this.digTime(b, b.x, b.z);
       return;
     }
@@ -741,13 +774,15 @@ export class Crew {
       b.trail.push([cellX(oi), cellZ(ok)]);
       b.adv++;
       this.noteDist(b);
-      if (T.crewBelt && !g.logi.tileAt(oi, bj, ok) && g.S.money >= 3) {
+      if (T.crewBelt && !b.fuelJob && !g.logi.tileAt(oi, bj, ok) && g.S.money >= 3) {   // (a bot digging fuel keeps what it digs and uses no belt: it lays none, at no cost)
         g.S.money -= 3; g.ui.setMoney(g.S.money);
         g.layBelt(oi, bj, ok, (b.dir + 2) & 3);
       }
       if (T.crewBolt && b.adv % 4 === 0) g.machines.autoFrame(oi, bj, ok, b.dir);   // one 2.4 m cube per 4 cells of advance
-    } else {
+    } else if (b.fuelJob) { FUEL.scoopFail(this, b); }   // nothing the machine would take within reach, and a wall behind it: back to the bin
+    else {
       b.state = 'blocked'; b.timer = 6;
+      b.blockWhy = NB.specialAt(w, ni, bj, nk) || NB.specialAt(w, ni, bj + 1, nk) || NB.specialAt(w, ni, bj + 2, nk) || null;   // remains or a supply cache dead ahead: it stops short of it
     }
   }
 
@@ -761,13 +796,14 @@ export class Crew {
       this.refreshLook(b);
       const g = this.game;
       g.fx.sparkle(b.x, b.y + 0.6, b.z, 24, 0.6, 1, 0.8);
-      g.sound.chirp(1.6); setTimeout(() => g.sound.chirp(2.0), 140);
+      { const sv = g.sound.at(b.x, b.y + 0.6, b.z, 'bot'); sv.chirp(1.6); setTimeout(() => sv.chirp(2.0), 140); }
       g.ui.toast({ icon: '🤖', title: `${b.name} grew to level ${b.level}`, text: `Bigger, stronger, hauls ${this.capacity(b)}.`, ms: 4000 });
       g.S.stats.botLevels = (g.S.stats.botLevels || 0) + 1;
     }
   }
 
   move(b, dt) {
+    if (NAV.took(b)) return;   // botnav.js placed this bot on a surface this frame
     const g = this.game, w = g.world;
     const r = this.radius(b);
     const spd = (1.5 + b.level * 0.06) * (b.state === 'follow' ? 1.3 : 1);
@@ -777,6 +813,7 @@ export class Crew {
     if (d > 0.12) { const s = Math.min(spd, d * 4); vx = dx / d * s; vz = dz / d * s; b.yaw += (Math.atan2(dx, dz) - b.yaw + Math.PI * 3) % (Math.PI * 2) - Math.PI; }
     b.vy -= 16 * dt;
     let x = b.x + vx * dt, y = b.y + b.vy * dt, z = b.z + vz * dt;
+    if ((vx || vz) && !NAV.supported(this, b, x, z)) { x = b.x; z = b.z; }   // a bot on a built floor never steps where there is nothing to stand on
     const pos = { x, y: y + r, z };
     const cont = this._c || (this._c = { hits: 0, nx: 0, ny: 0, nz: 0, deep: 0 });
     let blocked = false;
@@ -815,6 +852,7 @@ export class Crew {
     for (const [n, s] of [['armL', -1], ['armR', 1]]) { const a = o.getObjectByName(n); if (a) a.rotation.x = digging ? -0.4 + Math.sin(time * 18 + s) * 0.5 : Math.sin(time * 1.5 + s) * 0.06; }
     const led = o.getObjectByName('led');
     if (led) led.visible = Math.sin(time * 4 + b.id) > -0.3;
+    NAV.pose(b, o, dt, time);   // leans into a ramp, hops a stair, climbs a ladder
   }
 
   // plush riding in each bot's bucket

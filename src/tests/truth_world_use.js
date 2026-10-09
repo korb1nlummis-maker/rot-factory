@@ -23,7 +23,7 @@ export default async function (ctx) {
     near(h.termPos, 2.0); io.tap('KeyE'); if (io.modal() !== 'shop') bad.push('E at the desk opened ' + io.modal()); g.ui.closeModals();
     near(h.craftPos, 2.0); io.tap('KeyE'); if (io.modal() !== 'craft') bad.push('E at the bench opened ' + io.modal()); g.ui.closeModals();
     near(h.kioskPos, 2.0); io.tap('KeyE'); if (io.modal() !== 'dossier') bad.push('E at the kiosk opened ' + io.modal()); g.ui.closeModals();
-    near(h.binPos, 2.5); S().carry = common(3); const m0 = S().money; io.tap('KeyE'); if (S().carry.length !== 0 || S().money <= m0) bad.push('E at the bin did not sell what you carry'); io.clearHint(); io.tap('KeyE'); if (!/Nothing to sell/.test(io.hint())) bad.push('empty-handed E at the bin: ' + io.hint());
+    near({ x: h.binPos.x + 5.0, z: h.binPos.z }, 2.5); S().carry = common(3);   // (stand on the far side of the bin: the Night Shift button stands 2.5 m west of it, and the one you stand nearest to answers) const m0 = S().money; io.tap('KeyE'); if (S().carry.length !== 0 || S().money <= m0) bad.push('E at the bin did not sell what you carry'); io.clearHint(); io.tap('KeyE'); if (!/Nothing to sell/.test(io.hint())) bad.push('empty-handed E at the bin: ' + io.hint());
     p().pos.set(-20, 0, 8); adv(0.06); io.clearHint(); io.tap('KeyE'); if (!/Nothing to use here/.test(io.hint())) bad.push('E at nothing: ' + io.hint());
     return bad.length === 0 || bad.join('; ');
   });

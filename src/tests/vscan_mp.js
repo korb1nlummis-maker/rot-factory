@@ -117,7 +117,9 @@ export default async function (ctx) {
   });
 
   await guard('mp.vscan.the-half-second-row-carries-power-alarm-and-loads-and-an-unchanged-row-is-not-resent', async () => {
-    fresh(UP); const bad = []; role('host'); cap(); const a = mk(-8, 3), b = mk(-8, 12); a.pw = 1; b.pw = 0; adv(0.1); a.pw = 1; b.pw = 0; adv(0.6);
+    fresh({ ...UP, genOutput: 2 }); const bad = []; role('host'); cap(); const a = mk(-8, 3), b = mk(-8, 12);   // (23 kW per generator: the 14 kW scanner runs at full power)
+    { const t = (type, x, z) => { const e = { id: g.nextId(), type, i: toI(x), j: 0, k: toK(z), dir: 0, rise: 0 }; S().entities.push(e); g.addEntity(e); return g.logi.byId.get(e.id); }; const gen = t('gen', -10, 1), pole = t('pole', -9.4, 1); gen.burn = 1e5; gen.burnMax = 1e5; gen.lit = true; S().items.cable = 4; g.cables.connect(gen.id, pole.id); g.cables.connect(pole.id, a.id); }   // the scanner a has a cable to a live pole, b has none
+    adv(0.1); adv(0.6); if (!(a.pw > 0.95) || (b.pw || 0) !== 0) return `setup: a ${a.pw}, b ${b.pw}`;
     a.alarm = true; a.held = { sp: NEEDLE, vr: 0 }; a.loads = 4;
     g.time += 6; g._extRow = 0; sent.length = 0; EXT.update(g, 0.1, false); const row = ofType('xrow').find((m) => m.k === 'vscan');
     if (!row || row.d.pw[a.id] !== 1 || row.d.pw[b.id] !== 0 || row.d.al[a.id] !== 1 || row.d.al[b.id] !== 0 || row.d.ld[a.id] !== 4) return 'row: ' + JSON.stringify(row);

@@ -241,8 +241,9 @@ export default async function (ctx) {
   // ======================================================================= power
   await T('split.power-draw-and-hand-crank', async () => {
     X.setup(UPB); const bad = [], i = X.i0(), k = X.k0();
-    g.placeEntity('pole', { i: i + 1, j: 0, k: k - 4, dir: 0 }, { quiet: true, rebuild: false });
+    const pole = g.placeEntity('pole', { i: i + 1, j: 0, k: k - 4, dir: 0 }, { quiet: true, rebuild: false });
     const ids = ['merger', 'pmerger', 'ssplit', 'psplit']; const parts = ids.map((id, n) => X.part(id, i, k - 8 + n * 2, 0)); const plain = X.lay(0, 1, i, k - 10, 0)[0];
+    g.S.items.cable = 10; for (const t of [...parts, plain]) { const r = g.cables.connect(pole.id, t.id); if (!r.ok) return 'wiring a belt piece: ' + r.why; }   // each piece is a line of its own: one cable each
     g.power.recompute(); const net = g.power.nets.find((n) => n.nodes.some((x) => x.type === 'pole')); if (!net) return 'no grid';
     const want = ids.reduce((a, id) => a + PART_KW[id], 0) + TIER_KW[0];
     if (Math.abs(net.demand - want) > 1e-6) bad.push(`grid demand ${net.demand}, wanted ${want}`);

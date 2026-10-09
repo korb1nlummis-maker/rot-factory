@@ -19,6 +19,7 @@ import * as A from './arches.js';
 import * as VS from './vehiclescan.js';
 import { sellBatch, sinkNear, STALE_CHOKE } from './earth.js';
 import * as BINS from './bins.js';   // the bin a Portal sells what it cuts at
+import * as NB from './notebook.js';   // remains and supply caches in its way are flagged and reported
 
 export const KW = { 6: 150, 8: 260, 12: 480 };     // the cutter and its drive while it works (kW)
 export const CELLS_PER_S = 12;                       // cells a Portal cuts a second at the base Cutter Head (a Bucket-Wheel does about 13): a slab takes cells / 12 s
@@ -28,7 +29,7 @@ export const PSTATES = ['idle', 'off', 'nopower', 'dig', 'line', 'press', 'broke
 const TEXT = {
   idle: 'Waiting',
   off: 'Parked: press E to start it',
-  nopower: 'No power: link it to a pole or a generator',
+  nopower: 'No power: run a cable to it from a live pole or generator',
   dig: 'Boring the tunnel',
   line: 'Setting the next arch behind the cutter',
   press: 'Halted: the mountain presses too hard for any arch it can set here',
@@ -104,6 +105,7 @@ function lineSection(g, it) {
   if (inSec.length) {
     for (const [i, j, k2] of inSec) { const sp = w.get(i, j, k2); if (sp === NEEDLE) { stat(g, e, 'one', 'The One fell into the section'); return; } }
     // a wall, a pad, a supply cache or remains in an open section cannot be cut (the cutter skips them): halt and say so, never sit silent
+    { const h = NB.holdFor(g, 'Portal', inSec); if (h) { stat(g, e, 'stuck', `Stopped short: ${h}`); say(g, e, 'Portal stopped short', `The Portal will not cut it. ${h}`); it.timer = 2; return; } }
     for (const [i, j, k2] of inSec) if (isSpecialCell(w.get(i, j, k2))) { const why = 'A wall, a pad, a cache or remains stands in the open section behind the cutter. Take it down or open it (E) and the Portal goes on.'; stat(g, e, 'stuck', why); say(g, e, 'Portal blocked', why); it.timer = 2; return; }
     const flat = []; for (const [i, j, k2] of inSec) { const t = w.removeCell(i, j, k2); if (t) { flat.push(t.sp, t.vr); count(g, t); } }
     if (flat.length) sellBatch(g, flat, 1, portalBin(g, e));
@@ -152,6 +154,7 @@ function step(g, it, dt) {
   if (pending) { lineSection(g, it); if (e.ps === 'line') it.timer = Math.max(it.timer, 0.5); return; }
   const a = slabA(e, e.adv), cells = slabCells(e, a);
   const fp = facePos(e, e.adv + 1);
+  NB.scan(g, 'Portal', fp.x, fp.z, 6);   // flag remains or a supply cache beside the cutter
   if (cells.some(([i, j, k]) => !w.inside(i, j, k)) || (e.pd > 0 ? a > (e.axis === 'x' ? NX : NZ) - 5 : a < 4)) { stat(g, e, 'done', ''); g.ui.toast({ icon: '🚇', title: 'Portal finished', text: 'It hit the edge of the hall.' }); return; }
   // air at the cutter
   const air = g.dust.stale({ x: fp.x, y: e.y0 + 1.6, z: fp.z });
@@ -163,6 +166,7 @@ function step(g, it, dt) {
     if (sp === NEEDLE) needle = [i, j, k];
     else if (isSpecialCell(sp) || g.logi.cellTaken(i, j, k)) block = [i, j, k];   // a wall, a pad, a supply cache or remains: removeCell never takes them
   }
+  if (block) { const h = NB.holdFor(g, 'Portal', cells); if (h) { stat(g, e, 'stuck', `Stopped short: ${h}`); say(g, e, 'Portal stopped short', `The Portal will not cut it. ${h}`); it.timer = 2; return; } }
   if (block) { stat(g, e, 'stuck', 'A wall, pad, cache, remains or machine stands in the next slab'); say(g, e, 'Portal blocked', 'Something it cannot cut (a wall, a pad, a supply cache, remains or a machine) stands in the next slab. Take it down or open it (E) and the Portal goes on.'); it.timer = 2; return; }
   let sc = null;
   if (needle) {

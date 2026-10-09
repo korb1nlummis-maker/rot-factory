@@ -87,6 +87,8 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
   /* the hotbar gives way a little so each side keeps room for three dials across (so nine dials are three rows, not five) down to the narrowest desktop window */
   :root { --slot: clamp(50px, calc((100vw - 656px) / 9), 62px); }
 }
+/* a laptop sized window (wide, under 800 px high): the dials are smaller so a group of ten (every gauge you can own on the left: health, bag, cart, scoop, vacuum, air, oxygen, suffocation, dust, grid) still fits in three rows of four beside the hotbar and clears the bot panel */
+@media (min-width: 1180px) and (max-height: 800px) { :root { --dial: 62px; --fs: 0.88; } }
 @media (max-width: 700px) { :root { --dial: 56px; --sgap: 4px; --gutter: 8px; --slot: clamp(30px, calc((100vw - 2 * var(--gutter) - 8 * var(--sgap)) / 9), 62px); } .slot .l { display: none; } .slot .k { left: 3px; top: 1px; font-size: 9px; } .slot .c { right: 3px; top: 1px; font-size: 9px; } #hotbarHint { font-size: 10px; } }
 @media (max-width: 430px) { :root { --dial: 44px; } }
 @media (max-width: 380px), (max-height: 680px) and (max-width: 430px) { :root { --dial: 38px; } }   /* a phone shows a lot of dials (air, oxygen, suffocation, dust, depth ...): keep them to about three rows */
@@ -157,7 +159,7 @@ button.x:hover { background: rgba(255,255,255,0.14); }
 .dx.unk img { filter: brightness(0) opacity(0.35); }
 .dx .n { font-weight: 700; line-height: 1.2; min-height: 26px; }
 .dx .c { color: var(--dim); }
-#achGrid { padding: 18px 20px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; flex: 1; align-content: start; }
+#achGrid { padding: 18px 20px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 10px; flex: 1; align-content: start; }
 .ac { display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 10px 12px; }
 .ac.done { border-color: rgba(255,176,46,0.5); background: rgba(255,176,46,0.08); }
 .ac .i { font-size: 24px; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: rgba(255,255,255,0.07); flex: none; }
@@ -364,7 +366,7 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
 .dial .dd { font-style: normal; margin-top: 1px; max-width: 100%; font-size: calc(9.5px * var(--fs)); line-height: 1.2; font-weight: 700; color: var(--c); white-space: pre-line; overflow-wrap: anywhere; text-shadow: 0 1px 4px #000, 0 0 3px #000; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .dial .dd.none { display: none; }
 .dial .stp { display: flex; gap: 3px; width: 100%; margin-top: 4px; }
-.dial[data-dial='scoop'] .dd { display: none !important; }   /* the buttons take the place of the detail line (the reading is in the ring and the tooltip), so the dial is never taller than the others */
+.dial[data-dial='scoop'] .dd, .dial[data-dial='vacuum'] .dd { display: none !important; }   /* the buttons take the place of the detail line (the reading is in the ring and the tooltip), so the dial is never taller than the others */
 .dial .sb { position: relative; flex: 1 1 0; min-width: 0; height: var(--sbh, 24px); padding: 0; border-radius: 8px; border: 1px solid var(--line); background: rgba(12,15,9,0.86); color: var(--c); font: 800 16px/1 ui-monospace, Menlo, monospace; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .dial .sb::after { content: ''; position: absolute; inset: -6px -2px; }   /* a bigger target for a thumb than the drawn button */
 .dial .sb:hover:not(:disabled) { border-color: var(--c); background: rgba(36,43,28,0.95); }
@@ -464,3 +466,31 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
   #dexBar #dexRegions button { flex: 0 0 auto; white-space: nowrap; }
   #dexGrid { padding: 10px 16px 12px; }
 }
+
+/* ---- Notes: the Field Journal's Notes tab, the papers in the note window, the flags in the crew panel ---- */
+#journalTabs { padding: 10px 24px 0; }
+#journalNotes { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 14px 20px 18px; overflow: auto; flex: 1; align-content: start; }
+#journalNotes .nsum-box { background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; font-size: 13px; line-height: 1.5; position: sticky; top: 0; }
+#journalNotes .nsum-box h3 { margin: 0 0 2px; font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
+#journalNotes .nsum-box > div { color: var(--ink); font-weight: 700; }
+#journalNotes .nsum-box small { color: var(--dim); font-weight: 500; font-size: 11.5px; }
+#journalNotes .nwarn { color: #ff8b7a !important; }
+#journalNotes canvas { width: 100%; max-width: 250px; height: auto; justify-self: center; }
+#journalNotes .nused { font-size: 11.5px; color: var(--dim); }
+#journalNotes .nused summary { cursor: pointer; color: var(--accent2); font-weight: 700; }
+#journalNotes .nused div { font-weight: 500; color: var(--dim); padding: 2px 0; }
+.nfilters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.nfilters button { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--dim); font-weight: 700; font-size: 12px; cursor: pointer; }
+.nfilters button.on { background: rgba(214,255,100,0.14); color: var(--accent); }
+.nlist { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-content: start; }
+.ncard small { display: block; color: var(--dim); font-size: 11.5px; margin-top: 2px; }
+.ncard p { margin: 6px 0 4px; color: var(--ink); font-size: 13px; }
+.ncard .nclue, #noteDocs .nclue { color: #ffd36a; font-style: normal; font-weight: 700; display: block; margin-top: 6px; font-size: 12.5px; }
+.ncipher { display: block; margin: 6px 0 2px; padding: 6px 8px; background: rgba(0,0,0,0.35); border-radius: 6px; font: 600 12px/1.4 ui-monospace, Menlo, monospace; color: #a8e6ff; word-break: break-word; }
+#noteDocs { display: grid; gap: 8px; }
+#noteDocs .ndoc { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }
+#noteDocs .ndoc b { color: var(--ink); }
+#noteDocs .ndoc p { margin: 4px 0; font-style: italic; color: var(--ink); }
+#noteDocs small, .nflav { color: var(--dim); font-size: 11.5px; display: block; }
+.nbadge { background: #ffd36a; color: #2a2417; border-radius: 4px; font-size: 10px; padding: 1px 5px; letter-spacing: 0.1em; vertical-align: middle; }
+@media (max-width: 760px) { #journalNotes { grid-template-columns: 1fr; } #journalNotes .nsum-box { position: static; } }

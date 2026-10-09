@@ -51,7 +51,7 @@ export default async function (ctx) {
     }
     for (const id of LEGACY) if (ids.has(id)) bad.push(`${id} is listed as legacy but now has a bench row: take it off the list in this test`);
     // the hammer's fallback is the type itself: every placeable type with no item handler must be a row of that id
-    const NOT_ITEMS = new Set(['splitpart', 'furnish', 'callbtn', 'transit', 'lift', 'ug']);
+    const NOT_ITEMS = new Set(['splitpart', 'furnish', 'callbtn', 'transit', 'lift', 'ug', 'care']);   // ('care': the Courier Drone's crate is dropped by the game, never crafted or placed)
     for (const type of Object.keys(TYPES)) if (!TYPES[type].item && !NOT_ITEMS.has(type) && !ids.has(type)) bad.push(`the hammer gives back "${type}" and no row has that id`);
     return bad.length === 0 || bad.slice(0, 8).join('; ');
   }));

@@ -11,7 +11,7 @@ const speciesId = (v) => (v === 0 || (Number.isInteger(v) && v >= 1 && !!species
 const spec = () => SPEC || (SPEC = { mode: V.enum(D.MODES), target: speciesId, rarity: V.int(0, 5), exact: V.bool, volume: V.num(0, 1), quiet: V.bool });
 
 export const UPGRADES = [
-  { id: 'archGate', cat: 'machine', name: 'Detector Arch', desc: 'Unlocks the Detector Arch (12,000 at the bench): a steel walk-through arch 2.4 m wide and 2.4 m tall. Carry plush through it. Nothing matches: a soft buzz (only when you carry something). A match: a two note da-ding, green and gold lamps. Press E on it to choose what it looks for: The One, a species from your Plushdex, a rarity, a species new to your Plushdex, or a shiny. In The One mode a match is the win. It scans you without power; the lamps need a pole (1.5 kW). Needs the Detector Gate.', max: 1, cost: [120000], req: { id: 'detector', lvl: 1 }, effect: (t) => { t.machines.push('arch'); } },
+  { id: 'archGate', cat: 'machine', name: 'Detector Arch', desc: 'Unlocks the Detector Arch (12,000 at the bench): a steel walk-through arch 2.4 m wide and 2.4 m tall. Carry plush through it. Nothing matches: a soft buzz (only when you carry something). A match: a two note da-ding, green and gold lamps. Press E on it to choose what it looks for: The One, a species from your Plushdex, a rarity, a species new to your Plushdex, or a shiny. In The One mode a match is the win. It scans you without power; the lamps need a cable from a live pole or generator (1.5 kW). Needs the Detector Gate.', max: 1, cost: [120000], req: { id: 'detector', lvl: 1 }, effect: (t) => { t.machines.push('arch'); } },
   { id: 'archGiant', cat: 'machine', name: 'Giant Detector Arch', desc: 'Unlocks the Giant Detector Arch (220,000 at the bench): 4.8 m wide and 4.2 m tall with a lit crown panel that shows its target, a 6 m crowd plaza and a louder buzz with a low thunk. Wide enough for carts, bots and Haul Trucks. Draws 4 kW for its lamps. Needs the Detector Arch.', max: 1, cost: [3000000], req: { id: 'archGate', lvl: 1 }, effect: (t) => { t.machines.push('archBig'); } },
 ];
 export const RECIPES = (g) => D.recipes(g);
@@ -21,7 +21,7 @@ export const TYPES = {
     stat: 'archBuilt', cfg: () => spec(), group: 'arch', check: D.check, onCfg: D.onCfg,
     item: D.itemOf, onRemove: D.onRemove,
     info: D.info, use: D.use,
-    kw: (e) => D.SIZES[D.archSize(e)].kw, pos: (g, e) => [e.cx, e.y0 + 1.0, e.cz], reach: (g, e) => e.w / 2, wireName: (e) => D.SIZES[D.archSize(e)].name,   // the grid solver and the cable tool read these
+    kw: (e) => D.SIZES[D.archSize(e)].kw, pos: (g, e) => [e.cx, e.y0 + 1.0, e.cz], wireName: (e) => D.SIZES[D.archSize(e)].name,   // the grid solver and the cable tool read these
     add: D.add, plan: D.plan, preview: D.preview, build: D.build, conflict: D.conflict,
     tick: D.tick, guestTick: D.guestTick, row: D.row, guestRow: D.guestRow,
   },

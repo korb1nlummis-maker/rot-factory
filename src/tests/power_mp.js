@@ -74,8 +74,11 @@ export default async function (ctx) {
     sent = []; adv(2); if (ofType('ent+').length || ofType('ent-').length) bad.push('a battery or breaker tick announced ents');
     // all parts gone: one empty row, then nothing
     for (const e of [...S().entities]) if (PP.isPart(e.type)) g.doDecon({ kind: 'mach', id: e.id });
-    g.power.recompute(); g._extRow = 0; sent = []; EXT.update(g, 0.1, false); const r1 = ofType('xrow').filter((m) => m.k === 'switch'); if (r1.length !== 1 || r1[0].d.n.length !== 0 || r1[0].d.e.length !== 0) bad.push('first row after the last part is gone should be empty: ' + JSON.stringify(r1));
-    g._extRow = 0; sent = []; EXT.update(g, 0.1, false); if (ofType('xrow').some((m) => m.k === 'switch')) bad.push('rows keep coming with no parts');
+    g.power.recompute(); g._extRow = 0; sent = []; EXT.update(g, 0.1, false); const r1 = ofType('xrow').filter((m) => m.k === 'switch'); if (r1.length !== 1 || r1[0].d.e.length !== 0) bad.push('first row after the last part is gone should carry no part: ' + JSON.stringify(r1));   // (the grids themselves keep being sent: a guest reads them)
+    // all grids gone as well: one empty row, then nothing
+    for (const t of [...L().tiles.values()]) if (t.type === 'gen' || t.type === 'pole' || t.type === 'fan') g.doDecon({ kind: 'tile', id: t.id });
+    g.power.recompute(); g._extRow = 0; sent = []; EXT.update(g, 0.1, false); const r2 = ofType('xrow').filter((m) => m.k === 'switch'); if (r2.length !== 1 || r2[0].d.n.length !== 0 || r2[0].d.e.length !== 0) bad.push('first row after the last grid is gone should be empty: ' + JSON.stringify(r2));
+    g._extRow = 0; sent = []; EXT.update(g, 0.1, false); if (ofType('xrow').some((m) => m.k === 'switch')) bad.push('rows keep coming with nothing left');
     return bad.length === 0 || bad.join(' | ');
   });
 

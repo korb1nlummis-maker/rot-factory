@@ -395,7 +395,7 @@ export function dockInfo(g, e) {
   const t = outTile(g, e), lines = [];
   const busy = e.ch ? 'A truck is charging.' : 'No truck is parked in it.';
   lines.push(busy, t ? `A belt at the end takes what trucks unload (${t.type}). Trucks with a load pick this dock as their sink when it is nearer than the bin.` : 'No belt at either end: trucks only charge here. Set a belt (or a sorter or vault) at a short end, pointing away, and trucks unload onto it.');
-  lines.push(`${(e.ch ? DOCK.kw : DOCK.standby)} kW now (${DOCK.kw} kW while charging, ${DOCK.standby} kW standing by). A truck charges at ${DOCK.charge} kW while it is parked here.`, (e.pw ?? 0) > 0.05 ? `Powered ${Math.round((e.pw ?? 0) * 100)}%` : 'No power: link it to a pole or a generator. Trucks still park here, they just do not charge.');
+  lines.push(`${(e.ch ? DOCK.kw : DOCK.standby)} kW now (${DOCK.kw} kW while charging, ${DOCK.standby} kW standing by). A truck charges at ${DOCK.charge} kW while it is parked here.`, (e.pw ?? 0) > 0.05 ? `Powered ${Math.round((e.pw ?? 0) * 100)}%` : 'No power: run a Power Cable to it from a live pole or generator. Trucks still park here, they just do not charge.');
   return { title: 'TRUCK DOCK', lit: (e.pw ?? 0) > 0.05, lines };
 }
 

@@ -11,13 +11,16 @@ export default async function (ctx) {
   const I0 = () => toI(-14), K0 = () => toK(2);
   const guard = (name, fn) => T(name, async () => { try { w().isl.off = true; w().thinOff = true; /* the fixtures here are checkerboards of plush columns hanging a cell over the floor; the island rule (island.js) and the thin cap rule (world.js) would drop them, and these tests are about the pad */ return await fn(); } finally { w().isl.off = false; w().thinOff = false; K.clean(); for (const t of [...L().tiles.values()]) if (!t.free && (t.type === 'gen' || t.type === 'pole')) { L().remove(t); S().entities = S().entities.filter((x) => x.id !== t.id); } } });
   // a powered pole two cells beside the machine: a generator fed with commons, a pole, run for a moment so the grid solver marks the pole powered
+  let rigPole = null;
+  const wire = (a, b) => { S().items.cable = (S().items.cable || 0) + 1; const r = g.cables.connect(a.id, b.id); if (!r.ok) throw new Error('wire: ' + r.why); };   // power travels only through cables: the pad runs on its own cable to the pole
   const rig = async (i, k) => {
     const gen = { id: g.nextId(), type: 'gen', i: i - 3, j: 0, k: k + 4, dir: 0, rise: 0, items: [] }; S().entities.push(gen); g.addEntity(gen);
     const pole = { id: g.nextId(), type: 'pole', i: i - 1, j: 0, k: k + 3, dir: 0, rise: 0, items: [] }; S().entities.push(pole); g.addEntity(pole);
+    wire(gen, pole); rigPole = pole; for (const it of g.machines.items.values()) if (it.ent.type === 'levelpad') wire(pole, it.ent);
     S().carry = []; for (let q = 0; q < 12; q++) S().carry.push({ sp: 2, vr: 0 }); g.useTile(gen); S().carry = []; g.power.markDirty(); adv(1.6); return { gen, pole };
   };
   const slotCells = (e, n = 0) => { const s = B.levelSlots(e)[n]; const out = []; for (let r = 0; r < 5; r++) for (let dk = 0; dk < 4; dk++) for (let di = 0; di < 4; di++) out.push([s.i0 + di, s.j + r, s.k0 + dk]); return { slot: s, cells: out }; };
-  const placeLevel = async (i, k, size = 1) => { g._bz = { n: size, w: 1 }; const r = await K.put('levelpad', i, k, { back: 2.2 }); return r; };
+  const placeLevel = async (i, k, size = 1) => { g._bz = { n: size, w: 1 }; const r = await K.put('levelpad', i, k, { back: 2.2 }); if (r.ok && rigPole && g.logi.byId.get(rigPole.id) === rigPole) for (const e of r.made) wire(rigPole, e); return r; };
 
   await guard('build.level-pad-digs-lays-and-charges', async () => {
     K.setup(); const bad = [], i = I0(), k = K0(); await rig(i, k);

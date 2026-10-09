@@ -52,7 +52,7 @@ export default async function (ctx) {
       'beacon', 'pcrate', 'locker', 'sign', 'dsign', 'psign', 'clamp', 'strip', 'flood', 'wbeacon', 'silo', 'ovault', 'dimdepot', 'excavator', 'dozer', 'wheel', 'liftframe', 'meter', 'pswitch', 'chargepack', 'bot:scrapper', 'charger'];
     for (const id of MUST) if (!have.has(id)) bad.push('no row ' + id);
     // every entity type of the catalog that a tool places must have a row of that kind or id (handler-only groups are not items)
-    const NOT_ITEMS = new Set(['splitpart', 'furnish', 'callbtn', 'transit']);
+    const NOT_ITEMS = new Set(['splitpart', 'furnish', 'callbtn', 'transit', 'care']);   // ('care': the Courier Drone's crate, a catalog type for its net rows, never crafted or placed)
     for (const t of Object.keys(TYPES)) if (!NOT_ITEMS.has(t) && !kinds.has(t) && !have.has(t)) bad.push('catalog type without a bench row: ' + t);
     if (CONFLICTS.length) bad.push('catalog conflicts: ' + CONFLICTS.slice(0, 3).join(' | '));
     // every kind the core recipe list can make has a category by kind or id

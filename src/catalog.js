@@ -23,8 +23,8 @@
 //   tool: build(g, tool, planEnt) => fields          the fields of the new ent (must contain `type`); the id is added by placeEntity.
 //   tool: conflict(g, planEnt, tool) => reason | null  host re-check of a guest's placement.
 //   kw(ent, g) => kW                                 what this machine draws right now (default: its DEMAND row). Any type with a DEMAND row or a kw handler is a power consumer.
-//   pos(g, ent) => [x, y, z]                         where the cable clips on and where the grid reach is measured from (default: the ent's i,j,k or x,y,z).
-//   reach(g, ent) => metres                          extra pole reach for a wide machine (default 0).   wireName(ent) => the name a cable readout shows.
+//   pos(g, ent) => [x, y, z]                         where the cable clips on (default: the ent's i,j,k or x,y,z).
+//   wireName(ent) => the name a cable readout shows (power travels only through cables: there is no pole reach any more).
 //   stat: 'key' | ['key', ...]                       S.stats counters one placement of this tool kind adds to (achievements.js reads them).
 //   tick(g, dt)                                      host, once per frame per type (not per ent). guestTick(g, dt) on a guest.
 //   row(g) => payload | null                         host, every 0.5 s while a guest is connected, sent as { t:'xrow', k:type, d:payload }.

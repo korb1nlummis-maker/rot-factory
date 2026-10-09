@@ -1,7 +1,8 @@
 // bins.bot.*: crew bots and carts with a bin of their own: where they walk, where they sell, what the battery allows, what a missing bin does. Run: `await __selftest('bins.bot.')`
 import { kit } from './bins_lib.js';
+import { liveGrid } from './charger_lib.js';
 import * as BINS from '../bins.js';
-import { NEEDLE } from '../plushdata.js';
+import { NEEDLE, pools } from '../plushdata.js';
 import { CART_CAP } from '../cart.js';
 
 export default async function (ctx) {
@@ -45,8 +46,8 @@ export default async function (ctx) {
   });
 
   await G('bins.bot.too-little-battery-for-a-far-depot-goes-to-a-charger-first-then-on-to-the-depot', async () => {
-    const bad = [], e = K.beacon(-60, 9); K.corridor(-62, 0, 7.5); K.run(0.2); const b = K.mkBot(-4, 7); b.dest = e.id; b.carry = K.mix(4); b.battery = 0.05;
-    const ch = K.rawTile('charger', toI(-5), toK(8), { reserve: 5 }); const seen = [];
+    const bad = [], e = K.beacon(-60, 9); K.corridor(-62, 0, 7.5); K.run(0.2); const b = K.mkBot(-4, 7); b.dest = e.id; b.carry = K.mix(4, pools[4][0]); b.battery = 0.05;   // (Legendaries: the Charging Station on the way would take anything cheaper before the bin, see botfuel.js)
+    const ch = K.rawTile('charger', toI(-5), toK(8), { reserve: 5 }); liveGrid(ctx, ch, { air: true, solve: false }); const seen = [];
     g.crew.goHome(b); seen.push(b.state);
     if (b.state !== 'chgwalk' || b.chgNext !== 'home') bad.push(`state ${b.state} next ${b.chgNext}`);
     if (!K.toasts.some((t) => /cannot reach Depot A on its battery, so it charges first/.test(t))) bad.push('it did not say so: ' + K.toasts);

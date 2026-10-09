@@ -11,6 +11,8 @@ export const SPACING = 0.34;                                     // item spacing
 export const UG_SPAN = [4, 6, 8, 10, 12, 14];                    // furthest an underground entry may stand from its exit (cells), by mark
 export const UG_MIN = 2;                                         // the nearest: one cell between the two ends
 export const UG_END_COST = 40;                                   // per end at Mk1 (scales with the mark like belts)
+export const HOSE_COST = 6;                                      // one Vacuum Hose piece, before the bench's K=3 (the 'hose' recipe in crafting.js)
+export const HOSE_PLAN_VARIANTS = 3;                             // a hose line is routed on one level only: horizontal first, vertical first, around (no ramps, no underground)
 export const LIFT_MIN = 2, LIFT_MAX = 24, LIFT_FREE = 8;         // lift height in cells; above LIFT_FREE one Lift Frame per started 8 cells
 export const LIFT_FRAME_PRICE = 400;
 // mergers and splitters with rules (wave 2B): item ids, bench prices before the K=3, and kW (the design's 0.2, 0.3, 1.5 and 3.0)
@@ -33,6 +35,7 @@ export const beltKw = (t) => { const kw = TIER_KW[tierOf(t)] * (t.lift ? Math.ab
 export const speedOf = (T, tier) => (T.beltSpeed || 1.6) * TIER_MUL[tier | 0];                // tiles per second at full power
 export const rateOf = (T, tier) => speedOf(T, tier) / SPACING * 60;                          // items per minute: speed / spacing
 export const priceOf = (tier) => TIER_COST[tier | 0] * K;                                    // bench price of one Mk tile
+export const hosePriceOf = () => HOSE_COST * K;                                            // bench price of one hose piece
 export const liftPriceOf = (tier) => 2 * TIER_COST[tier | 0] * K;                            // one lift cell
 export const ugPriceOf = (tier) => Math.round(UG_END_COST * TIER_COST[tier | 0] / TIER_COST[0]) * K;   // one underground end
 export const spanOf = (tier) => UG_SPAN[tier | 0];

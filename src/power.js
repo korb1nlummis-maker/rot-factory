@@ -1,17 +1,22 @@
-import * as THREE from 'three';
 import { C, cellX, cellZ } from './config.js';
 import { species } from './plushdata.js';
 import { isEarth, EARTH, EARTH_KW, earthDemand } from './earth.js';
+import { beltRev, beltLine } from './cables.js';
 import { mergeDemand, drawsPower, catalogType } from './catalog.js';
 import { beltKw } from './beltdata.js';
 import { isPart, collectParts, partDemand, attachY, genKw, genHopper, genKindOf, battCap, battRate, cacheOf, Ring, tripAlert, PRIO_MAX, HIST_DT, TRIP_GRACE_S, AUTO_RESET_BREAKER_S, AUTO_RESET_SHED_S } from './powerparts.js';
 
 // ---------------------------------------------------------------------------------------------------
-// Power. Generators burn plush for energy, Power Poles carry it, machines must stand near a pole or
-// generator that is linked into a grid. A grid that cannot meet demand browns out: everything on it slows.
+// Power. Generators burn plush for energy. WIRES are the only way it travels (cables.js): a node (generator, pole, battery, breaker) joins a grid
+// only through cables, and a machine is powered only by a cable to a node of a grid that has supply. There is no range link and no plug-in reach:
+// a machine standing against a pole or a generator gets nothing. A Power Pole has no power of its own, it is a hub that is dead until a cable
+// path links it to a generator (or a charged battery). Two generators wired together (directly or through a pole) are one grid whose supply is
+// the sum of both. The one exception: a belt line (belt tiles that hand plush to one another) is ONE load and ONE cable endpoint.
+// A grid that cannot meet demand browns out: everything on it slows. Burn rule (unchanged): a generator burns its own fuel at full output whenever
+// it has fuel (mode auto) or is needed (mode reserve), whatever the grid wants; the grid sums what the burning ones put out.
 // ---------------------------------------------------------------------------------------------------
 const NET = Symbol('net');
-export const DEMAND = { belt: 0.03, sorter: 1.2, mech: 3.5, borer: 12, claw: 2.5, fan: 2, beacon: 0.6, ...EARTH_KW };   // the earth movers draw tens of kW (a parked one draws nothing, Efficient Drives trims the rest)
+export const DEMAND = { belt: 0.03, sorter: 1.2, mech: 3.5, borer: 12, claw: 2.5, fan: 2, beacon: 0.6, charger: 1, ...EARTH_KW };   // the earth movers draw tens of kW (a parked one draws nothing, Efficient Drives trims the rest)
 mergeDemand(DEMAND);   // catalog_*.js kW per type (new keys only)
 // Every catalog machine that declares a demand (a catalog_*.js DEMAND row or a TYPES `kw` handler) is a consumer here: the rail station, the Leveling Pad, doors, lifts,
 // jump pads, lights, signs, the arches. The ones counted by name further down (power parts, earth movers, claw, borer, beacon, lantern, scanner) are left out.
@@ -33,7 +38,7 @@ export function catalogKw(game, e) {
 }
 // How long one plush burns at the base output of 8 kW. Turbine upgrades raise the output and burn each plush faster (energy / output).
 export const GEN_BASE_KW = 8;
-export const BURN_SECONDS = [90, 240, 600, 1500, 0, 0, 0];      // Common 1.5 min, Uncommon 4, Rare 10, Epic 25. Legendary and Mythic are too valuable to burn.
+export const BURN_SECONDS = [270, 720, 1800, 4500, 0, 0, 0];      // Common 4.5 min, Uncommon 12, Rare 30, Epic 75 (three times the first tuning: a plush has to last). Legendary and Mythic are too valuable to burn.
 export const ENERGY_KJ = BURN_SECONDS.map((sec) => sec * GEN_BASE_KW); // kJ per plush by rarity
 export const FUEL_MAX_RARITY = 3;                                // generators take Common to Epic
 export const burnTime = (rarity, outputKw) => (ENERGY_KJ[rarity] || 0) / outputKw;
@@ -45,9 +50,6 @@ export class Power {
     this.catalogConsumers = true;   // furnish.js and transit.js read this: the solver counts their loads, they no longer add kW to a grid themselves
     this.nets = [];          // { id, nodes:[ent], supply, demand, sat, cap, capEff, batts, breakers, tripped, bat, batMax, flow, hist } (power switches merge grids, breakers trip them, batteries cover deficits)
     this.rings = new Map(); this.netById = new Map(); this.parts = null; this.swRecs = [];
-    this.line = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x7ad7ff, transparent: true, opacity: 0.55 }));
-    this.line.frustumCulled = false;
-    game.renderer.scene.add(this.line);
     this.dirty = true;
   }
 
@@ -75,87 +77,85 @@ export class Power {
     const P = collectParts(game);
     this.parts = P;
     const nodes = tiles.filter((t) => t.type === 'gen' || t.type === 'pole');
-    for (const b of P.batteries) nodes.push(b);   // storage and breakers are nodes like a pole: they link by range and take cables
+    for (const b of P.batteries) nodes.push(b);   // storage and breakers are nodes like a pole: they take cables
     for (const b of P.breakers) nodes.push(b);
-    const consumers = [];
-    const cabs = game.cables ? game.cables.live() : [];   // hand-wired cables: [{ rec, A, B }]
+    const cabs = game.cables ? game.cables.live() : [];   // the hand-wired cables, the only links there are: [{ rec, A, B }]
     const cabled = new Set(); for (const c of cabs) { cabled.add(c.A.id); cabled.add(c.B.id); }
-    for (const t of tiles) if (t.type === 'belt' || t.type === 'sorter' || t.type === 'mech' || t.type === 'fan' || (t.type === 'charger' && cabled.has(t.id))) consumers.push(t);   // a charger needs no power: it only joins the grid when a cable asks it to
+    const consumers = [];
+    // belts: only a line a cable ends on is a consumer (one load, one endpoint: every tile of the line takes the line's net). Every other belt tile is off.
+    const lines = [];   // [tiles] of each wired belt line
+    for (const t of tiles) if (t.type === 'belt') { t[NET] = null; t.pw = 0; }
+    {
+      let rev = null; const seenLine = new Set();
+      for (const t of tiles) {
+        if (t.type !== 'belt' || !cabled.has(t.id) || seenLine.has(t.id)) continue;
+        rev = rev || beltRev(game);
+        const line = beltLine(game, t, rev); for (const x of line) seenLine.add(x.id);
+        lines.push(line); for (const x of line) consumers.push(x);
+      }
+    }
+    for (const t of tiles) if (t.type === 'sorter' || t.type === 'mech' || t.type === 'fan' || t.type === 'charger') consumers.push(t);   // a Charging Station is a normal consumer (1 kW): it works only with a cable from a live grid
     for (const it of game.machines.items.values()) {
       const e = it.ent;
       if (e.type === 'claw' || e.type === 'borer' || e.type === 'beacon' || e.type === 'meter' || e.type === 'hlamp' || e.type === 'vscan' || isEarth(e.type) || isCatalogConsumer(e.type)) consumers.push(e);
     }
-    // union-find over nodes linked within pole range
+    // union-find over nodes: a cable between two nodes joins their grids (and nothing else does)
     const parent = nodes.map((_, i) => i);
     const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
-    const link2 = T.poleLink * T.poleLink;
-    const np = nodes.map((n) => this.pos(n));
-    const segs = [];
-    // a cable between two nodes (generator / pole) merges their grids, however far apart they stand
     const nodeAt = new Map(); nodes.forEach((n, i) => nodeAt.set(n.id, i));
     for (const c of cabs) { const a = nodeAt.get(c.A.id), b = nodeAt.get(c.B.id); if (a !== undefined && b !== undefined) parent[find(a)] = find(b); }
-    for (let a = 0; a < nodes.length; a++) for (let b = a + 1; b < nodes.length; b++) {
-      const dx = np[a][0] - np[b][0], dz = np[a][2] - np[b][2], dy = np[a][1] - np[b][1];
-      if (dx * dx + dz * dz + dy * dy <= link2) { parent[find(a)] = find(b); segs.push(a, b); }
-    }
     const nets = new Map();
     nodes.forEach((n, i) => {
       const r = find(i);
-      if (!nets.has(r)) nets.set(r, { nodes: [], supply: 0, demand: 0, sat: 1, cap: 0, batts: [], breakers: [], id: n.id });
+      if (!nets.has(r)) nets.set(r, { nodes: [], gens: [], supply: 0, demand: 0, sat: 1, cap: 0, batts: [], breakers: [], id: n.id });
       const net = nets.get(r); net.nodes.push(n); if (n.id < net.id) net.id = n.id;
-      if (n.type === 'gen') { net.cap += genKw(T, n); net.supply += this.outage ? 0 : this.genOutput(n); }
+      if (n.type === 'gen') { const out = this.outage ? 0 : this.genOutput(n); net.cap += genKw(T, n); net.supply += out; net.gens.push({ e: n, out, carry: 0 }); }
       else if (n.type === 'battery') net.batts.push(n);
       else if (n.type === 'breaker') net.breakers.push(n);
       n[NET] = net;
     });
-    for (const c of consumers) {
-      c[NET] = null; c.pw = 0;
-      const [x, y, z] = this.pos(c);
-      let best = 1e12;
-      const cat = isCatalogConsumer(c.type) ? catalogType(c.type) : null;
-      const rc = T.poleReach + (isEarth(c.type) ? EARTH[c.type].powerReach : 0) + (cat && typeof cat.reach === 'function' ? cat.reach(game, c) || 0 : 0), reach2 = rc * rc;   // a big machine reaches a pole from a little further off
-      for (let i = 0; i < nodes.length; i++) {
-        const dx = x - np[i][0], dz = z - np[i][2], dy = y - np[i][1];
-        const d = dx * dx + dz * dz + dy * dy * 0.5;
-        if (d <= reach2 && d < best) { best = d; c[NET] = nodes[i][NET]; }
-      }
+    // a machine takes the grid of the node its cable ends on (a pole is only a hub: its grid is whatever generators its cables reach)
+    const consSet = new Set(consumers);
+    for (const c of consumers) { c[NET] = null; c.pw = 0; }
+    // (a thing with cables to two grids, a lantern with a cord at each end, runs on the better supplied one: see netRank)
+    const netRank = (n) => (n.supply > 0 ? 2 : n.batts.some((b) => (b.charge || 0) > 0.01) ? 1 : 0);
+    const adopt = (e, net) => { if (!e[NET] || netRank(net) > netRank(e[NET])) e[NET] = net; };
+    for (const c of cabs) {
+      const nA = nodeAt.get(c.A.id), nB = nodeAt.get(c.B.id);
+      if (nA !== undefined && nB === undefined && consSet.has(c.B)) adopt(c.B, nodes[nA][NET]);
+      else if (nB !== undefined && nA === undefined && consSet.has(c.A)) adopt(c.A, nodes[nB][NET]);
     }
-    // explicit cables: a machine wired to a node joins that node's grid even beyond the pole reach (the cable beats the reach)
-    if (cabs.length) {
-      const cons = new Set(consumers);
+    // a string of hanging lanterns: a lantern wired to a lantern that has a grid shares it (the string ends on a node)
+    if (cabs.length) for (let pass = 0; pass <= cabs.length; pass++) {
+      let moved = false;
       for (const c of cabs) {
-        const nA = nodeAt.get(c.A.id), nB = nodeAt.get(c.B.id);
-        if (nA !== undefined && nB === undefined && cons.has(c.B)) c.B[NET] = nodes[nA][NET];
-        else if (nB !== undefined && nA === undefined && cons.has(c.A)) c.A[NET] = nodes[nB][NET];
+        if (c.A.type !== 'hlamp' || c.B.type !== 'hlamp') continue;
+        if (c.A[NET] && !c.B[NET]) { c.B[NET] = c.A[NET]; moved = true; } else if (c.B[NET] && !c.A[NET]) { c.A[NET] = c.B[NET]; moved = true; }
       }
-      // a machine wired to a machine that already has power shares it (only fills a machine that has none)
-      for (let pass = 0; pass <= cabs.length; pass++) {
-        let moved = false;
-        for (const c of cabs) {
-          if (nodeAt.has(c.A.id) || nodeAt.has(c.B.id) || !cons.has(c.A) || !cons.has(c.B)) continue;
-          if (c.A[NET] && !c.B[NET]) { c.B[NET] = c.A[NET]; moved = true; } else if (c.B[NET] && !c.A[NET]) { c.A[NET] = c.B[NET]; moved = true; }
-        }
-        if (!moved) break;
-      }
+      if (!moved) break;
     }
-    const demandOf = (c) => (c.type === 'charger' ? 0 : c.type === 'hlamp' ? (c.on === false ? 0 : DEMAND.hlamp ?? 1.6) : isEarth(c.type) ? earthDemand(T, c, DEMAND[c.type]) : c.type === 'belt' ? beltKw(c) : isCatalogConsumer(c.type) ? catalogKw(game, c) : (DEMAND[c.type] ?? 1));   // a belt draws its mark's kW (lifts: per cell of height), see beltdata.js
+    // a belt line takes the grid of whichever of its tiles has a cable to a node. Two lines joined after they were wired carry two cables: the line runs on the better supplied
+    // grid (one with a generator burning, then one with a charged battery), the first cable wins a tie, and the line's demand is counted once, on that grid.
+    for (const line of lines) { let net = null; for (const x of line) { const n = x[NET]; if (n && (!net || netRank(n) > netRank(net))) net = n; } if (net) for (const x of line) x[NET] = net; }
+    const demandOf = (c) => (c.type === 'hlamp' ? (c.on === false ? 0 : DEMAND.hlamp ?? 1.6) : isEarth(c.type) ? earthDemand(T, c, DEMAND[c.type]) : c.type === 'belt' ? beltKw(c) : isCatalogConsumer(c.type) ? catalogKw(game, c) : (DEMAND[c.type] ?? 1));   // a belt draws its mark's kW (lifts: per cell of height), see beltdata.js
     for (const c of consumers) if (c[NET]) c[NET].demand += demandOf(c);
     for (const n of nodes) if (n.type === 'battery' || n.type === 'breaker') n[NET].demand += partDemand(n);
 
-    // ---- switches: two cable ends each. Not a node and not in the range union. Closed (on and not shed), it joins the two grids its ends sit in.
-    const consSet = new Set(consumers);
+    // ---- switches: two cable ends each. Not a node. Closed (on and not shed), it joins the two grids its ends sit in.
     const swRecs = [];
     for (const sw of P.switches) {
       const ends = []; for (const c of cabs) { if (c.A === sw) ends.push(c.B); else if (c.B === sw) ends.push(c.A); }
       const ee = ends.filter((o) => o.type !== 'switch').slice(0, 2);
-      let home = null, best = 1e12; const [x, y, z] = this.pos(sw), reach2 = T.poleReach * T.poleReach;   // it draws its 0.05 kW from the grid it stands in, else from its first cable
-      for (let i = 0; i < nodes.length; i++) { const dx = x - np[i][0], dz = z - np[i][2], dy = y - np[i][1], d = dx * dx + dz * dz + dy * dy * 0.5; if (d <= reach2 && d < best) { best = d; home = nodes[i][NET]; } }
-      if (!home) for (const o of ee) if (o[NET]) { home = o[NET]; break; }
+      let home = null;   // it draws its 0.05 kW from the grid of its first cable end that has one
+      for (const o of ee) if (o[NET]) { home = o[NET]; break; }
       if (home) home.demand += partDemand(sw);
       sw[NET] = home;
       swRecs.push({ sw, a: ee[0] || null, b: ee[1] || null });
     }
     const baseNets = [...nets.values()];
+    // a string of hanging lanterns hung off a switch: the lanterns cabled to a lantern the switch feeds take the same grid (a lantern cabled to a node keeps its own)
+    const lampNbr = new Map();
+    for (const c of cabs) if (c.A.type === 'hlamp' && c.B.type === 'hlamp') { (lampNbr.get(c.A.id) || lampNbr.set(c.A.id, []).get(c.A.id)).push(c.B); (lampNbr.get(c.B.id) || lampNbr.set(c.B.id, []).get(c.B.id)).push(c.A); }
     const closed = (r) => r.sw.on === true && !r.sw.shed;
     const endNet = (o) => (o && o[NET]) || null;
     const solve = () => {
@@ -169,11 +169,12 @@ export class Power {
         else if (na && r.b && consSet.has(r.b)) att.push([r.b, na]);
         else if (nb && r.a && consSet.has(r.a)) att.push([r.a, nb]);
       }
+      if (lampNbr.size) { const seen = new Set(att.map((q) => q[0].id)); for (let q = 0; q < att.length; q++) { const [c, na] = att[q]; if (c.type !== 'hlamp') continue; for (const nb of lampNbr.get(c.id) || []) if (!nb[NET] && !seen.has(nb.id)) { seen.add(nb.id); att.push([nb, na]); } } }
       const groups = new Map();
       for (const n of baseNets) {
         const rt = fnd(n); let G = groups.get(rt);
-        if (!G) groups.set(rt, G = { bases: [], supply: 0, demand: 0, cap: 0, batts: [], breakers: [], fed: [] });
-        G.bases.push(n); G.supply += n.supply; G.demand += n.demand; G.cap += n.cap; for (const b of n.batts) G.batts.push(b); for (const b of n.breakers) G.breakers.push(b);
+        if (!G) groups.set(rt, G = { bases: [], supply: 0, demand: 0, cap: 0, batts: [], breakers: [], fed: [], gens: [] });
+        G.bases.push(n); G.supply += n.supply; G.demand += n.demand; G.cap += n.cap; for (const b of n.batts) G.batts.push(b); for (const b of n.breakers) G.breakers.push(b); for (const q of n.gens) G.gens.push(q);
       }
       for (const [c, n] of att) { const G = groups.get(fnd(n)); G.fed.push(c); G.demand += demandOf(c); }
       for (const G of groups.values()) {
@@ -210,7 +211,10 @@ export class Power {
       const sat = G.demand <= 1e-6 ? (G.supplyEff > 0 ? 1 : 0) : Math.min(1, G.supplyEff / G.demand);
       let bat = 0, batMax = 0, flow = 0; for (const b of G.batts) { bat += b.charge || 0; batMax += battCap(b); flow += (b.cache && b.cache.flow) || 0; }
       // supply is what the grid delivers (generators plus a charged battery covering the gap, nothing at all while a breaker has tripped), gen is the generators' output alone
-      const net = { nodes: all, supply: G.supplyEff, gen: G.supply, demand: G.demand, sat, cap: G.cap, capEff: G.charged ? Infinity : G.cap, batts: G.batts, breakers: G.breakers, tripped: G.trip, charged: G.charged, bat, batMax, flow, id, hist: this.ringFor(id) };
+      // each generator burns its own fuel and puts out its own kW; the grid sums them. `carry` is the part of that output the grid's demand takes (in proportion to output)
+      const share = G.trip || G.supply <= 1e-9 ? 0 : Math.min(1, G.demand / G.supply);
+      for (const q of G.gens) { q.carry = q.out * share; const k = cacheOf(q.e); k.out = q.out; k.carry = q.carry; k.gens = G.gens.length; }
+      const net = { gens: G.gens, nodes: all, supply: G.supplyEff, gen: G.supply, demand: G.demand, sat, cap: G.cap, capEff: G.charged ? Infinity : G.cap, batts: G.batts, breakers: G.breakers, tripped: G.trip, charged: G.charged, bat, batMax, flow, id, hist: this.ringFor(id) };
       finals.push(net);
       for (const b of G.bases) finalOf.set(b, net);
       for (const n of all) { n[NET] = net; n.pw = sat; }
@@ -220,7 +224,6 @@ export class Power {
     for (const net of finals) net.loads = {};
     for (const c of consumers) { const n = c[NET]; if (!n || !n.loads) continue; const kw = demandOf(c); if (kw > 1e-9) { const lb = loadLabel(c); n.loads[lb] = (n.loads[lb] || 0) + kw; } }   // the grid readout lists the loads by kind
     for (const c of consumers) c.pw = c[NET] ? c[NET].sat : 0;
-    for (const t of tiles) if (t.type === 'charger' && !cabled.has(t.id)) t.pw = undefined;   // a charger without a cable is off the grid again
     for (const r of swRecs) { const h = r.sw[NET] ? finalOf.get(r.sw[NET]) : null; r.sw[NET] = h || null; r.sw.pw = h ? h.sat : 0; r.na = r.a ? r.a[NET] || null : null; r.nb = r.b ? r.b[NET] || null : null; }
     this.swRecs = swRecs;
     for (const c of consumers) if (c.type === 'hlamp') { const n = c[NET], k = cacheOf(c); if (n) { k.sup = n.supply; k.dem = n.demand; k.cap = n.cap; k.tr = n.tripped ? 1 : 0; } else { k.sup = 0; k.dem = 0; k.cap = 0; k.tr = 0; } }   // what the lantern readout says about its grid
@@ -232,13 +235,6 @@ export class Power {
       if (n) c.net = n.id; else delete c.net;
       if (e.type === 'meter') e.pw = n ? n.sat : 0;
     }
-    // cables
-    const arr = new Float32Array(segs.length * 3);
-    for (let s = 0; s < segs.length; s++) { const p = np[segs[s]]; arr[s * 3] = p[0]; arr[s * 3 + 1] = p[1] + 1.1; arr[s * 3 + 2] = p[2]; }
-    this.line.geometry.dispose();
-    this.line.geometry = new THREE.BufferGeometry();
-    this.line.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-    this.line.geometry.computeBoundingSphere();
     this.dirty = false;
   }
 
@@ -356,7 +352,7 @@ export class Power {
     const T = this.game.T, na = r.na, nb = r.nb;
     const nets = new Set([na, nb].filter(Boolean)); if (!nets.size) return false;
     let sup = 0, dem = 0; for (const n of nets) { sup += n.gen; dem += n.demand; }
-    for (const o of [r.a, r.b]) if (o && !o[NET] && o.type !== 'switch') { dem += o.type === 'charger' ? 0 : isEarth(o.type) ? earthDemand(T, o, DEMAND[o.type]) : isCatalogConsumer(o.type) ? catalogKw(this.game, o) : (DEMAND[o.type] ?? 1); }
+    for (const o of [r.a, r.b]) if (o && !o[NET] && o.type !== 'switch') { dem += isEarth(o.type) ? earthDemand(T, o, DEMAND[o.type]) : isCatalogConsumer(o.type) ? catalogKw(this.game, o) : (DEMAND[o.type] ?? 1); }
     const charged = [...nets].some((n) => n.charged);
     return sup + 1e-9 >= dem || charged;
   }
@@ -373,10 +369,13 @@ export class Power {
   // ---------------------------------------------------------------- the 0.5 s row a guest receives (host) and applies (guest)
   packRow() {
     const P = this.parts, n = P ? P.switches.length + P.batteries.length + P.breakers.length + P.meters.length : 0;
-    if (!n) { if (!this._rowHad) return null; this._rowHad = false; return { n: [], e: [] }; }
+    if (!n) {
+      if (this.dirty) return null;   // a solve is pending: say nothing now, the grids go out with the next row
+      if (!this.nets.length) { if (!this._rowHad) return null; this._rowHad = false; return { n: [], e: [] }; }   // (a world of generators, poles and cables sends its grids too: a guest reads them)
+    }
     this._rowHad = true;
     const r2 = (v) => Math.round(v * 100) / 100;
-    const nets = this.nets.map((t) => [t.id, r2(t.supply), r2(t.demand), r2(t.cap), Math.round(t.sat * 100), t.tripped ? 1 : 0, Math.round(t.bat || 0), Math.round(t.batMax || 0), r2(t.flow || 0), t.nodes.map((x) => x.id), Object.entries(t.loads || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, r2(v)]), Object.keys(t.loads || {}).length]);   // [10] the biggest eight loads, [11] how many kinds there are in all (the readout says "and N more kinds")
+    const nets = this.nets.slice(0, 200).map((t) => [t.id, r2(t.supply), r2(t.demand), r2(t.cap), Math.round(t.sat * 100), t.tripped ? 1 : 0, Math.round(t.bat || 0), Math.round(t.batMax || 0), r2(t.flow || 0), t.nodes.slice(0, 80).map((x) => x.id), Object.entries(t.loads || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, r2(v)]), Object.keys(t.loads || {}).length, (t.gens || []).slice(0, 40).map((q) => [q.e.id, r2(q.out), r2(q.carry)]), r2(t.gen)]);   // [12] the generators: id, output, the part of it the grid takes. [13] their summed output   // [10] the biggest eight loads, [11] how many kinds there are in all (the readout says "and N more kinds")
     const ents = [];
     for (const e of [...P.switches, ...P.batteries, ...P.breakers, ...P.meters]) {
       const c = e.cache || {};
@@ -393,7 +392,8 @@ export class Power {
       if (!Array.isArray(a) || a.length < 10) continue;
       const nodes = (Array.isArray(a[9]) ? a[9] : []).map(entOf).filter(Boolean);
       const net = { id: a[0], supply: a[1], demand: a[2], cap: a[3], sat: a[4] / 100, tripped: !!a[5], bat: a[6], batMax: a[7], flow: a[8], nodes, batts: nodes.filter((n) => n.type === 'battery'), breakers: nodes.filter((n) => n.type === 'breaker'), charged: a[6] > 0.01 };
-      net.capEff = net.charged ? Infinity : net.cap; net.gen = net.supply; net.loads = Object.create(null); if (Array.isArray(a[10])) for (const q of a[10]) if (Array.isArray(q) && typeof q[0] === 'string' && Number.isFinite(q[1])) net.loads[q[0]] = q[1]; net.loadKinds = Number.isInteger(a[11]) && a[11] >= 0 && a[11] < 1000 ? a[11] : Object.keys(net.loads).length;
+      net.capEff = net.charged ? Infinity : net.cap; net.gen = Number.isFinite(a[13]) ? a[13] : net.supply;
+      net.gens = []; if (Array.isArray(a[12])) for (const q of a[12]) { if (!Array.isArray(q) || !Number.isFinite(q[1]) || !Number.isFinite(q[2])) continue; const ge = entOf(q[0]); if (ge) net.gens.push({ e: ge, out: q[1], carry: q[2] }); } net.loads = Object.create(null); if (Array.isArray(a[10])) for (const q of a[10]) if (Array.isArray(q) && typeof q[0] === 'string' && Number.isFinite(q[1])) net.loads[q[0]] = q[1]; net.loadKinds = Number.isInteger(a[11]) && a[11] >= 0 && a[11] < 1000 ? a[11] : Object.keys(net.loads).length;
       net.hist = this.ringFor(net.id); net.hist.push(net.supply, net.demand);
       nets.push(net);
     }

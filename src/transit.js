@@ -90,8 +90,10 @@ const entsOf = (g, type) => itemsOf(g, type).map((it) => it.ent);
 const entById = (g, id) => { const it = g.machines.items.get(id); return it ? it.ent : null; };
 const keyHeld = (g) => ((g.S.items && g.S.items.doorkey) || 0) > 0;
 // the people the host knows about: you, and your friend from the position messages
-export function people(g) { const a = [g.player.pos], r = g.remote && g.remote.pos; if (r && r.y > -40 && g.net && g.net.open) a.push(r); return a; }
+export function people(g) { const a = [g.player.pos], r = g.remote && g.remote.pos; if (r && r.y > -40 && g.net && g.net.open) a.push(r); if (g._botPeople) for (const b of g._botPeople) a.push(b); return a; }   // (a bot on a multi-level errand, botnav.js: a door never closes on it and a cab never comes down on it)
 const sound = (g, f) => { try { f(g.sound); } catch (x) { /* audio may be locked or absent */ } };
+// a sound that comes from a door, a lift or a pad: heard from where it stands, fading with distance (spatial.js)
+const soundAt = (g, e, cls, f) => { try { f(g.sound.at(e.px ?? e.cx ?? e.x, (e.y0 ?? e.cy ?? e.y ?? 0) + 1, e.pz ?? e.cz ?? e.z, cls)); } catch (x) { /* audio may be locked or absent */ } };
 
 // ---------------------------------------------------------------- power
 // kW an ent draws right now. A door only while the leaf moves under power, a lift only while the car moves, a jump pad 0.1 standing by and 6 while it charges or has just fired.
@@ -103,32 +105,17 @@ export function kwOf(e) {
 }
 const POWERED = new Set(['door', 'plift', 'jump']);
 const WYS = ['bottom', 'home', 'floor', 'blocked', 'unsupported', 'cap'];   // why the shaft ends where it does (the order is the row's code)
-export const powerPos = (e) => (e.type === 'door' ? [e.px, e.y0 + 1.2, e.pz] : e.type === 'plift' ? [e.px, e.j * C + 1, e.pz]   /* the home stop: a cable or pole reaches it at the top of the shaft */ : [e.x, e.y + 1, e.z]);
-// Like furnish.js: the grid answers for what it feeds. Our load is added to each grid once per recompute (power.js builds fresh net objects every time), unless power.js
-// counts catalog consumers itself (it then sets P.catalogConsumers). Every powered ent also learns its grid's satisfaction (.pw).
+export const powerPos = (e) => (e.type === 'door' ? [e.px, e.y0 + 1.2, e.pz] : e.type === 'plift' ? [e.px, e.j * C + 1, e.pz]   /* the home stop: the cable clips on at the top of the shaft */ : [e.x, e.y + 1, e.z]);
+// The solver counts doors, lifts and pads itself (power.js): they run only on a cable to a live node. Every powered ent also learns its grid's satisfaction (.pw).
 export function resolvePower(g) {
   const P = g.power; if (!P || !P.nets) return;
-  const reach = (g.T && g.T.poleReach) || 7, reach2 = reach * reach, add = new Map(), list = [];
+  const list = [];
   { const L = lists(g); list.push(...L.door, ...L.plift, ...L.jump); }
-  for (const it of list) {
-    const e = it.ent, [ex, ey, ez] = powerPos(e);
-    if (P.catalogConsumers) { it.net = P.netOfEnt(e); continue; }   // the solver counts doors, lifts and pads itself (kwOf, powerPos): it already set .pw
-    let best = null, bd = 1e12;
-    for (const net of P.nets) for (const n of net.nodes) { const [px, py, pz] = P.pos(n); const dx = ex - px, dz = ez - pz, dy = ey - py, d = dx * dx + dz * dz + dy * dy * 0.5; if (d <= reach2 && d < bd) { bd = d; best = net; } }
-    it.net = best;
-    const kw = kwOf(e); if (best && kw > 0) add.set(best, (add.get(best) || 0) + kw);
-  }
-  if (!P.catalogConsumers) for (const [net, kw] of add) {
-    if (TS.seen.has(net)) continue;
-    TS.seen.add(net); net.demand += kw; net.transit = kw;
-    const gen = net.gen ?? net.supply;
-    net.supply = net.tripped ? 0 : (net.charged && net.demand > gen ? net.demand : gen);
-    net.sat = net.demand <= 1e-6 ? (net.supply > 0 ? 1 : 0) : Math.min(1, net.supply / net.demand);
-  }
+  for (const it of list) it.net = P.netOfEnt(it.ent);   // the solver counts doors, lifts and pads itself (kwOf, powerPos): it already set .pw (they run only on a cable to a powered node)
   for (const it of list) { const pw = it.net ? it.net.sat : 0; if (Math.abs((it.ent.pw ?? -1) - pw) > 0.004) it.ent.pw = pw; }
   TS.lastNets = P.nets;
 }
-const powerLine = (e) => ((e.pw ?? 0) > 0.05 ? `Powered ${pct(e.pw)}` : 'No power: link it to a pole or a generator');
+const powerLine = (e) => ((e.pw ?? 0) > 0.05 ? `Powered ${pct(e.pw)}` : 'No power: run a cable to it from a live pole or generator');
 
 // ================================================================ DOORS
 export const doorSpec = (e) => (e.ax === 'z' ? { nx: 1, nz: 4 } : { nx: 4, nz: 1 });
@@ -193,7 +180,7 @@ export function tickDoors(g, dt) {
       if (e.p === (e.tgt ? 1 : 0)) e.crank = false;
       const nf = freedOf(e.p); if (nf !== e.f && !e.view) setRows(g, e, nf);
     } else e.draw = 0;
-    const st = doorState(e); if (st !== e.st) { e.st = st; if (st === 'open' || st === 'closed') sound(g, (s) => s.thump(0.14, 110)); }
+    const st = doorState(e); if (st !== e.st) { e.st = st; if (st === 'open' || st === 'closed') soundAt(g, e, 'door', (s) => s.thump(0.14, 110)); }
     if (!!e.draw !== wasDraw) dirty = true;
     visDoor(it);
   }
@@ -203,7 +190,7 @@ export function guestDoors(g, dt) {
   for (const it of itemsOf(g, 'door')) {
     const e = it.ent;
     if ((e.draw || e.crank) && e.p !== (e.tgt ? 1 : 0)) { const sp = e.draw ? Math.min(1, e.pw || 1) : CRANK; e.p = clamp(e.p + Math.sign((e.tgt ? 1 : 0) - e.p) * dt / doorSec(e) * sp, 0, 1); }
-    const st = doorState(e); if (st !== e.st) { e.st = st; if (st === 'open' || st === 'closed') sound(g, (s) => s.thump(0.14, 110)); }
+    const st = doorState(e); if (st !== e.st) { e.st = st; if (st === 'open' || st === 'closed') soundAt(g, e, 'door', (s) => s.thump(0.14, 110)); }
     visDoor(it);
   }
 }
@@ -214,7 +201,7 @@ function visDoor(it) {
 }
 
 export function addDoor(machines, e) {
-  const g = machines.game, w = g.world; TS.epoch++;
+  const g = machines.game, w = g.world; TS.epoch++; g.botnavVer = (g.botnavVer | 0) + 1;
   e.ax = e.ax === 'z' ? 'z' : 'x'; e.blast = !!e.blast; e.lock = ['none', 'power', 'key'].includes(e.lock) ? e.lock : 'none';
   e.auto = e.auto === undefined ? !e.blast : !!e.auto; e.tgt = e.tgt ? 1 : 0; e.p = clamp(+e.p || 0, 0, 1); e.anchors = true;
   const s = doorSpec(e), x0 = xMin(e.i0), z0 = zMin(e.k0);
@@ -230,7 +217,7 @@ export function addDoor(machines, e) {
   const it = { obj }; it.vis = ''; return it;
 }
 export function removeDoor(g, e) {
-  const w = g.world;
+  const w = g.world; g.botnavVer = (g.botnavVer | 0) + 1;
   for (const [i, j, k] of allDoorCells(e)) { if (w.get(i, j, k) === BULK) { w.setCell(i, j, k, 0, 0); w.stabQueue.push({ i, j, k }); } w.reserved.delete(idx(i, j, k)); }
 }
 export function useDoor(g, e) {
@@ -424,7 +411,7 @@ function syncBox(g, e) {
 const liftPose = (e) => { const s = liftSpan(e); e.px = (s.x0 + s.x1) / 2; e.pz = (s.z0 + s.z1) / 2; e.cx = e.px; e.cz = e.pz; e.y0 = e.cy; e.h = CAB_ROWS * C; e.hr = 2.0; };
 
 export function addLift(machines, e) {
-  const g = machines.game; TS.epoch++;
+  const g = machines.game; TS.epoch++; g.botnavVer = (g.botnavVer | 0) + 1;
   e.cy = Number.isFinite(e.cy) ? Math.min(e.cy, e.j * C) : e.j * C; e.q = Array.isArray(e.q) ? e.q.filter((n) => Number.isInteger(n)).slice(0, LIFT_QUEUE) : []; e.tg = Number.isInteger(e.tg) ? e.tg : null; e.dw = +e.dw || 0; e.dr = e.dr === -1 ? -1 : 1; e.mv = 0; e.blk = 0; e.crank = 0; e.hand = 0; e.xt = 0; e.xc = 0;
   e.cut = int(e.cut, 0, NY + 8) ? e.cut : 0; e.tr = int(e.tr, 0, NY) ? e.tr : 0; e.ex = Number.isFinite(e.ex) ? clamp(e.ex, 0, Math.max(e.tr, e.j - Math.floor(e.cy / C + 1e-6))) : e.tr;   // a saved elevator comes back with its rails run out
   e.wy = typeof e.wy === 'string' ? e.wy : 'bottom'; e.wr = Number.isInteger(e.wr) ? e.wr : e.j - 1; e.sl = int(e.sl, 0, 999) ? e.sl : 0; e.cm = hoistCap(g);
@@ -438,7 +425,7 @@ export function addLift(machines, e) {
   return it;
 }
 export function removeLift(g, e) {
-  const w = g.world, rv = TS.rv.get(e.id);
+  const w = g.world, rv = TS.rv.get(e.id); g.botnavVer = (g.botnavVer | 0) + 1;
   if (rv) for (const [i, j, k] of liftCells(e, rv[0], rv[1])) w.reserved.delete(idx(i, j, k));
   TS.rv.delete(e.id); TS.scan.delete(e.id);
   for (const b of entsOf(g, 'callbtn')) if (b.lid === e.id) g.doDecon({ kind: 'mach', id: b.id });   // an old call button stands for nothing without it
@@ -624,7 +611,7 @@ export function tickLifts(g, dt) {
     const tr = e.tr || 0; let xt = 0, xc = 0; const was = e.ex ?? 0;
     if (was > tr) e.ex = Math.max(tr, Math.min(was, e.j - Math.floor(e.cy / C + 1e-6)));   // a cut draws the rails in, but never out from under the cab
     else if (was < tr) { e.ex = Math.min(tr, was + EXT_RATE * (powered ? Math.min(1, pw) : CRANK) * dt); if (powered) xt = 1; else xc = 1; }
-    if (was < tr && e.ex >= tr && Math.floor(was + 1e-6) < tr) { const note = `The elevator reaches down to ${m1(e.j - tr)} m.`; if (Math.hypot(g.player.pos.x - e.px, g.player.pos.z - e.pz) < 30) g.ui.hint(note, 3.5); sound(g, (s) => s.tone('sine', 660, 990, 0.2, 0.05)); }
+    if (was < tr && e.ex >= tr && Math.floor(was + 1e-6) < tr) { const note = `The elevator reaches down to ${m1(e.j - tr)} m.`; if (Math.hypot(g.player.pos.x - e.px, g.player.pos.z - e.pz) < 30) g.ui.hint(note, 3.5); soundAt(g, e, 'lift', (s) => s.tone('sine', 660, 990, 0.2, 0.05)); }
     if (xt !== (e.xt | 0) || xc !== (e.xc | 0)) { e.xt = xt; e.xc = xc; dirty = true; }
     const fl = floorsOf(g, e);
     if (e.dw > 0) e.dw -= dt;
@@ -647,7 +634,7 @@ export function tickLifts(g, dt) {
           sayCut(g, e, cut, land !== undefined ? `the cab goes back to the ${m1(land)} m landing` : '');
         } else {
           e.cy += dir * step; mv = dir;
-          if (Math.abs(ty - e.cy) < 1e-6) { e.cy = ty; e.tg = null; e.hand = 0; e.dw = 1.0; mv = 0; e.dr = dir || e.dr; sound(g, (s) => s.tone('sine', 880, 880, 0.18, 0.05)); }
+          if (Math.abs(ty - e.cy) < 1e-6) { e.cy = ty; e.tg = null; e.hand = 0; e.dw = 1.0; mv = 0; e.dr = dir || e.dr; soundAt(g, e, 'lift', (s) => s.tone('sine', 880, 880, 0.18, 0.05)); }
         }
       }
     }
@@ -841,6 +828,7 @@ export function tickJumps(g, dt) {
     if ((TS.lockUntil.get(e.id) || 0) > g.time) continue;
     const why = fireJump(g, e); if (why) continue;
     TS.lockUntil.set(e.id, g.time + 0.8);
+    soundAt(g, e, 'pad', (q) => { q.tone('sawtooth', 180, 620, 0.22, 0.07); q.tone('sine', 300, 900, 0.3, 0.05); });   // the host hears the pad throw its friend, from the pad
     const v = launchVel(e); g.netSend({ t: 'xrow', k: 'transit', d: { ev: { k: 'launch', id: e.id, vx: +v.vx.toFixed(3), vy: +v.vy.toFixed(3), vz: +v.vz.toFixed(3) } } }); break;
   }
 }
@@ -1146,7 +1134,7 @@ const USE = {
   'door:blast': 'Place it like a door. It is slower and tougher: it holds the pile and anchors the roof beside it while closed. Its sensor is off by default, so E opens it. Set the lock to power or key to seal a tunnel for good.',
   doorkey: 'Keep it in your pack: a door locked to key opens for you (E or the sensor) while you hold one. It is never used up.',
   plift: 'Dig out a 4 x 4 x 4 opening (or stand at the mouth of a dug shaft) and aim at the floor or at a pad: the cab stands there as the home stop. Then dig a hollow 4 x 4 shaft straight down from it and stack frames in it to shore it (a stretch longer than the tunnel rule allows without one is refused). The rails run out down the clear, shored shaft by themselves, up to your tier. A call panel appears wherever a side tunnel or pad opens into the shaft. Link the home stop to a pole: 6 kW while it moves.',
-  jump: 'Aim at the floor or a pad and press B. - and = set the angle (0 to 90 in 5 degree steps), R turns the heading (15 degrees). The green line is the path. E on a placed pad: 5 degrees steeper; crouch + E turns it. Needs a pole in reach.',
+  jump: 'Aim at the floor or a pad and press B. - and = set the angle (0 to 90 in 5 degree steps), R turns the heading (15 degrees). The green line is the path. E on a placed pad: 5 degrees steeper; crouch + E turns it. Needs its own Power Cable from a live pole or generator.',
   cushion: 'Aim at the floor or a pad and press B. A fall onto it does no harm, whatever the height. Set one where a Jump Pad lands you.',
 };
 const nPlaced = (g, t) => (g.machines ? g.machines.count(t) : 0);

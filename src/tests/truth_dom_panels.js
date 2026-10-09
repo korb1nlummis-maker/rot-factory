@@ -2,6 +2,7 @@
 // button and the two "all" buttons), the depot network, the dossier numbers, the plushdex, journal and achievements readouts.
 import { UPGRADES, CATS } from '../upgrades.js';
 import { LOW_BATTERY } from '../crew.js';
+import { liveGrid } from './charger_lib.js';
 import { EXIT_X, HALL_HX } from '../config.js';
 export default async function (ctx) {
   const { T, g, S, fresh, adv, lookEast } = ctx;
@@ -101,11 +102,11 @@ export default async function (ctx) {
   });
   await T('truth.dom.crew-recharge-and-fuel-buttons-exist-only-when-they-can-work-and-do-their-job', async () => {
     const [b] = bots(1); const bad = []; g.ui.open('crew'); if (btn(b, 'data-a="charge"') || btn(b, 'data-a="fuel"')) bad.push('Recharge / Fuel offered with no station and no generator');
-    const hm = g.crew.home(); const ch = { id: g.nextId(), type: 'charger', i: ctx.toI(hm.x + 6), j: 0, k: ctx.toK(hm.z), reserve: 3, dir: 0, items: [] }; g.S.entities.push(ch); g.addEntity(ch);
+    const hm = g.crew.home(); const ch = { id: g.nextId(), type: 'charger', i: ctx.toI(hm.x + 6), j: 0, k: ctx.toK(hm.z), reserve: 3, dir: 0, items: [] }; g.S.entities.push(ch); g.addEntity(ch); liveGrid(ctx, g.logi.byId.get(ch.id), { air: true, solve: false });   // (a Charging Station works only with a cable from a live grid)
     try {
       g.ui.renderCrew(); const bt = btn(b, 'data-a="charge"'); if (!bt) bad.push('no Recharge button with a station placed'); else { b.x = hm.x; b.z = hm.z + 3; b.state = 'idle'; bt.click(); if (b.state !== 'chgwalk' || b.chg !== ch.id) bad.push(`Recharge now: state ${b.state}, station ${b.chg}`); }
       ch.reserve = 0; b.state = 'idle'; b.chg = null; g.ui.renderCrew(); btn(b, 'data-a="charge"').click(); if (b.state === 'chgwalk') bad.push('Recharge now walked to a station with no charge (the tooltip says "has charge")'); if (!/No Charging Station with charge/.test($('hint').textContent)) bad.push('no answer when the station is empty');
-    } finally { const t = g.logi.byId.get(ch.id); if (t) g.logi.remove(t); g.S.entities = g.S.entities.filter((e) => e.id !== ch.id); }
+    } finally { const t = g.logi.byId.get(ch.id); if (t) g.logi.remove(t); g.S.entities = g.S.entities.filter((e) => e.id !== ch.id); for (const r of [...g.logi.tiles.values()]) if (r.rig) { g.logi.remove(r); g.S.entities = g.S.entities.filter((e) => e.id !== r.id); } g.cables.prune(); }   // (and the test's own power rig)
     const gen = { id: g.nextId(), type: 'gen', i: ctx.toI(hm.x + 9), j: 0, k: ctx.toK(hm.z + 1), dir: 0, items: [], fuel: 0 }; g.S.entities.push(gen); g.addEntity(gen);
     try {
       g.ui.renderCrew(); const fb = btn(b, 'data-a="fuel"'); if (!fb) bad.push('no Keep generator fuelled button with a generator placed'); else { b.state = 'idle'; b.deliver = null; fb.click(); if (b.deliver !== gen.id) bad.push(`Keep generator fuelled: deliver ${b.deliver}, generator ${gen.id}`); }
@@ -126,6 +127,7 @@ export default async function (ctx) {
     const [b] = bots(1); const hm = g.crew.home(); const bad = []; const mk = (type, dx, dz, extra = {}) => { const e = { id: g.nextId(), type, i: ctx.toI(hm.x + dx), j: 0, k: ctx.toK(hm.z + dz), dir: 0, items: [], ...extra }; g.S.entities.push(e); g.addEntity(e); return e; };
     const made = [mk('charger', 6, 0, { reserve: 3 }), mk('sorter', 6, 4), mk('vault', 6, -4), mk('belt', 8, 6), mk('gen', 9, 2, { fuel: 0 })];
     try {
+      { const gt = g.logi.byId.get(made[4].id); gt.burn = 1e5; gt.burnMax = 1e5; g.S.items.cable = (g.S.items.cable || 0) + 1; const w = g.cables.connect(gt.id, made[0].id); if (!w.ok) return 'wire: ' + w.why; g.power.markDirty(); g.power.recompute(); }   // (the station works only with a cable from a live grid: the generator under test powers it)
       const reset = () => { b.state = 'idle'; b.origin = null; b.deliver = null; b.chg = null; b.carry = []; b.x = hm.x + 2; b.z = hm.z + 2; b.y = 0.5; };
       const cases = [
         ['charger', { k: 'tile', id: made[0].id }, (r) => b.state === 'chgwalk' && b.chg === made[0].id, /Recharge at this Charging Station/],

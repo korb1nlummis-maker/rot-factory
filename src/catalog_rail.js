@@ -10,7 +10,7 @@ const text = (max) => (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\
 const count = (g, type) => { let n = 0; for (const it of g.machines.items.values()) if (it.ent.type === type) n++; return n; };
 
 export const UPGRADES = [
-  { id: 'railShuttle', cat: 'mine', name: 'Mine Rail Shuttle', desc: 'Unlocks Mine Rail track, Rail Stations and Rail Carts. Lay a track along the tunnel floor from the base to the work face (hold B and walk; it turns, joins and climbs by itself), set a Rail Station at each end and a Cart on the track. Press E on the cart to sit in it, then Backspace rushes you home from anywhere along the line, and again sends you back out. A line runs at 8 m/s when a station on it stands within reach of a powered pole or generator, and at a hand crank crawl of 2 m/s when it does not. A cart also carries 120 plush hands free and sells them at the base bin.', max: 1, cost: [R.UNLOCK_PRICE], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.railShuttle = true; } },
+  { id: 'railShuttle', cat: 'mine', name: 'Mine Rail Shuttle', desc: 'Unlocks Mine Rail track, Rail Stations and Rail Carts. Lay a track along the tunnel floor from the base to the work face (hold B and walk; it turns, joins and climbs by itself), set a Rail Station at each end and a Cart on the track. Press E on the cart to sit in it, then Backspace rushes you home from anywhere along the line, and again sends you back out. A line runs at 8 m/s when a station on it is wired by Power Cable to a live pole or generator, and at a hand crank crawl of 2 m/s when it is not. A cart also carries 120 plush hands free and sells them at the base bin.', max: 1, cost: [R.UNLOCK_PRICE], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.railShuttle = true; } },
 ];
 
 export const RECIPES = (g) => {
@@ -21,7 +21,7 @@ export const RECIPES = (g) => {
       use: 'Take it out, aim at the tunnel floor and press B, or hold B and walk to lay a line. Lay it from the base to the work face, then set a Rail Station at each end and a Rail Cart on the track. The hammer takes a piece back.',
       statusFn: (gg) => `${count(gg, 'rail')} of ${R.MAX_PIECES} pieces laid.` },
     { id: 'railstn', kind: 'railstn', icon: '🚉', name: 'Rail Station', short: 'Station', price: R.PRICE.railstn, batch: [1, 2, 5],
-      desc: 'A station on a piece of track. A BASE station stands near the SORT bin (carts that stop within 7 m of the bin sell their loads), a FACE station marks the work end. A station within reach of a powered pole or generator runs its whole line at 8 m/s; without one the line is hand cranked at 2 m/s.',
+      desc: 'A station on a piece of track. A BASE station stands near the SORT bin (carts that stop within 7 m of the bin sell their loads), a FACE station marks the work end. A station wired by cable to a live pole or generator runs its whole line at 8 m/s; without one the line is hand cranked at 2 m/s.',
       use: 'Take it out, aim at a piece of track and press B. It is a BASE station when it is within 45 m of the bin and a FACE station beyond. E on it switches BASE and FACE.',
       statusFn: (gg) => `${count(gg, 'railstn')} stations placed.` },
     { id: 'railcar', kind: 'railcar', icon: '🚃', name: 'Rail Cart', short: 'Cart', price: R.PRICE.railcar, batch: [1, 2, 5],
@@ -31,7 +31,7 @@ export const RECIPES = (g) => {
   ];
 };
 
-// a station draws 3 kW: power.js counts it as a consumer (a pole in reach or a cable wires it), and its .pw sets how fast its whole line runs
+// a station draws 3 kW: power.js counts it as a consumer (it runs only on a cable to a live pole or generator), and its .pw sets how fast its whole line runs
 export const DEMAND = { railstn: R.STATION_KW };
 
 const common = (extra = {}) => ({

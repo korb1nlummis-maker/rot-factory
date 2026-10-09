@@ -1,5 +1,6 @@
 import { RARITY, REGIONS, species, speciesCount, ARCH_COUNT, ARCH_NAMES, pools, allPools, volatilePool, speciesChance, bandOfDist } from './plushdata.js';
 import { mulberry32, fmt } from './util.js';
+import * as NB from './notebook.js';   // a finished contract can bring paperwork (a manifest, a ledger, a coded message)
 
 // P(rarity >= r) in the pile
 const P_GE = [1, 0.355, 0.135, 0.045, 0.011, 0.0025];
@@ -117,6 +118,7 @@ export class Contracts {
     S.stats.contracts = (S.stats.contracts || 0) + 1;
     g.ui.toast({ icon: '📋', title: 'Contract complete', text: `◈ ${fmt(c.reward)}${extra}`, cls: 'ach', ms: 5000 });
     g.sound.ach(); g.netSend({ t: 'toast', icon: '📋', title: 'Contract complete', text: `◈ ${fmt(c.reward)}${extra}` });
+    { const doc = NB.contractDoc(g, c); if (doc) NB.readDoc(g, doc, 'Paperwork came with the contract'); }
     const id = c.id;
     setTimeout(() => { const n = S.contracts.findIndex((x) => x.id === id); if (n >= 0 && S.contracts[n].have >= S.contracts[n].need) S.contracts[n] = this.make(); if (g.ui.openModal === 'shop') g.ui.renderShop(); }, 1500);
   }

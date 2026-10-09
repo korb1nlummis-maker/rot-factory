@@ -13,6 +13,7 @@ import {
   TIER_NAMES, TIER_MUL, TIER_KW, TIER_COST, SPACING, UG_SPAN, LIFT_FREE, FRAME_REACH, LIFT_FRAME_PRICE, K, CRANK,
   tierOf, rateOf, markOn, liftPriceOf, ugPriceOf, spanOf, framesNeeded, beltId, liftId, ugId, PART_PRICE, PART_KW, partOf,
 } from './beltdata.js';
+import { INTAKE_UPGRADE, intakeLines } from './beltintake.js';   // the Belt Intake upgrade and the readout line (the pull itself is beltintake.js)
 import * as SP from './splitparts.js';
 import { openPanel as openSplitPanel } from './splitpanel.js';
 import { planLift, previewLift, buildLift, liftConflict, planUg, buildUg, ugConflict, planFrame, buildFrame, frameConflict, makeFrameMesh, frameRating } from './beltparts.js';
@@ -41,6 +42,7 @@ export const UPGRADES = [
   mk(3, 6000000, { id: 'overdrive', lvl: 1 }, `${(UG_SPAN[3])} cell undergrounds`),
   mk(4, 30000000, { id: 'overdrive', lvl: 2 }, `${(UG_SPAN[4])} cell undergrounds`),
   mk(5, 150000000, { id: 'overdrive', lvl: 3 }, `${(UG_SPAN[5])} cell undergrounds`),
+  INTAKE_UPGRADE,   // Belt Intake (beltintake.js): how much plush a belt pulls off your hands and cart, and from how far
   // wave 2B: mergers and splitters with rules. Absolute prices, like every catalog upgrade.
   { id: 'beltMerge', cat: 'machine', name: 'Belt Mergers', max: 1, cost: [450000], req: { id: 'splitter', lvl: 1 },
     desc: 'Unlocks Belt Mergers: a belt piece that takes plush from up to three lines (its back and both sides) and lets each waiting lane push in turn, so a busy lane can never starve the others. Set one over a belt (it keeps its mark) or on the floor.',
@@ -107,7 +109,7 @@ export const RECIPES = (g) => {
 };
 
 // ---------------------------------------------------------------- readouts
-const powerLine = (t) => ((t.pw ?? 0) > 0.05 ? `Powered ${pct(t.pw)}` : 'No power: link it to a pole or a generator');
+const powerLine = (t) => ((t.pw ?? 0) > 0.05 ? `Powered ${pct(t.pw)}` : 'No power: run a cable to it from a live pole or generator');
 
 // the line a tile sits on: walk what it feeds (ahead) and what feeds it (behind). Cached for half a second.
 export function lineScan(g, t) {
@@ -159,7 +161,7 @@ const liftInfo = (g, t) => {
       `Carrying ${t.items.length} plush ${dn ? 'down' : 'up'} ${h} cells (${(h * C).toFixed(1)} m)`,
       sup.need ? (sup.ok ? `Held steady by ${sup.have} of ${sup.need} Lift Frame${sup.need > 1 ? 's' : ''}` : `UNSUPPORTED: it needs ${sup.need} Lift Frame${sup.need > 1 ? 's' : ''} within ${FRAME_REACH} m of it (${sup.have} there). It stands still until they are.`) : `Up to ${LIFT_FREE} cells needs no frame`,
       nx ? `Feeds ${nx.type === 'belt' ? 'the belt' : nx.type} at the ${dn ? 'bottom' : 'top'}` : `Nothing at the ${dn ? 'bottom' : 'top'} yet: build a belt, sorter or vault ${h} cells ${dn ? 'down' : 'up'}, one cell ahead`,
-      (t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A pole near a generator makes it full speed.',
+      (t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A Power Cable from a live pole or generator to any tile of the line makes it full speed.',
     ],
   };
 };
@@ -171,7 +173,7 @@ const ugInfo = (g, t) => {
   else if (!isIn && other) lines.push(`Span ${t.ug.span} cells (${(t.ug.span * C).toFixed(1)} m): passes under ${crossing(g, other, t.ug.span)}`);
   else lines.push(isIn ? `Not paired yet: set its exit in line ahead, ${2} to ${spanOf(tierOf(t))} cells away` : 'Its entry is gone: nothing reaches this exit');
   lines.push(`${TIER_NAMES[tierOf(t)]} reaches ${spanOf(tierOf(t))} cells`);
-  lines.push((t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A pole near a generator makes it full speed.');
+  lines.push((t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A Power Cable from a live pole or generator to any tile of the line makes it full speed.');
   return { title: `UNDERGROUND ${isIn ? 'ENTRY' : 'EXIT'} ${TIER_NAMES[tierOf(t)].toUpperCase()}`, lit: (t.pw ?? 0) > 0.05 && !!other, lines };
 };
 
@@ -179,7 +181,7 @@ const plainInfo = (g, t) => {
   const tier = tierOf(t);
   return {
     title: `BELT ${TIER_NAMES[tier].toUpperCase()}`, lit: (t.pw ?? 0) > 0.05,
-    lines: [`Carrying ${t.items.length} plush`, `Speed ${((g.T.beltSpeed || 1) * TIER_MUL[tier]).toFixed(1)} tiles per second`, (t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A pole near a generator makes it full speed.', t.cd != null ? 'Bends here: it takes plush from the side.' : 'Place the next belt facing a new way to bend the line.', 'Set a higher mark belt over it to upgrade it. Ends in a sorter, vault, generator, charging station or the SORT bin and feeds it.'],
+    lines: [`Carrying ${t.items.length} plush`, `Speed ${((g.T.beltSpeed || 1) * TIER_MUL[tier]).toFixed(1)} tiles per second`, (t.pw ?? 0) > 0.05 ? powerLine(t) : 'Unpowered: hand-cranked at a crawl. A Power Cable from a live pole or generator to any tile of the line makes it full speed.', t.cd != null ? 'Bends here: it takes plush from the side.' : 'Place the next belt facing a new way to bend the line.', 'Set a higher mark belt over it to upgrade it. Ends in a sorter, vault, generator, charging station or the SORT bin and feeds it.'],
   };
 };
 
@@ -192,7 +194,7 @@ export const TYPES = {
       if (t.lift) g.giveItem(liftId(tierOf(t)), t.lift.h - 1);   // the hammer hands back every piece of the lift (the first one comes through `item`)
     },
     info: (g, t) => (t.merger || t.smart ? SP.info(g, t) : t.lift ? liftInfo(g, t) : t.ug ? ugInfo(g, t) : (tierOf(t) > 0 && !t.detector && !t.splitter && !t.hose && !t.rise ? plainInfo(g, t) : null)),
-    infoExtra: (g, t) => (t.detector ? [] : rateLines(g, t)),   // a gate keeps its own readout first (the alarm line)
+    infoExtra: (g, t) => (t.detector ? [] : [...rateLines(g, t), ...intakeLines(g, t)]),   // a gate keeps its own readout first (the alarm line)
     // settings of a Smart or Programmable Splitter (rules, order, default) and a Priority Merger (lane order): cfg and copy/paste (Shift+E, E), the panel on E
     cfg: (t) => SP.cfgOf(t, V),
     check: (g, t, c) => SP.check(g, t, c),

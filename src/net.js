@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Peer } from 'peerjs';
+import { NetStats, SendPipe, Inbox } from './netperf.js';
 
 // ---------------------------------------------------------------------------------------------
 // Co-op over WebRTC with no server: one player hosts and sends a code, the other pastes it and sends
@@ -34,7 +35,22 @@ export class Net {
     this.onMessage = () => {};
     this.onOpen = () => {};
     this.onClose = () => {};
+    // traffic control (netperf.js): counts, a send side that watches the channel's buffer, a receive side that spreads a backlog over frames
+    this.stats = new NetStats();
+    this.pipe = new SendPipe({ ready: () => this.open && !!this.dc && this.dc.readyState === 'open', send: (s) => this.dc.send(s), buffered: () => (this.dc && typeof this.dc.bufferedAmount === 'number' ? this.dc.bufferedAmount : 0) }, { stats: this.stats, onOverflow: () => { console.warn('net: the link is hopelessly behind, closing'); this.close(); this.onClose(); } });
+    this.inbox = new Inbox((m) => this.onMessage(m), { stats: this.stats, onOverflow: () => { console.warn('net: the friend sent more than this side can handle, closing'); this.close(); this.onClose(); } });
   }
+
+  // one raw message from the channel (a string): handled now or, when a flood is in progress, queued for the game loop (Inbox.drain)
+  rx(data) { this.lastRx = performance.now(); try { this.inbox.push(typeof data === 'string' ? data : new TextDecoder().decode(data)); } catch (err) { console.warn('bad net message', err); } }
+  // when the game loop is not running (a hidden tab, loading) the backlog is still handled, a little at a time
+  startPump() {
+    if (this._pump) return;
+    this._pump = setInterval(() => {
+      try { if (this.inbox.now() - this.inbox.lastDrain > 300) { this.inbox.frame(); this.inbox.drain(20); this.pipe.pump(0.25); } } catch (e) { /* ignore */ }   // (no game frames for a third of a second)
+    }, 250);
+  }
+  stopPump() { if (this._pump) { clearInterval(this._pump); this._pump = null; } }
 
   setup(pc) {
     pc.addEventListener('connectionstatechange', () => {
@@ -45,9 +61,9 @@ export class Net {
   bind(dc) {
     this.dc = dc;
     dc.binaryType = 'arraybuffer';
-    dc.onopen = () => { this.open = true; this.onOpen(); };
-    dc.onclose = () => { if (this.open) { this.open = false; this.onClose(); } };
-    dc.onmessage = (e) => { try { this.onMessage(JSON.parse(e.data)); } catch (err) { console.warn('bad net message', err); } };
+    dc.onopen = () => { this.open = true; this.pipe.reset(); this.inbox.reset(); this.startPump(); this.onOpen(); };
+    dc.onclose = () => { if (this.open) { this.open = false; this.stopPump(); this.onClose(); } };
+    dc.onmessage = (e) => this.rx(e.data);
   }
 
   async host() {
@@ -80,6 +96,7 @@ export class Net {
     const dc = {
       readyState: 'connecting', binaryType: 'arraybuffer', onopen: null, onclose: null, onmessage: null,
       send: (str) => conn.send(str), close: () => { try { conn.close(); } catch (e) { /* ignore */ } },
+      get bufferedAmount() { return conn.dataChannel ? conn.dataChannel.bufferedAmount : 0; },   // what the channel still holds (net.js SendPipe backs off on it)
     };
     conn.on('open', () => { dc.readyState = 'open'; if (dc.onopen) dc.onopen(); });
     conn.on('data', (d) => { if (dc.onmessage) dc.onmessage({ data: typeof d === 'string' ? d : new TextDecoder().decode(d) }); });
@@ -124,12 +141,13 @@ export class Net {
   }
 
   send(obj) {
-    if (!this.open || !this.dc || this.dc.readyState !== 'open') return false;
-    try { this.dc.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
+    return this.pipe.send(obj);
   }
 
-  close() { try { if (this.peer) this.peer.destroy(); if (this.dc) this.dc.close(); if (this.pc) this.pc.close(); } catch (e) { /* ignore */ } this.open = false; }
+  close() { this.stopPump(); try { if (this.peer) this.peer.destroy(); if (this.dc) this.dc.close(); if (this.pc) this.pc.close(); } catch (e) { /* ignore */ } this.open = false; }
 }
+
+const MAX_FRIEND_SPEED = 20;   // m/s: a sprint or a fall; anything more is a jump between two messages
 
 // the other person, as seen in your world
 export class RemotePlayer {
@@ -175,9 +193,17 @@ export class RemotePlayer {
   set(msg) {
     // the other player's velocity, from how far it moved since the last message: plush hit them at the right relative speed
     const now = performance.now();
-    if (this._lastSet !== undefined && now - this._lastSet > 20) { const dt = Math.min(0.5, (now - this._lastSet) / 1000); this.vel.set((msg.x - this.target.x) / dt, (msg.y - this.target.y) / dt, (msg.z - this.target.z) / dt); }
+    // a position that is not a number (a forged or broken message) or lies far outside any world is ignored: a NaN here would reach the plush collisions
+    const mx = +msg.x, my = +msg.y, mz = +msg.z;
+    if (!(Math.abs(mx) < 1e5 && Math.abs(my) < 1e5 && Math.abs(mz) < 1e5)) return;
+    if (this._lastSet !== undefined && now - this._lastSet > 20) {
+      const dt = Math.min(0.5, (now - this._lastSet) / 1000); this.vel.set((mx - this.target.x) / dt, (my - this.target.y) / dt, (mz - this.target.z) / dt);
+      // after a stall one message carries the whole way the friend walked: that is not a speed (plush would be hit at 80 m/s, and the friend hurt by the 'hit' it sends back)
+      const sp = this.vel.length(); if (sp > MAX_FRIEND_SPEED) this.vel.multiplyScalar(MAX_FRIEND_SPEED / sp);
+    }
     this._lastSet = now;
-    this.target.set(msg.x, msg.y, msg.z); this.targetYaw = msg.yaw; this.pitch = msg.pitch; this.lampOn = msg.lamp !== false; this.fresh = performance.now(); }
+    const yaw = +msg.yaw, pitch = +msg.pitch;
+    this.target.set(mx, my, mz); this.targetYaw = Number.isFinite(yaw) ? yaw : this.targetYaw; this.pitch = Number.isFinite(pitch) ? pitch : this.pitch; this.lampOn = msg.lamp !== false; this.fresh = performance.now(); }
 
   update(dt) {
     this.pos.lerp(this.target, Math.min(1, dt * 12));

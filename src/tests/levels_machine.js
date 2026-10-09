@@ -20,7 +20,7 @@ export default async function (ctx) {
   await numbers(ctx, 'machine', 'mechSilo', (t) => t.mechBuffer, (l) => 48 + [0, 24, 72, 200][l]);
   await numbers(ctx, 'machine', 'plasmaCutters', (t) => t.borerRate, (l, b) => b * Math.pow(0.8, l), 'down');
   await numbers(ctx, 'machine', 'siloHoppers', (t) => t.genBuffer, (l) => 400 + [0, 150, 450, 1350][l]);
-  await numbers(ctx, 'machine', 'superPoles', (t) => t.poleLink, (l, b) => b + 8 * l);
+  await numbers(ctx, 'machine', 'superPoles', (t) => t.cableLen, (l, b) => b + 8 * l);
   await numbers(ctx, 'machine', 'dysonCores', (t) => t.genOutput, (l, b) => b * Math.pow(3, l));
   await numbers(ctx, 'machine', 'excavatorCount', (t) => t.excavMax, (l, b) => b + l, 'up', { excavator: 1 });
   await numbers(ctx, 'machine', 'excavatorSpeed', (t) => t.excavRate, (l, b) => b * Math.pow(0.8, l), 'down');
@@ -138,20 +138,17 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('levels.machine.superPoles.poles-link-and-feed-from-further-per-level', async () => {
+  await T('levels.machine.superPoles.cable-length-grows-8-m-per-level', async () => {
     await newWorld(); clearBay(); const bad = [];
-    const gridAt = (l, kind, dist) => {   // a burning generator, then a pole (link test) or a consumer (reach test) `dist` m away along z
-      fresh({ ...reqUp(UPGRADES, U('superPoles')), superPoles: l, power: 1, fans: 1 }); const i0 = toI(-10), k0 = toK(0); const gen = tile('gen', i0, k0); gen.burn = 1e6; gen.lit = true;
-      let probe; if (kind === 'reach') probe = tile('fan', i0, k0 + Math.round(dist / 0.6)); else { const pole = tile('pole', i0, k0 + Math.round(dist / 0.6)); probe = tile('fan', i0, k0 + Math.round(dist / 0.6) + 1); void pole; }
-      g.power.recompute(); const pw = probe.pw || 0; for (const t of [...tiles()]) { L().remove(t); } S().entities = S().entities.filter((e) => !['gen', 'pole', 'fan'].includes(e.type)); return pw > 0;
+    const wires = (l, dist) => {   // two poles `dist` m apart along z: can a cable join them?
+      fresh({ ...reqUp(UPGRADES, U('superPoles')), superPoles: l, power: 1, fans: 1 }); const i0 = toI(-10), k0 = toK(0); const a = tile('pole', i0, k0), b = tile('pole', i0, k0 + Math.round(dist / 0.6));
+      S().items.cable = 2; const r = g.cables.connect(a.id, b.id); for (const t of [...tiles()]) L().remove(t); S().entities = S().entities.filter((e) => !['gen', 'pole', 'fan'].includes(e.type)); S().cables = []; return r.ok;
     };
     for (let l = 0; l <= 3; l++) {
-      const reach = 7 + 1.5 * 4 + 2 * l, link = 14 + 4 * 4 + 8 * l;
-      if (!gridAt(l, 'reach', reach - 0.7)) bad.push(`level ${l}: a fan ${(reach - 0.7).toFixed(1)} m from the generator got no power`);
-      if (gridAt(l, 'reach', reach + 1.3)) bad.push(`level ${l}: a fan ${(reach + 1.3).toFixed(1)} m from the generator was powered (reach ${reach})`);
-      // a pole that is itself within link range joins the grid; the fan beside it then runs even though it is far from the generator
-      if (!gridAt(l, 'link', link - 0.7)) bad.push(`level ${l}: a pole ${(link - 0.7).toFixed(1)} m away did not link (range ${link})`);
-      if (gridAt(l, 'link', link + 1.3)) bad.push(`level ${l}: a pole ${(link + 1.3).toFixed(1)} m away linked (range ${link})`);
+      const len = 14 + 4 * 4 + 8 * l; if (g.T && g.T.cableLen !== undefined) void 0;
+      if (!wires(l, len - 0.7)) bad.push(`level ${l}: a cable ${(len - 0.7).toFixed(1)} m long was refused (cable ${len} m)`);
+      if (wires(l, len + 1.3)) bad.push(`level ${l}: a cable ${(len + 1.3).toFixed(1)} m long was accepted (cable ${len} m)`);
+      fresh({ ...reqUp(UPGRADES, U('superPoles')), superPoles: l, power: 1, fans: 1 }); if (g.cables.max() !== len || g.T.poleLink !== undefined || g.T.poleReach !== undefined) bad.push(`level ${l}: cables span ${g.cables.max()} m, expected ${len}`);
     }
     return bad.length === 0 || bad.join('; ');
   });

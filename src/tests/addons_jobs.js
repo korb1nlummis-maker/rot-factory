@@ -21,7 +21,8 @@ export default async function (ctx) {
     if (!withRamp) rows.push(['vault', -6.0, z, 0]); else rows.push(['ramp', -6.0, z, 0, { ramp: 0 }]);
     const err = await grid(rows); if (err) return err;
     const gen = tiles().find((t) => t.type === 'gen'), pole = tiles().find((t) => t.type === 'pole');
-    return { gen, pole, bs: belts().filter((t) => t.k === toK(z)), vault: tiles().find((t) => t.type === 'vault'), ramp: tiles().find((t) => t.type === 'belt' && t.rise) };
+    const bs = belts().filter((t) => t.k === toK(z)); K.wire(gen, pole); K.wire(pole, bs[0]);   // generator to pole, pole to the belt line (one cable on any tile powers the whole line)
+    return { gen, pole, bs, vault: tiles().find((t) => t.type === 'vault'), ramp: tiles().find((t) => t.type === 'belt' && t.rise) };
   };
   await T('addons.job.generator-burns-fuel-and-powers-pole-belt-and-vault-line', async () => {
     fresh(ALL_UP); const rig = await buildLine(2.4); if (typeof rig === 'string') return rig; const { gen, pole, bs, vault } = rig; const bad = [];
@@ -37,13 +38,13 @@ export default async function (ctx) {
     gen.q.length = 0; gen.burn = 0; g.power.markDirty(); adv(2); if ((first.pw || 0) > 0.05) bad.push('belt still powered with the generator out of fuel');
     return bad.length ? bad.join('; ') : true;
   });
-  await T('addons.job.pole-extends-the-grid-to-a-belt-out-of-the-generators-reach', async () => {
+  await T('addons.job.pole-carries-the-generators-power-to-a-belt-by-cable', async () => {
     fresh(ALL_UP); const bad = []; const err = await grid([['gen', -11, -1.2, 0], ['belt', -1.2, 6, 0]]); if (err) return err;
     const gen = tiles().find((t) => t.type === 'gen'), belt = belts()[0]; K.feedGen(gen, 12); adv(2);
-    if ((belt.pw || 0) > 0.05) bad.push('belt 12 m from the generator is powered without a pole');
+    if ((belt.pw || 0) > 0.05) bad.push('belt 12 m from the generator is powered without a cable');
     const r = await put('pole', -6, 2.4, 0); if (!r.ok) return 'pole ' + r.why; adv(2);
-    const pole = K.tileOf(r.ent); if (!(belt.pw > 0.5) || !(pole.pw > 0.5)) bad.push(`pole did not carry the power: belt ${belt.pw} pole ${pole.pw}`);
-    g.doDecon({ kind: 'tile', id: pole.id }); adv(2); if ((belt.pw || 0) > 0.05) bad.push('belt still powered after the pole was hammered');
+    const pole = K.tileOf(r.ent); if ((belt.pw || 0) > 0.05 || (pole.pw || 0) > 0.05) bad.push('a pole standing between them carries power with no cable'); K.wire(gen, pole); K.wire(pole, belt); adv(2); if (!(belt.pw > 0.5) || !(pole.pw > 0.5)) bad.push(`pole did not carry the power: belt ${belt.pw} pole ${pole.pw}`);
+    g.doDecon({ kind: 'tile', id: pole.id }); adv(2); if ((belt.pw || 0) > 0.05) bad.push('belt still powered after the pole was hammered'); if (S().cables.length) bad.push('the hammered pole left cables behind');
     return bad.length ? bad.join('; ') : true;
   });
   await T('addons.job.ramp-lifts-plush-up-one-step-and-down-ramp-drops', async () => {
@@ -60,7 +61,7 @@ export default async function (ctx) {
   await T('addons.job.sorter-sells-below-its-filter-and-passes-the-rest-to-the-vault', async () => {
     fresh({ ...ALL_UP, optics: 3 }); const bad = [];
     const err = await grid([['gen', -9.6, -1.2, 0], ['pole', -9.0, -0.6, 0], ['sorter', -8.4, 0, 0], ['vault', -7.8, 0, 0]]); if (err) return err;
-    const gen = tiles().find((t) => t.type === 'gen'), so = tiles().find((t) => t.type === 'sorter'), vault = tiles().find((t) => t.type === 'vault'); K.feedGen(gen, 30);
+    const gen = tiles().find((t) => t.type === 'gen'), so = tiles().find((t) => t.type === 'sorter'), vault = tiles().find((t) => t.type === 'vault'); K.wire(gen, tiles().find((t) => t.type === 'pole')); K.wire(tiles().find((t) => t.type === 'pole'), so); K.feedGen(gen, 30);
     const push = (sp, n) => { for (let q = 0; q < n; q++) L().accept(so, { sp, vr: 0 }, null); };
     // mode 0: sells everything
     let m0 = S().money; for (let n = 0; n < 4; n++) { push(SP(0), 2); adv(3); } if (!(S().money > m0) || vault.stored.length) bad.push(`sell-all: money +${S().money - m0}, vault ${vault.stored.length}`);
@@ -119,6 +120,7 @@ export default async function (ctx) {
     const dustAfter = (secs) => { g.dust.cells.clear(); g.dust.add(x(12), 1.0, z, 1.5); const d0 = g.dust.at(x(12), 1.0, z); adv(secs); return [d0, g.dust.at(x(12), 1.0, z)]; };
     const off = dustAfter(6); if ((fan.pw || 0) > 0.05) bad.push('unpowered fan reports power ' + fan.pw);
     const err2 = await grid([['gen', x(6), z, 0], ['pole', x(8), z, 0]]); if (err2) return err2; K.feedGen(tiles().find((t) => t.type === 'gen'), 20);
+    { const gT = tiles().find((t) => t.type === 'gen'), pT = tiles().find((t) => t.type === 'pole'); if ((fan.pw || 0) > 0.05) bad.push('the fan runs beside a live pole with no cable'); K.wire(gT, pT); K.wire(pT, fan); }
     const on = dustAfter(6); if (!(fan.pw > 0.5 && on[1] < on[0] * 0.3 && on[1] < off[1] * 0.5)) bad.push(`powered fan: pw ${fan.pw} dust ${on[0].toFixed(2)} -> ${on[1].toFixed(2)} (unpowered ${off[0].toFixed(2)} -> ${off[1].toFixed(2)})`);
     return bad.length ? bad.join('; ') : true;
   });
@@ -129,8 +131,8 @@ export default async function (ctx) {
     const t = tiles().find((q) => q.mounted); if (!t) return 'no fan tile';
     const run = (pw) => { g.dust.cells.clear(); g.dust.add(f.cx + 9, 1.2, f.cz, 1.0); g.dust.add(f.cx - 9, 1.2, f.cz, 1.0); for (let n = 0; n < 12; n++) { g.dust.t = 0; t.pw = pw; g.dust.update(0.5); } return [g.dust.at(f.cx + 9, 1.2, f.cz), g.dust.at(f.cx - 9, 1.2, f.cz)]; };
     const off = run(0), on = run(1); if (!(off[0] > 0.25)) bad.push('dust vanished without power: ' + off[0].toFixed(2)); if (!(on[0] < off[0] * 0.3)) bad.push(`powered fan did not clear the tunnel ahead: ${on[0].toFixed(2)} vs ${off[0].toFixed(2)}`); if (!(on[0] < on[1] * 0.6)) bad.push(`ahead ${on[0].toFixed(2)} not clearer than behind ${on[1].toFixed(2)}`);
-    // real grid: a generator and pole in reach power it for real
-    g.craftItem('gen', 1); g.craftItem('pole', 1); K.equip('gen'); K.aimDir(cellX(i + 16), 0, cellZ(k + 1), 0, 2); pl = await plan(); if (pl.ok) { g.placeCurrent(g.curTool()); K.equip('pole'); K.aimDir(cellX(i + 18), 0, cellZ(k + 1), 0, 2); pl = await plan(); if (pl.ok) g.placeCurrent(g.curTool()); K.feedGen(tiles().find((q) => q.type === 'gen'), 12); adv(3); if (!(t.pw > 0.5)) bad.push('support fan not powered by a real generator and pole: pw ' + t.pw); } else bad.push('could not place generator in the tunnel: ' + pl.why);
+    // real grid: a generator, a pole and two cables power it for real
+    g.craftItem('gen', 1); g.craftItem('pole', 1); K.equip('gen'); K.aimDir(cellX(i + 16), 0, cellZ(k + 1), 0, 2); pl = await plan(); if (pl.ok) { g.placeCurrent(g.curTool()); K.equip('pole'); K.aimDir(cellX(i + 18), 0, cellZ(k + 1), 0, 2); pl = await plan(); if (pl.ok) g.placeCurrent(g.curTool()); K.feedGen(tiles().find((q) => q.type === 'gen'), 12); { const gT = tiles().find((q) => q.type === 'gen'), pT = tiles().find((q) => q.type === 'pole'); if (gT && pT) { K.wire(gT, pT); K.wire(pT, t); } } adv(3); if (!(t.pw > 0.5)) bad.push('support fan not powered by a real generator and pole: pw ' + t.pw); } else bad.push('could not place generator in the tunnel: ' + pl.why);
     return bad.length ? bad.join('; ') : true;
   });
 

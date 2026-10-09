@@ -109,32 +109,34 @@ export default async function (ctx) {
 
   // ------------------------------------------------------------------ cable ports and what a cable may join
   await T('power.cable-ports-per-object', async () => {
-    reset({ ...UP }); const bad = [], G = K.gen(-12, 1), P = K.pole(-8, 8);
-    const belts = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => K.tile('belt', -2 + n * 1.2, 1));
+    reset({ ...UP }); const bad = [], G = K.gen(-3, 8), P = K.pole(-3, 5);
+    const belts = Array.from({ length: 20 }, (_, n) => K.tile('belt', -9 + (n % 13) * 1.2, 1 + Math.floor(n / 13) * 1.2));   // every belt is a line of its own (1.2 m apart)
     const tryW = (a, b) => wire(a, b);
-    if (!tryW(G, belts[0]).ok || !tryW(G, belts[1]).ok) bad.push('a generator takes 2 cables');
-    const r3 = tryW(G, belts[2]); if (r3.ok || !/no free cable port/.test(r3.why)) bad.push('third cable on a generator: ' + JSON.stringify(r3));
+    for (let n = 0; n < 4; n++) if (!tryW(G, belts[n]).ok) bad.push(`generator cable ${n + 1} refused`);
+    const r5 = tryW(G, belts[4]); if (r5.ok || !/no free cable socket/.test(r5.why)) bad.push('fifth cable on a generator: ' + JSON.stringify(r5.ok || r5.why));
     // a machine takes one
     const r4 = tryW(P, belts[0]); if (r4.ok) bad.push('a belt that already has a cable took a second one');
-    for (let n = 0; n < 6; n++) { const r = tryW(P, belts[2 + n]); if (!r.ok) bad.push(`pole cable ${n + 1}: ${r.why}`); }
-    const r7 = tryW(P, belts[8]); if (r7.ok) bad.push('a seventh cable on a pole (6 ports)');
-    // removing a cable at the limit works, and frees the port
-    const rm = g.cables.connect(G.id, belts[0].id); if (!rm.ok || !rm.removed) bad.push('removing a cable at the limit: ' + JSON.stringify(rm)); if (!tryW(G, belts[9]).ok) bad.push('the freed port was not free');
-    // Grid Range adds 2 ports per level, only to poles
-    reset({ ...UP, gridRange: 3 }); const P2 = K.pole(-8, 8); const t2 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => K.tile('belt', -6 + n * 1.0, 1));
-    let ok = 0; for (const b of t2) if (wire(P2, b).ok) ok++; if (ok !== 12) bad.push('a pole with Grid Range 3 takes 12 cables, took ' + ok);
-    if (PP.maxPorts({ type: 'pole' }) !== 6 || PP.maxPorts({ type: 'gen' }) !== 2 || PP.maxPorts({ type: 'switch' }) !== 2 || PP.maxPorts({ type: 'battery' }) !== 2 || PP.maxPorts({ type: 'breaker' }) !== 4 || PP.maxPorts({ type: 'charger' }) !== 1 || PP.maxPorts({ type: 'belt' }) !== 1 || PP.maxPorts({ type: 'meter' }) !== 1) bad.push('maxPorts table');
-    // the new parts
-    reset(UP); const sw = part('switch', -3, 6), bt = part('battery', -8, 6), br = part('breaker', -6, 6), a = K.pole(-12, 2), q = [0, 1, 2, 3, 4].map((n) => K.pole(0 + n * 5, 2));
+    for (let n = 0; n < 10; n++) { const r = tryW(P, belts[4 + n]); if (!r.ok) bad.push(`pole cable ${n + 1}: ${r.why}`); }
+    const r11 = tryW(P, belts[14]); if (r11.ok || !/no free cable socket \(it takes 10\)/.test(r11.why)) bad.push('an eleventh cable on a pole (10 sockets): ' + JSON.stringify(r11.ok || r11.why));
+    // removing a cable at the limit works, and frees the socket
+    const rm = g.cables.connect(G.id, belts[0].id); if (!rm.ok || !rm.removed) bad.push('removing a cable at the limit: ' + JSON.stringify(rm)); if (!tryW(G, belts[15]).ok) bad.push('the freed socket was not free');
+    // Grid Range no longer adds sockets: it only lengthens a cable
+    reset({ ...UP, gridRange: 3 }); const P2 = K.pole(-3, 5), t2 = Array.from({ length: 13 }, (_, n) => K.tile('belt', -9 + n * 1.2, 1));
+    let ok = 0; for (const b of t2) if (wire(P2, b).ok) ok++; if (ok !== 10) bad.push('a pole takes 10 cables whatever Grid Range says, took ' + ok);
+    // the rungs: Portable 2, ordinary 4, Turbine 4, Plant 5, Station 6, Titan 8
+    const want = { portable: 2, std: 4, turbine: 4, plant: 5, grid: 6, titan: 8 }; for (const [k, n] of Object.entries(want)) if (PP.GEN_BY_KEY[k].ports !== n) bad.push(`${k} takes ${PP.GEN_BY_KEY[k].ports} cables, expected ${n}`);
+    if (PP.maxPorts({ type: 'switch' }) !== 2 || PP.maxPorts({ type: 'battery' }) !== 4 || PP.maxPorts({ type: 'breaker' }) !== 6 || PP.maxPorts({ type: 'charger' }) !== 1 || PP.maxPorts({ type: 'belt' }) !== 1 || PP.maxPorts({ type: 'meter' }) !== 1 || PP.maxPorts({ type: 'pole' }) !== 10 || PP.maxPorts({ type: 'hlamp' }) !== 2) bad.push('maxPorts table');
+    // the power parts
+    reset(UP); const sw = part('switch', -1, 6), bt = part('battery', 0.6, 6), br = part('breaker', 2.4, 6), a = K.pole(-9, 2), q = [0, 1, 2, 3, 4, 5, 6].map((n) => K.pole(-6 + n * 2, 2));
     const cnt = (e, list) => list.filter((o) => wire(e, o).ok).length;
-    if (cnt(sw, q) !== 2) bad.push('switch ports'); if (cnt(bt, q.slice(2)) !== 2) bad.push('battery ports'); if (cnt(br, [a, ...q]) !== 4) bad.push('breaker ports');
+    if (cnt(sw, q) !== 2) bad.push('switch ports'); if (cnt(bt, q.slice(2)) !== 4) bad.push('battery ports'); if (cnt(br, [a, ...q]) !== 6) bad.push('breaker ports');
     return bad.length === 0 || bad.join(' | ');
   });
 
   await T('power.cable-tool-warns-before-the-click-when-a-port-is-taken', async () => {
-    reset(); const bad = [], G = K.gen(-10, 3), b1 = K.tile('belt', -2, 3), b2 = K.tile('belt', -2, 4.2), b3 = K.tile('belt', 2, 3); wire(G, b1); wire(G, b2); craft('cable', 1); selectTool('cable');
+    reset(); const bad = [], G = K.gen(-10, 3), b1 = K.tile('belt', -2, 3), b2 = K.tile('belt', -2, 4.2), b3 = K.tile('belt', 2, 3), b4 = K.tile('belt', -2, 5.4), b5 = K.tile('belt', -2, 6.6); wire(G, b1); wire(G, b2); wire(G, b4); wire(G, b5); craft('cable', 1); selectTool('cable');
     look(2, 0.3, 3, 2); g.cables.click(g.curTool()); if (g.cables.from !== b3.id) bad.push('could not start at the free belt: ' + K.hintText());
-    look(-10, 0.5, 3, 2); if (!g.cables.preview || g.cables.preview.state !== 'red' || !/no free cable port \(it takes 2\)/.test(K.hintText())) bad.push('no warning at a full generator: ' + JSON.stringify(g.cables.preview) + ' ' + K.hintText());
+    look(-10, 0.5, 3, 2); if (!g.cables.preview || g.cables.preview.state !== 'red' || !/no free cable socket \(it takes 4\)/.test(K.hintText())) bad.push('no warning at a full generator: ' + JSON.stringify(g.cables.preview) + ' ' + K.hintText());
     g.cables.cancel(); g.stowed = true; return bad.length === 0 || bad.join(' | ');
   });
 
@@ -184,7 +186,7 @@ export default async function (ctx) {
     if (g.ui.openModal !== 'pwpanel') bad.push('E on a priority switch did not open the panel: ' + g.ui.openModal);
     else { const rows = document.querySelectorAll('#pwpList .jcard'); if (rows.length !== 2) bad.push('panel rows ' + rows.length); g.ui.closeModals(); }
     // breaker
-    const G = grid(-6, 8, { gens: 1, fans: 6 }); const br = part('breaker', -6, 5.6); adv(4); if (!br.tripped) return 'setup: no trip';
+    const G = grid(-6, 8, { gens: 1, fans: 6 }); const br = part('breaker', -6, 5.6); wire(br, G.pole); adv(4); if (!br.tripped) return 'setup: no trip';
     look(-6, 0.5, 5.6, 2); g.useKey(); if (br.tripped) bad.push('E on a tripped breaker did not reset it'); void G;
     return bad.length === 0 || bad.join(' | ');
   });

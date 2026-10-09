@@ -1,11 +1,12 @@
 import { sp, kit } from './charger_lib.js';
+import * as FUEL from '../botfuel.js';
 // Charging Station: recipe, placement, removal, and every way plush gets in. Reserve units: 1.0 is one full bot battery.
 export default async function (ctx) {
   const { T, g, S, p, L, fresh, craft, selectTool, placeAtFloor, tiles, sim, recipes, UPGRADES, tune, species, cellX, cellZ, THREE, clearBodies } = ctx;
-  const { look, run, feed: feedAll } = kit(ctx);
+  const { look, run, feed: feedAll, live } = kit(ctx);
   const up = { crew: 1 };
   const PER = [0.34, 0.7, 1.5, 4.0];
-  const mk = async (extra = {}, x = -3.4, z = 3.0) => { fresh({ ...up, ...extra }); const r = await placeAtFloor('charger', x, z, 2.0); if (!r.ok) throw new Error('charger: ' + r.why); return tiles().find((t) => t.type === 'charger'); };
+  const mk = async (extra = {}, x = -3.4, z = 3.0) => { const { unwired, ...rest } = extra; fresh({ ...up, ...rest }); const r = await placeAtFloor('charger', x, z, 2.0); if (!r.ok) throw new Error('charger: ' + r.why); const t = tiles().find((x) => x.type === 'charger'); if (!unwired) live(t); return t; };   // (a Charging Station is a normal machine: it gets its own live grid unless `unwired`)
 
   await T('crew.charger-recipe-is-gated-by-the-crew-upgrade-and-priced', async () => {
     fresh({}); if (recipes(g).some((r) => r.id === 'charger')) return 'craftable with no crew upgrade';
@@ -14,7 +15,7 @@ export default async function (ctx) {
     if (!tune(up).machines.includes('charger')) return 'tuning lacks charger';
     fresh(up); const r = recipes(g).find((x) => x.id === 'charger'); if (!r) return 'no recipe with the crew upgrade';
     if (r.kind !== 'charger' || r.price !== Math.round(g.chargerCost() * 3) || r.price < 300 || r.price > 3000) return `recipe ${JSON.stringify([r.kind, r.price, g.chargerCost()])}`;
-    if (!/0\.34/.test(r.desc) || !/needs no power/i.test(r.desc) || /—/.test(r.desc + r.use)) return 'description missing the numbers or has a dash: ' + r.desc;
+    if (!/0\.34/.test(r.desc) || !/Power Cable/.test(r.desc) || /—/.test(r.desc + r.use)) return 'description missing the numbers or has a dash: ' + r.desc;
     S().money = 5000; craft('charger'); if (Math.round(5000 - S().money) !== r.price) return `charged ${5000 - S().money}, price ${r.price}`;
     if (S().items.charger !== 1 || !S().hotbar.includes('charger')) return 'not in the pack and on the hotbar';
     g.refreshTuning(); return true;
@@ -32,9 +33,20 @@ export default async function (ctx) {
     const second = await placeAtFloor('charger', -3.4, 3.0, 2.0); if (second.ok) return 'placed twice in one cell';
     return true;
   });
-  await T('crew.charger-needs-no-power-and-is-not-a-power-consumer', async () => {
-    const t = await mk(); g.power.update(0.5); for (const n of g.power.nets) if (n.nodes.includes(t)) return 'joined a power net';
-    feedAll(t, [0, 1]); run(1.5); return (Math.abs(t.reserve - 1.04) < 0.01 && !(t.pw > 0)) || `reserve ${t.reserve} pw ${t.pw}`;
+  await T('crew.charger-needs-a-cable-from-a-live-grid-and-is-a-one-kw-consumer', async () => {
+    const t = await mk({ unwired: true }); g.power.markDirty(); g.power.recompute();
+    if (!(t.pw === 0 || t.pw === undefined) || (t.pw ?? 0) > 0) return 'powered with no cable: ' + t.pw;
+    if (FUEL.chargerPowered(t)) return 'open with no cable';
+    const { infoFor, findInfoRef } = await import('../info.js'); selectTool('hammer'); g.stowed = false; look(cellX(t.i), t.j * 0.6 + 0.3, cellZ(t.k), 1.6);
+    const dead = infoFor(g, findInfoRef(g)); const dt = dead ? dead.lines.join('|') : ''; if (!/Not wired: run a cable to it/.test(dt) || !/NOT WIRED/.test(dead.title) || dead.lit) return 'unwired readout: ' + JSON.stringify(dead);
+    const gen = live(t); if (!(t.pw > 0.99) || !FUEL.chargerPowered(t)) return 'a cable to a burning generator did not power it: ' + t.pw;
+    const net = g.power.nets.find((n) => n.nodes.includes(gen)); if (!net || Math.abs(net.demand - 1) > 1e-6) return 'the grid demand is ' + (net && net.demand) + ' (want the charger\'s 1 kW)';
+    if (!(net.loads && Math.abs((net.loads['Charging Stations'] || 0) - 1) < 1e-6)) return 'load meter: ' + JSON.stringify(net && net.loads);
+    const on = infoFor(g, findInfoRef(g)); if (!on || !on.lit && false) return 'powered readout missing'; if (/NOT WIRED|NO POWER/.test(on.title)) return 'powered title ' + on.title;
+    // a generator that runs out of fuel leaves it dead again, and a cut cable too
+    gen.burn = 0; g.power.markDirty(); g.power.recompute(); if (FUEL.chargerPowered(t)) return 'open on a grid with no supply';
+    gen.burn = 1e6; g.power.markDirty(); g.power.recompute(); if (!FUEL.chargerPowered(t)) return 'not back on'; g.cables.connect(gen.id, t.id); g.power.markDirty(); g.power.recompute();
+    return (!FUEL.chargerPowered(t) && /NO POWER|NOT WIRED/.test(g.chargerInfo(t).title)) || 'a taken-down cable left it powered';
   });
   await T('crew.charger-hammer-takes-it-back-with-its-plush', async () => {
     const t = await mk(); feedAll(t, [0, 0, 2]); S().items = {}; S().carry = []; g.T.carry = 20;
@@ -50,11 +62,11 @@ export default async function (ctx) {
     S().carry = [{ sp: sp(5), vr: 0 }]; const hint0 = document.getElementById('hint') ? document.getElementById('hint').textContent : ''; g.useTile(t); void hint0; if (S().carry.length !== 1) bad.push('mythic taken alone');
     return bad.length === 0 || bad.join('; ');
   });
-  await T('crew.charger-hopper-holds-twelve-and-reserve-caps-at-eight', async () => {
-    const t = await mk(); g.T.carry = 30; S().carry = []; for (let n = 0; n < 15; n++) S().carry.push({ sp: sp(0), vr: 0 }); g.useTile(t);
-    if (t.q.length !== 12 || S().carry.length !== 3) return `hopper ${t.q.length}, hands ${S().carry.length}`;
-    if (g.logi.accept(t, { sp: sp(0), vr: 0 }, null)) return 'a 13th plush was accepted';
-    run(4); if (Math.abs(t.reserve - 12 * 0.34) > 1e-6) return 'reserve ' + t.reserve;
+  await T('crew.charger-hopper-holds-fifty-and-reserve-caps-at-eight', async () => {
+    const t = await mk(); g.T.carry = 60; S().carry = []; for (let n = 0; n < 55; n++) S().carry.push({ sp: sp(0), vr: 0 }); g.useTile(t);
+    if (t.q.length !== 50 || S().carry.length !== 5) return `hopper ${t.q.length}, hands ${S().carry.length}`;
+    if (g.logi.accept(t, { sp: sp(0), vr: 0 }, null)) return 'a 51st plush was accepted';
+    run(6); if (Math.abs(t.reserve - 23 * 0.34) > 1e-6 || t.q.length !== 27) return `reserve ${t.reserve} waiting ${t.q.length} (23 Commons fit under the cap of 8)`;
     const e = await mk(); for (let n = 0; n < 5; n++) g.logi.accept(e, { sp: sp(3), vr: 0 }, null); run(3);
     return (Math.abs(e.reserve - 8) < 1e-9 && e.q.length === 3) || `epics: reserve ${e.reserve} waiting ${e.q.length} (want 8 and 3)`;
   });
@@ -69,7 +81,7 @@ export default async function (ctx) {
     return (Math.abs(t.reserve - 2.2) < 1e-6 && left === 3) || `reserve ${t.reserve} (want 0.7 + 1.5), bodies left ${left} (legendary, far one, unthrown one stay)`;
   });
   await T('crew.charger-full-hopper-stops-catching-throws', async () => {
-    const t = await mk(); clearBodies(); for (let n = 0; n < 12; n++) t.q.push({ sp: sp(0), vr: 0 }); t.dig = 99; const gx = cellX(t.i), gz = cellZ(t.k), keep = sim().n;
+    const t = await mk(); clearBodies(); for (let n = 0; n < 50; n++) t.q.push({ sp: sp(0), vr: 0 }); t.dig = 99; const gx = cellX(t.i), gz = cellZ(t.k), keep = sim().n;
     sim().spawn(sp(0), 0, gx + 0.3, t.j * 0.6 + 1.0, gz, 0, 0, 0, 1); g.feedChargersFromThrows(); const stayed = sim().n === keep + 1; clearBodies(); return stayed || 'caught with a full hopper';
   });
   await T('crew.charger-belt-line-ending-in-it-feeds-it-by-rarity-and-legendary-is-refused', async () => {
@@ -86,7 +98,7 @@ export default async function (ctx) {
   });
   await T('crew.charger-hover-readout-shows-charge-hopper-and-rates', async () => {
     const t = await mk(); feedAll(t, [2, 0]); run(1); const info = g.chargerInfo(t); const txt = info.lines.join('|');
-    if (!/1\.84 of 8/.test(txt) || !/hopper 0\/12/.test(txt) || !/0\.34 \(Common\)/.test(txt) || !/4 \(Epic\)/.test(txt) || !/0\.5 battery per second/.test(txt)) return txt;
+    if (!/1\.84 of 8/.test(txt) || !/hopper 0\/50/.test(txt) || !/Per plush: Common 34% of a bot battery, Uncommon 70%/.test(txt) || !/Holds 50 plush\. A full hopper refills this many empty bots: Common 17, Uncommon 35, Rare 75, Epic 200/.test(txt)  || !/0\.5 battery per second/.test(txt)) return txt;
     const { infoFor, findInfoRef } = await import('../info.js'); selectTool('hammer'); g.stowed = false; look(cellX(t.i), t.j * 0.6 + 0.3, cellZ(t.k), 1.6); const ref = findInfoRef(g); const inf = infoFor(g, ref);
     return (inf && /CHARGING STATION/.test(inf.title) && inf.lit) || 'hover info ' + JSON.stringify(inf);
   });

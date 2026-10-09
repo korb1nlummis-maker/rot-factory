@@ -9,9 +9,12 @@ import * as DEXUI from './dexui.js';
 import { fmt } from './util.js';
 import { describeBoosts } from './remains.js';
 import * as BENCH from './bench.js';   // the Crafting Table browser: tabs, search, cards, detail pane
-import { Dials } from './dials.js';
+import { Dials, rateText } from './dials.js';
 import * as BINS from './bins.js';   // the bin a bot unloads at, shown and picked on each crew row
 import * as BINPANEL from './binspanel.js';
+import * as CARE from './carepackage.js';   // the Care Package log on the achievements screen, the upgrade discount
+import * as NB from './notebook.js';   // the Notes tab of the journal, the crew panel's finds
+import { KINDS, clueLine as NOTES_LINE } from './notes.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,10 +30,11 @@ export class UI {
     this.openModal = null;
     this.hotbarKey = '';
     this.ringLen = 113;
-    this.dials = new Dials($('dialsL'), $('dialsR'), (id, dir) => { if (id === 'scoop' && this.game) this.game.adjustScoop(dir); });   // the SCOOP dial's minus and plus buttons
+    this.dials = new Dials($('dialsL'), $('dialsR'), (id, dir) => { if (!this.game) return; if (id === 'scoop') this.game.adjustScoop(dir); else if (id === 'vacuum') this.game.adjustVac(dir); });   // the SCOOP and VACUUM dials' minus and plus buttons
     this.watchBelt();
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.closeModals());
     for (const b of document.querySelectorAll('[data-ptab]')) b.addEventListener('click', () => this.pauseTab(b.dataset.ptab));
+    for (const b of document.querySelectorAll('[data-jtab]')) b.addEventListener('click', () => this.journalTab(b.dataset.jtab));
     this.renderControls();
     for (const m of document.querySelectorAll('.modal')) m.addEventListener('mousedown', (e) => { if (e.target === m) this.closeModals(); });
   }
@@ -170,14 +174,30 @@ export class UI {
       el.title = t ? t.label : 'Empty slot ' + (i + 1);
       el.onclick = () => { if (this.invSel && !(id && id === this.invSel)) g.assignHotbar(this.invSel, i); else if (id) this.invSel = id; this.renderInventory(); };
       el.ondragover = (e) => e.preventDefault();
-      el.ondrop = (e) => { e.preventDefault(); const dragged = e.dataTransfer.getData('text/plain'); if (dragged) { g.assignHotbar(dragged, i); this.invSel = dragged; this.renderInventory(); } };
+      el.ondrop = (e) => {
+        e.preventDefault(); const dragged = e.dataTransfer.getData('text/plain'), from = e.dataTransfer.getData('application/x-slot');
+        if (!dragged) return;
+        if (from !== '' && from !== undefined && +from !== i) { const f = +from, other = S.hotbar[i]; g.clearHotbarSlot(f); g.assignHotbar(dragged, i); if (other) g.assignHotbar(other, f); }   // slot to slot swaps
+        else if (from === '' || from === undefined) g.assignHotbar(dragged, i);
+        this.invSel = dragged; this.renderInventory();
+      };
+      // taking an item off the belt: drag it out, double click it, right click it, or use the Put back button
+      if (id) {
+        el.draggable = true; el.ondragstart = (e) => { this.invSel = id; e.dataTransfer.setData('text/plain', id); e.dataTransfer.setData('application/x-slot', String(i)); };
+        el.ondblclick = () => { g.clearHotbarSlot(i); this.renderInventory(); };
+        el.oncontextmenu = (e) => { e.preventDefault(); g.clearHotbarSlot(i); this.renderInventory(); };
+      }
       bar.appendChild(el);
     }
+    // dropping a belt item anywhere on the pack puts it back
+    grid.ondragover = (e) => e.preventDefault();
+    grid.ondrop = (e) => { e.preventDefault(); const from = e.dataTransfer.getData('application/x-slot'); if (from !== '' && from !== undefined) { g.clearHotbarSlot(+from); this.renderInventory(); } };
     // detail
     const it = list.find((x) => x.id === this.invSel);
     $('invInfo').innerHTML = it
       ? `<h3>${it.icon} ${it.name}${it.count != null ? ` <small>×${it.count}</small>` : ''}</h3><p>${it.desc || ''}</p>${it.status ? `<p style="color:var(--accent2);font-size:12px">${it.status}</p>` : ''}${it.use ? `<p style="color:var(--dim);font-size:12px"><b>How to use:</b> ${it.use}</p>` : ''}<p style="font-size:12px;color:var(--ink)">${it.tool ? (it.slot >= 0 ? `On hotbar slot <b>${it.slot + 1}</b>. Press another number to move it, <b>X</b> to take it off the bar.` : 'Press a number <b>1-9</b> (or click a hotbar slot, or drag it there) to put it on your hotbar.') : 'Not a hotbar item.'}</p>`
       : '<p style="color:var(--dim)">Click an item to see what it does. Put tools and building items on the hotbar below, then use the number keys in the world.</p>';
+    if (it && it.slot >= 0) { const btn = document.createElement('button'); btn.id = 'invPutBack'; btn.className = 'btn'; btn.textContent = 'Put back in pack'; btn.onclick = () => { g.clearHotbarSlot(it.slot); this.renderInventory(); }; $('invInfo').appendChild(btn); }
   }
   invAssign(slot) { const g = this.game; if (slot < 0 || slot > 8) return; const it = g.inventoryList().find((x) => x.id === this.invSel); if (!it || !it.tool) { this.hint('Pick a tool or building item first.', 1.5); return; } g.assignHotbar(it.id, slot); this.renderInventory(); }
   invClear() { const g = this.game; const slot = g.S.hotbar.indexOf(this.invSel); if (slot >= 0) { g.clearHotbarSlot(slot); this.renderInventory(); } }
@@ -237,6 +257,12 @@ export class UI {
   setScoop(n, max) {
     if (!(max > 0)) { this.dials.set('scoop', { on: false }); return; }
     this.dials.set('scoop', { on: true, frac: Math.min(1, n / max), val: String(n), unit: '/ ' + max, sub: '', state: n >= max && max > 12 ? 'warn' : 'ok', dim: n === 0, canDn: n > 0, canUp: n < max, text: `scoop ${n} of ${max} plush per grab; the minus and plus buttons (or the - and = keys) change it by three` });
+  }
+  // the vacuum dial: the suction in use (plush a second) out of the most the owned vacuum draws, and what share of it that is. Alt+- and Alt+= (or the buttons) change it in tens of percent. 0 is off.
+  setVacuum(rate, max, pct) {
+    if (!(max > 0)) { this.dials.set('vacuum', { on: false }); return; }
+    const r = Number.isFinite(rate) ? Math.max(0, Math.min(max, rate)) : 0, pc = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
+    this.dials.set('vacuum', { on: true, frac: Math.min(1, r / max), val: rateText(r), unit: '/ ' + rateText(max), sub: '', state: pc >= 100 && max > 18 ? 'warn' : 'ok', dim: pc === 0, canDn: pc > 0, canUp: pc < 100, text: pc === 0 ? `vacuum off, 0 of ${rateText(max)} plush per second; a click grabs like plain hands` : `vacuum ${rateText(r)} of ${rateText(max)} plush per second, ${pc} percent of its suction; the minus and plus buttons (or Alt with - and =) change it by ten percent` });
   }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setCartLine(n, cap, mode) {
@@ -426,7 +452,7 @@ export class UI {
       const maxed = lvl >= u.max;
       const unlocked = isUnlocked(u, g.S.up, g.shopStats());
       const nt = needsText(u, g.shopStats());
-      const cost = maxed ? 0 : u.cost[lvl];
+      const cost = maxed ? 0 : CARE.priceOf(g, u.cost[lvl]);
       const can = unlocked && !maxed && g.S.money >= cost;
       const el = document.createElement('div');
       el.className = 'card' + (maxed ? ' maxed' : '') + (!unlocked ? ' locked' : '');
@@ -470,15 +496,20 @@ export class UI {
     const freeBunks = g.T.crewMax - bots.length;
     if (freeBunks > 0) box.insertAdjacentHTML('beforeend', `<div class="jcard" style="margin-bottom:8px"><b>${freeBunks} free bunk${freeBunks === 1 ? '' : 's'}.</b> Craft Scrapper Bots for them at the Crafting Table (Robots tab).</div>`);
     const hasChg = [...g.logi.tiles.values()].some((t) => t.type === 'charger'), hasGen = [...g.logi.tiles.values()].some((t) => t.type === 'gen');
+    // the crew-wide switch: bots top up generators and Charging Stations before they unload, and scoop fuel for a machine that runs dry while they have nothing to do
+    { const on = g.S.crewFuel !== false;
+      box.insertAdjacentHTML('beforeend', `<div class="jcard" data-fuelcfg style="margin-bottom:4px;grid-column:1/-1;align-self:start"><b>Keep machines fueled: ${on ? 'ON' : 'OFF'}</b> Bots with a load top up every generator and Charging Station in reach that has room (Common to Epic, the emptiest first) before they unload, and a bot with nothing to do digs fuel for a generator or station that is under 40% full. Fuel is not sold.<div class="crew-btns" style="margin-top:6px"><button data-fuel="all" title="Switch the whole crew's fueling duty on or off. Each bot also has its own switch on its row.">${on ? 'Turn off for the crew' : 'Turn on for the crew'}</button></div></div>`);
+      const fb = box.querySelector('[data-fuel=all]'); if (fb) fb.onclick = () => { g.crewFuelToggle(0, !on); const again = () => { if (this.openModal === 'crew') this.renderCrew(); }; if (g.isGuest()) setTimeout(again, 700); else again(); }; }
     // every bin by name, with the bots that unload at each (the Bin button on a row picks one)
+    { const fl = NB.crewFinds(g, g.player.pos); if (fl.length) box.insertAdjacentHTML('beforeend', `<div class="jcard" data-finds style="margin-bottom:4px;grid-column:1/-1;align-self:start"><b>Found by the crew</b>${fl.map((t) => escHtml(t)).join('<br>')}<br>The bots stop short of them and leave them untouched. Open one yourself (E)${g.T.scholar > 0 ? ', or let a bot carry the notes home (Bot Scholar)' : ''}.</div>`); }
     box.insertAdjacentHTML('beforeend', `<div class="jcard" data-bins-strip style="margin-bottom:4px;grid-column:1/-1;align-self:start"><b>Bins:</b> ${BINS.listBins(g).map((bn) => { const n = bots.filter((q) => (q.dest | 0) === bn.id || (!(q.dest | 0) && bn.id === BINS.HALL)).length; return `${escHtml(bn.name)} (${n} bot${n === 1 ? '' : 's'}${BINS.usable(bn) ? '' : ', no power'})`; }).join(', ')}</div>`);
     for (const b of bots) {
       const need = g.crew.xpNeeded(b);
       const el = document.createElement('div');
       el.className = 'crew-row'; el.dataset.bot = b.id;
-      el.innerHTML = `<div class="crew-head"><b>${escHtml(b.name)}</b><span>Level ${b.level}</span><em>${escHtml(STATUS[b.state] || b.state)}</em></div>
+      el.innerHTML = `<div class="crew-head"><b>${escHtml(b.name)}</b><span>Level ${b.level}</span><em>${escHtml(g.crew.headStatus(b))}</em></div>
         <div class="crew-status" data-live="status"></div>
-        <div class="crew-bat" title="Battery. Below 25% the bot looks for a Charging Station."><span>Battery</span><div class="bar crew-batbar"><i data-live="bat"></i></div><b data-live="batpct"></b></div>
+        <div class="crew-bat" title="Battery. Below 25% the bot looks for a Charging Station that has charge and a cable to a live grid."><span>Battery</span><div class="bar crew-batbar"><i data-live="bat"></i></div><b data-live="batpct"></b></div>
         <div class="bar" style="height:5px" title="Experience to the next level"><i style="width:${Math.min(100, (b.xp / need) * 100)}%;background:linear-gradient(90deg,#7ef0c4,#d7f26a)"></i></div>
         <div class="crew-lbl">Orders</div>
         <div class="crew-btns">
@@ -487,6 +518,7 @@ export class UI {
           <button data-a="home" title="The bot walks home along its trail and unloads at the bin. If it had a dig order it then goes back out to dig; use Stay at the bin to keep it home.">Go home and unload</button>
           ${hasChg ? '<button data-a="charge" title="Send the bot to the nearest Charging Station that has charge, then it carries on.">Recharge now</button>' : ''}
           ${hasGen ? '<button data-a="fuel" title="The bot digs at the pile face nearest the generator and feeds it Common to Epic plush.">Keep generator fuelled</button>' : ''}
+          <button data-fuel="bot" title="This bot tops up generators and Charging Stations before it unloads, and scoops fuel for them when it has nothing to do. The crew switch above must be on too."></button>
         </div>
         <div class="crew-lbl">Unloads at</div>
         <div class="crew-btns">
@@ -498,6 +530,7 @@ export class UI {
           <button data-d="3" title="Dig north from the spot you aim at, or from where you stand.">Dig north</button><button data-d="0" title="Dig east from the spot you aim at, or from where you stand.">Dig east</button><button data-d="1" title="Dig south from the spot you aim at, or from where you stand.">Dig south</button><button data-d="2" title="Dig west from the spot you aim at, or from where you stand.">Dig west</button>
         </div>`;
       for (const btn of el.querySelectorAll('button')) btn.onclick = () => { g.crewCommand(b, btn.dataset); this.updateCrewLive(); };
+      { const fb = el.querySelector('[data-fuel=bot]'), mine = !b.fuelOff; fb.textContent = `Fuel duty: ${mine ? 'on' : 'off'}`; fb.classList.toggle('on', mine); fb.onclick = () => { g.crewFuelToggle(b.id, !mine); const again = () => { if (this.openModal === 'crew') this.renderCrew(); }; if (g.isGuest()) setTimeout(again, 700); else again(); }; }
       const nb = el.querySelector('[data-bin=next]'), sb = { k: 'bot', o: b };
       nb.textContent = `Bin: ${b.dest ? ((BINS.binById(g, b.dest) || {}).name || 'gone') : 'Auto'} ▸`;
       nb.onclick = () => { const ops = BINPANEL.options(g, sb), at = Math.max(0, ops.findIndex((o) => o.current)); BINPANEL.choose(g, sb, ops[(at + 1) % ops.length].id); const again = () => { if (this.openModal === 'crew') this.renderCrew(); }; if (g.isGuest()) setTimeout(again, 700); else again(); };
@@ -536,19 +569,30 @@ export class UI {
   }
 
   showNote(e) {
-    $('noteTitle').textContent = 'FOUND: ' + e.name.toUpperCase();
-    $('noteWho').textContent = `${e.role.toUpperCase()}  ·  ${Math.round(e.dist)} m FROM BAY 07`;
-    $('noteBody').textContent = e.text;
-    $('noteReward').textContent = '+ ' + e.reward;
+    const only = !e.worker && e.docs && e.docs.length ? e.docs[0] : null;   // a find that is only paper (a supply cache's manifest, a photograph): the paper is the note
+    $('noteTitle').textContent = 'FOUND: ' + String(only ? only.title : e.name).toUpperCase();
+    $('noteWho').textContent = `${String(e.role || (only ? e.name : '')).toUpperCase()}${e.role || only ? '  ·  ' : ''}${Math.round(e.dist)} m FROM BAY 07`;
+    $('noteBody').textContent = only ? only.text : e.text;
+    $('noteBody').classList.toggle('hidden', !(only ? only.text : e.text));
+    // what else came with it: a kind of paper, the cipher of a coded one, and the clue it holds
+    const extras = (d) => (d.cipher ? `<code class="ncipher">${escHtml(d.cipher)}</code><small>Key on the back: shift ${d.key}. You work it out:</small>` : '') + (d.clue ? `<em class="nclue">Clue: ${escHtml(NOTES_LINE(d.clue))}</em>` : d.kind !== 'worker' ? '<small class="nflav">Flavor only. It tells you nothing about The One.</small>' : '');
+    $('noteDocs').innerHTML = only ? extras(only) : (e.docs || []).map((d) => `<div class="ndoc"><b>${KINDS[d.kind].icon} ${escHtml(d.title)}${d.clue ? ' <span class="nbadge">CLUE</span>' : ''}</b>${d.cipher ? `<code class="ncipher">${escHtml(d.cipher)}</code><small>Key on the back: shift ${d.key}. You work it out:</small>` : ''}<p>${escHtml(d.text)}</p>${d.clue ? `<em class="nclue">Clue: ${escHtml(NOTES_LINE(d.clue))}</em>` : '<small class="nflav">Flavor only. It tells you nothing about The One.</small>'}</div>`).join('');
+    $('noteReward').textContent = e.reward ? '+ ' + e.reward : '';
+    $('noteSum').textContent = e.sum || '';
   }
 
+  // the journal has two tabs: what you found at old workings (and the paperwork), and the Notes tab (every note read, with the pieced-together summary)
   renderJournal() {
-    const g = this.game;
+    const g = this.game, tab = this.jtab || 'finds';
+    for (const b of document.querySelectorAll('[data-jtab]')) b.classList.toggle('on', b.dataset.jtab === tab);
+    $('journalList').classList.toggle('hidden', tab !== 'finds'); $('journalNotes').classList.toggle('hidden', tab !== 'notes');
     $('journalBoosts').textContent = describeBoosts(g.S.boosts) || 'No boosts yet';
-    const items = [...g.S.notes].reverse().map((n) => `<div class="jcard"><b>${n.name}</b>${n.role} · ${Math.round(n.dist)} m<br>${n.text}<em>+ ${n.reward}</em></div>`);
-    const clues = (g.S.clues || []).map((c) => `<div class="jcard"><b>Facility paperwork</b>${c}</div>`);
+    if (tab === 'notes') { NB.renderNotes(g, $('journalNotes')); return; }
+    const items = [...g.S.notes].reverse().map((n) => `<div class="jcard"><b>${escHtml(n.name)}</b>${escHtml(n.role)} · ${Math.round(n.dist)} m<br>${escHtml(n.text)}<em>+ ${escHtml(n.reward)}</em></div>`);
+    const clues = (g.S.clues || []).map((c) => `<div class="jcard"><b>Facility paperwork</b>${escHtml(c)}</div>`);
     $('journalList').innerHTML = [...clues, ...items].join('') || '<div class="jcard">Nothing yet. Old workings are scattered through the pile. A Remains Locator helps.</div>';
   }
+  journalTab(name) { this.jtab = name === 'notes' ? 'notes' : 'finds'; this.renderJournal(); }
 
   renderAch() {
     const g = this.game;
@@ -560,6 +604,7 @@ export class UI {
       const d = !!g.S.ach[a.id];
       return `<div class="ac ${d ? 'done' : ''}"><div class="i">${a.icon}</div><div><b>${a.secret && !d ? '???' : a.name}</b><span>${a.secret && !d ? 'Secret achievement' : a.desc}</span></div></div>`;
     }).join('');
+    CARE.renderLog(g, grid);   // the courier drone's deliveries, waiting and upcoming milestones
   }
 
   statsRows(S) {

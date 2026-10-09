@@ -108,7 +108,7 @@ export default async function (ctx) {
   });
 
   await T('hlamp.a-turbine-runs-thirty-lanterns-in-three-lines', async () => {
-    reset({ ...UP, genOutput: 3, genTurbine: 1 }); g.T.genOutput = 8; g.T.poleLink = 4; g.T.poleReach = 3;
+    reset({ ...UP, genOutput: 3, genTurbine: 1 }); g.T.genOutput = 8;
     const G = K.tile('gen', -13.5, 9.5, { gk: 'turbine' }); G.burn = 1e5; G.lit = true;
     const all = [];
     for (let line = 0; line < 3; line++) { let prev = G; for (let q = 0; q < 10; q++) { const f = frame(-12 + q * 2.4, 1 + line * 2.6 - 3); const l = hang(f, 0); const r = K.wire(prev, l); if (!r.ok) return `line ${line} lantern ${q}: ${r.why}`; prev = l; all.push(l); } }
@@ -122,7 +122,7 @@ export default async function (ctx) {
     if (PP.maxPorts({ type: 'hlamp' }, g) !== 2) bad.push('ports ' + PP.maxPorts({ type: 'hlamp' }, g));
     const G = K.tile('gen', -13.5, 8.5), f = [frame(-12), frame(-9.4), frame(-6.8)].map((x) => x), ls = f.map((x) => hang(x, 0));
     const r1 = K.wire(G, ls[0]), r2 = K.wire(ls[0], ls[1]), r3 = K.wire(ls[0], ls[2]);
-    if (!r1.ok || !r2.ok) bad.push('chain refused: ' + [r1.why, r2.why]); if (r3.ok || !/no free cable port \(it takes 2\)/.test(r3.why || '')) bad.push('a third cord on a lantern: ' + JSON.stringify(r3.why));
+    if (!r1.ok || !r2.ok) bad.push('chain refused: ' + [r1.why, r2.why]); if (r3.ok || !/no free cable socket \(it takes 2\)/.test(r3.why || '')) bad.push('a third cord on a lantern: ' + JSON.stringify(r3.why));
     const nm = g.cables.describe(g.cables.list()[0]); if (!/Generator to Hanging Lantern/.test(nm.lines[0])) bad.push('cable text ' + nm.lines[0]);
     return bad.length === 0 || bad.join('; ');
   });
@@ -146,10 +146,12 @@ export default async function (ctx) {
     return (l.pw === 0 && !info.lit && /DARK/.test(info.title) && /no power reaches it/.test(txt) && /Source: none wired yet/.test(txt)) || JSON.stringify(info);
   });
 
-  await T('hlamp.a-pole-in-reach-powers-it-without-a-cord', async () => {
-    reset(); const f = frame(-8), l = hang(f, 0); K.gen(-8, 4.2); K.pole(-8, 4.9); adv(2); void f;
-    const info = infoFor(g, { kind: 'mach', id: l.id });
-    return (l.pw >= 0.999 && /LIT/.test(info.title) && /nearest pole or generator in reach/.test(info.lines.join('\n'))) || JSON.stringify([l.pw, info.title]);
+  await T('hlamp.a-lantern-beside-a-live-pole-is-dark-until-a-cord-runs-to-it', async () => {
+    reset(); const f = frame(-8), l = hang(f, 0), G = K.gen(-8, 4.2), P = K.pole(-8, 4.9); K.wire(G, P); adv(2); void f;
+    let info = infoFor(g, { kind: 'mach', id: l.id });
+    if (!((l.pw || 0) === 0 && /DARK/.test(info.title) && /Not wired|none wired/.test(info.lines.join('\n')))) return 'beside a live pole with no cord: ' + JSON.stringify([l.pw, info.title, info.lines]);
+    K.wire(P, l); adv(2); info = infoFor(g, { kind: 'mach', id: l.id });
+    return (l.pw >= 0.999 && /LIT/.test(info.title) && /Source: Power Pole/.test(info.lines.join('\n'))) || JSON.stringify([l.pw, info.title, info.lines]);
   });
 
   await T('hlamp.switching-one-off-takes-its-1.6kw-off-the-grid', async () => {
@@ -218,8 +220,8 @@ export default async function (ctx) {
   await T('hlamp.glass-brightens-and-dims-with-power', async () => {
     reset(); const { ls } = line(1); adv(2); const it = g.machines.items.get(ls[0].id), gl = it.obj.getObjectByName('glass'); const bad = [];
     for (let n = 0; n < 20; n++) adv(0.1);
-    const full = gl.material.emissiveIntensity; if (full < 2) bad.push('full ' + full);
-    ls[0].pw = 0.5; adv(0.3); const half = gl.material.emissiveIntensity; if (!(half < full * 0.7 && half > 0.5)) bad.push('half ' + half);
+    const full = gl.material.emissiveIntensity; if (full < 1 || full > 1.6) bad.push('full ' + full + ' (a modest lamp: bright enough to read, never a blinding orb)');   // 1.35: under the bloom threshold with the glass colour
+    g.power.dirty = false; g.power.t = 5; ls[0].pw = 0.5; adv(0.3); const half = gl.material.emissiveIntensity; if (!(half < full * 0.7 && half > 0.4)) bad.push('half ' + half);
     g.setCfg(ls[0], { on: false }); adv(0.3); if (gl.material.emissiveIntensity !== 0) bad.push('off ' + gl.material.emissiveIntensity);
     return bad.length === 0 || bad.join('; ');
   });

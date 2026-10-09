@@ -3,19 +3,23 @@ import { C, NX, NY, NZ, cellX, cellY, cellZ, toI, toJ, toK, idx } from './config
 import { species, RARITY, NEEDLE, BULK, REMAINS, SPECIAL_MIN, isSpecialCell } from './plushdata.js';
 import { compaction } from './util.js';
 import * as BINS from './bins.js';   // which bin the end of a line sells into, and which line a mech may feed
-import { FUEL_MAX_RARITY } from './power.js';
-import { genHopper, genKindOf, decorateGen } from './powerparts.js';
+import { genKindOf, decorateGen } from './powerparts.js';
+import { fuelAccepts, CHARGE_PER, CHARGER_CAP, CHARGER_HOPPER, CHARGER_MAX_RARITY } from './botfuel.js';   // one fuel rule for every machine that eats plush (hopper size, rarity, room)
+export { CHARGE_PER, CHARGER_CAP, CHARGER_HOPPER, CHARGER_MAX_RARITY };
 import { buildMountFan } from './mountfan.js';
 import * as SR from './splitrules.js';
+import * as NB from './notebook.js';   // a mech flags remains and caches beside it and says so when one is dead ahead
 import { partGroup, glow as partGlow, LAMP_ON, LAMP_OFF } from './splitmesh.js';
+import { straightGeometry, bendGeometry, mouthGeometry, ringGeometry, hoseMaterial, mouthMaterial, bendFrame } from './hosegeo.js';
+import { bendBedGeometry, bendRailGeometry } from './beltgeo.js';   // a belt corner is a real quarter circle of deck and curved rails
+import { rolloff } from './spatial.js';   // the hum of machines fades with distance
 import { TIER_MUL, TIER_COLOR, SPACING, HOP_MAX, tierOf, lenOf, capOf, framesNeeded, FRAME_REACH, LIFT_FREE } from './beltdata.js';
 
 export const DX = [1, 0, -1, 0];
 export const DZ = [0, 1, 0, -1];
 export const LOGI = new Set(['belt', 'sorter', 'vault', 'mech', 'gen', 'pole', 'fan', 'charger']);
-// Charging Station: reserve units, where 1.0 is one full bot battery. Common to Epic only (index = rarity).
-export const CHARGE_PER = [0.34, 0.7, 1.5, 4.0];
-export const CHARGER_CAP = 8, CHARGER_HOPPER = 12, CHARGE_RATE = 0.5, CHARGER_RANGE = 400, CHARGER_MAX_RARITY = 3;
+// Charging Station: reserve units, where 1.0 is one full bot battery. Common to Epic only (index = rarity). The table, the cap and the 50 plush hopper live in botfuel.js.
+export const CHARGE_RATE = 0.5, CHARGER_RANGE = 400;
 const YAW = [Math.PI / 2, 0, -Math.PI / 2, Math.PI]; // model +Z -> dir
 const MAXBELT = 4500;
 const NO_FRAMES = { ok: true, need: 0, have: 0 };
@@ -27,7 +31,7 @@ const arrowTex = (() => {
   const g = c.getContext('2d');
   g.fillStyle = '#2a2d31'; g.fillRect(0, 0, 64, 128);
   g.strokeStyle = '#59606a'; g.lineWidth = 5; g.lineJoin = 'round';
-  for (let y of [26, 90]) { g.beginPath(); g.moveTo(10, y + 24); g.lineTo(32, y); g.lineTo(54, y + 24); g.stroke(); }
+  for (let y of [26, 90]) { g.beginPath(); g.moveTo(10, y); g.lineTo(32, y + 24); g.lineTo(54, y); g.stroke(); }   // the apex is the lower point on the canvas: the box's top face maps canvas down to the model's +Z, the way plush travel, so the chevrons point forward
   g.fillStyle = 'rgba(255,255,255,0.05)';
   for (let i = 0; i < 40; i++) g.fillRect(Math.random() * 64, Math.random() * 128, 2, 5);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -45,6 +49,7 @@ const M = {
   glowO: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 1.4, 0.3) }),
   glowR: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.6, 0.3, 0.2) }),
   glowB: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 2.2, 3.6) }),
+  dead: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.05, 0.055, 0.06) }),   // an unlit lamp (a pole with no generator behind it)
 };
 
 export class Logistics {
@@ -62,20 +67,24 @@ export class Logistics {
     this.railMesh = new THREE.InstancedMesh(railG, M.rail, MAXBELT * 6);
     this.railMesh.setColorAt(0, new THREE.Color(1, 1, 1));               // allocates the per instance color
     for (const m of [this.bedMesh, this.railMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
-    // vacuum hoses are drawn as real hoses: a ribbed translucent tube with a flared mouth at the open end, not a belt bed
-    { const prof = []; const L = C, ribs = 6; for (let k = 0; k <= 48; k++) { const u = k / 48, rr = 0.17 + 0.03 * (0.5 + 0.5 * Math.cos(u * ribs * Math.PI * 2)); prof.push(new THREE.Vector2(rr, (u - 0.5) * L)); }
-      const tubeG = new THREE.LatheGeometry(prof, 14); tubeG.rotateX(Math.PI / 2);
-      const mouthG = new THREE.CylinderGeometry(0.2, 0.5, 0.4, 16, 1, true); mouthG.rotateX(Math.PI / 2);
-      const ringG = new THREE.TorusGeometry(0.5, 0.035, 8, 20);
-      this.hoseMat = new THREE.MeshStandardMaterial({ color: 0x7fb4c8, roughness: 0.35, metalness: 0.15, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
-      this.mouthMat = new THREE.MeshStandardMaterial({ color: 0x4f7f93, roughness: 0.4, metalness: 0.25, side: THREE.DoubleSide });
-      this.hoseMesh = new THREE.InstancedMesh(tubeG, this.hoseMat, MAXBELT * 3); this.mouthMesh = new THREE.InstancedMesh(mouthG, this.mouthMat, 512); this.ringMesh = new THREE.InstancedMesh(ringG, this.mouthMat, 512);
-      for (const m of [this.hoseMesh, this.mouthMesh, this.ringMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
+    // a corner is one curved deck and two curved rails (beltgeo.js), right hand and left hand, instanced like the straight pieces (the rails take the mark's colour the same way)
+    this.bendBedR = new THREE.InstancedMesh(bendBedGeometry(false), M.bed, 2048); this.bendBedL = new THREE.InstancedMesh(bendBedGeometry(true), M.bed, 2048);
+    this.bendRailR = new THREE.InstancedMesh(bendRailGeometry(false), M.rail, 2048); this.bendRailL = new THREE.InstancedMesh(bendRailGeometry(true), M.rail, 2048);
+    for (const m of [this.bendRailR, this.bendRailL]) m.setColorAt(0, new THREE.Color(1, 1, 1));
+    for (const m of [this.bendBedR, this.bendBedL, this.bendRailR, this.bendRailL]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
+    // vacuum hoses are drawn as real hoses: a ribbed translucent tube per straight piece, a real quarter-circle bend where the line turns, and a flared mouth
+    // with a ring at the open starting end (hosegeo.js), not a belt bed
+    { this.hoseMat = hoseMaterial(); this.mouthMat = mouthMaterial();
+      this.hoseMesh = new THREE.InstancedMesh(straightGeometry(), this.hoseMat, MAXBELT);
+      this.bendRMesh = new THREE.InstancedMesh(bendGeometry(false), this.hoseMat, 2048); this.bendLMesh = new THREE.InstancedMesh(bendGeometry(true), this.hoseMat, 2048);
+      this.mouthMesh = new THREE.InstancedMesh(mouthGeometry(), this.mouthMat, 512); this.ringMesh = new THREE.InstancedMesh(ringGeometry(), this.mouthMat, 512);
+      for (const m of [this.hoseMesh, this.bendRMesh, this.bendLMesh, this.mouthMesh, this.ringMesh]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
       // the gold: the last piece of any belt or hose line that is within suck range of a bin glows gold, so you can tell it will pull from there
       this.goldMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.8, 0.3), toneMapped: false, transparent: true, opacity: 0.92 });
-      this.goldPlate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.03, 0.58), this.goldMat, 256); this.goldRing = new THREE.InstancedMesh(new THREE.TorusGeometry(0.26, 0.03, 8, 20), this.goldMat, 256);
+      this.goldPlate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.03, 0.58), this.goldMat, 256); this.goldRing = new THREE.InstancedMesh(new THREE.TorusGeometry(0.3, 0.045, 8, 24), this.goldMat, 256);
       for (const m of [this.goldPlate, this.goldRing]) { m.frustumCulled = false; m.count = 0; this.root.add(m); }
       this.sinkSet = new Set(); this._sinkT = 0; }
+    this.standIns = new Map();
     this._liftCache = new WeakMap(); this.lifts = new Set(); this.beltOrder = [];
     this.cols = new Map();   // lift shaft cells (above the base tile) -> the lift tile that owns them
     this.feedMap = new Map(); this.parts = new Set();   // belt tile id -> the belt tiles that hand over to it (rebuilt with the meshes); the mergers and ruled splitters (for their lamps)
@@ -87,7 +96,7 @@ export class Logistics {
   }
 
   clear() {
-    this.tiles.clear();
+    this.tiles.clear(); this.standIns.clear();
     this.byId.clear();
     this.cols.clear(); this.lifts.clear(); this.feedMap.clear(); this.parts.clear();
     for (const o of this.objs.values()) { this.game.machines.disposeObj(o); this.root.remove(o); }
@@ -96,6 +105,21 @@ export class Logistics {
   }
 
   tileAt(i, j, k) { return this.tiles.get(idx(i, j, k)); }
+  // What the aim plans against: the tiles, and on a guest the pieces it set down a moment ago that the host has not announced yet (the rail rule, a bend, the gap fill and the head on
+  // check all look at the line you are building on, and a guest's last piece is not in the world until the host says so)
+  look(i, j, k) {
+    const key = idx(i, j, k), t = this.tiles.get(key); if (t || !this.standIns.size || !this.game.isGuest()) return t;   // (only a guest has stand-ins to look at: the host's world is the truth)
+    const s = this.standIns.get(key); if (!s) return undefined;
+    if (this.game.time > s.until) { this.standIns.delete(key); return undefined; }
+    return s;
+  }
+  // a guest sets a plain belt or hose piece down: the host is asked, and until it answers the piece stands in for itself here for planning (three seconds at most: a piece the host refuses is forgotten)
+  standIn(e, hose) {
+    if (!e || !Number.isInteger(e.i) || !Number.isInteger(e.j) || !Number.isInteger(e.k) || e.rise) return;
+    const key = idx(e.i, e.j, e.k); if (this.tiles.has(key)) return;
+    this.standIns.set(key, { type: 'belt', i: e.i, j: e.j, k: e.k, dir: e.dir, rise: 0, hose: !!hose, items: [], standIn: true, until: this.game.time + 3 });
+    if (this.standIns.size > 64) for (const [k2, s] of this.standIns) if (this.game.time > s.until) this.standIns.delete(k2);
+  }
   held(i, j, k) {
     const h = this.game.cellHeld; if (h && h(i, j, k)) return true;
     const key = idx(i, j, k), R = this.game._rail;
@@ -120,6 +144,7 @@ export class Logistics {
     const w = this.game.world;
     if (!w.inside(i, j, k) || w.solid(i, j, k)) return 'Blocked';
     { const why = this.cellTaken(i, j, k); if (why) return why; }
+    if (this.standIns.size && this.look(i, j, k)) return 'Something is in the way (a belt or machine)';   // (a guest's piece the host has not announced yet already holds the cell)
     if (j > 0 && !w.solid(i, j - 1, k) && !(this.game.stackHolds && this.game.stackHolds(i, j, k))) return 'Needs a floor';   // (a belt inside a frame cube hangs from the cube: belt ramps climb a level in the opening of a landing, stack.js)
     // do not place inside the player
     const p = this.game.player.pos;
@@ -143,15 +168,22 @@ export class Logistics {
     return last;
   }
 
-  plan(kind, eye, dir, yaw, rise) {
+  plan(kind, eye, dir, yaw, rise, hose) {
     const a = this.aimCell(eye, dir);
     if (!a) return { ok: false, why: 'Aim at the floor' };
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     let d = Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 0 : 2) : (fz > 0 ? 1 : 3);
-    if (kind === 'belt' && !rise) { const nb = nearBinDir(this.game, a); if (nb != null) d = nb; }
+    // R turns the next piece a quarter turn from the way you face (the mouse turns it back: another way of facing drops the turn)
+    let turned = false;
+    if (kind === 'belt' && !rise) { const br = this.game.beltRot; if (br) { if (br.base === d && br.off) { d = (d + br.off) & 3; turned = true; } else this.game.beltRot = null; } }
+    if (kind === 'belt' && !rise && !turned) { const nb = nearBinDir(this.game, a); if (nb != null) d = nb; }
     const why = this.canPlace(a.i, a.j, a.k);
     const ent = { type: kind, i: a.i, j: a.j, k: a.k, dir: d, rise: kind === 'belt' ? rise : 0 };
-    if (kind === 'belt' && !rise) { const tp = this.railTurn(a, d); if (tp) { ent.turnPrev = { id: tp.id, dir: tp.dir }; ent.dir = tp.dir; } }
+    if (kind === 'belt' && !rise && !turned) {
+      const tp = this.railTurn(a, d);
+      if (tp) { ent.turnPrev = { id: tp.id, dir: tp.dir, i: tp.i, j: tp.j, k: tp.k }; ent.dir = tp.dir; }
+      else { const js = this.joinStart(a, d); if (js != null) ent.dir = js; else { const cd = this.carryDir(a, d); if (cd != null) ent.dir = cd; } }
+    }
     return { ok: !why, why, ent };
   }
 
@@ -159,15 +191,94 @@ export class Logistics {
   railTurn(a, d) {
     let best = null;
     for (let m = 0; m < 4; m++) {
-      const n = this.tiles.get(idx(a.i - DX[m], a.j, a.k - DZ[m]));
+      const n = this.look(a.i - DX[m], a.j, a.k - DZ[m]);
       if (!n || n.type !== 'belt' || n.rise || n.detector || n.splitter || n.merger || n.lift || n.ug || n.dir === m || ((n.dir + 2) & 3) === m) continue;
       if (this.nextOf(n)) continue;
       let fed = false;
-      for (let q = 0; q < 4 && !fed; q++) { const f = this.tiles.get(idx(n.i - DX[q], n.j, n.k - DZ[q])); if (f && f.type === 'belt' && f.dir === q && !f.rise) fed = true; }
+      for (let q = 0; q < 4 && !fed; q++) { const f = this.look(n.i - DX[q], n.j, n.k - DZ[q]); if (f && f.type === 'belt' && f.dir === q && !f.rise) fed = true; }
       const score = (fed ? 2 : 0) + (n.dir === d ? 1 : 0);
-      if (!best || score > best.score) best = { id: n.id, dir: m, score };
+      if (!best || score > best.score) best = { id: n.id, dir: m, score, i: n.i, j: n.j, k: n.k };
     }
     return best;
+  }
+
+  // The host's check of a guest's rail-rule turn: the tile must be the open end of a plain line one cell from the new piece e, and it turns a quarter (never straight on, never
+  // back, only to face e). A forged turn can not spin a belt or a hose that is nowhere near. Returns the tile, or null.
+  turnPrevOk(tp, e) {
+    if (!tp || !Number.isInteger(tp.dir) || tp.dir < 0 || tp.dir > 3 || !e) return null;
+    const n = (tp.id != null ? this.byId.get(tp.id) : null) || (Number.isInteger(tp.i) && Number.isInteger(tp.j) && Number.isInteger(tp.k) ? this.tiles.get(idx(tp.i, tp.j, tp.k)) : null);   // (a guest that has not yet heard of the piece it laid names it by place)
+    if (!n || n.type !== 'belt' || n.rise || n.detector || n.splitter || n.merger || n.smart || n.lift || n.ug || n.dir === tp.dir || ((n.dir + 2) & 3) === tp.dir) return null;
+    if (n.i + DX[tp.dir] !== e.i || n.j !== e.j || n.k + DZ[tp.dir] !== e.k || this.nextOf(n)) return null;
+    return n;
+  }
+
+  // A piece set straight in front of the open end of a line, facing back at it (you look the other way along the line): it would be head on, nothing could pass, and it would
+  // be a second open start (a second mouth on a hose). It carries on the way the line goes instead. Returns that direction or null.
+  carryDir(a, d) {
+    const n = this.look(a.i + DX[d], a.j, a.k + DZ[d]);
+    return n && n.type === 'belt' && !n.rise && !n.lift && !n.ug && !n.detector && !n.splitter && !n.merger && !n.smart && n.dir === ((d + 2) & 3) ? n.dir : null;
+  }
+
+  // the way a belt or sorter that hands plush to this cell faces (straight behind first), or null: the way a new piece is fed, so a hose ghost can draw its bend
+  feederDir(a) {
+    let side = null;
+    for (let m = 0; m < 4; m++) {
+      const o = this.look(a.i - DX[m], a.j, a.k - DZ[m]); if (!o || o === a || o.dir !== m) continue;
+      if (!(o.type === 'sorter' || (o.type === 'belt' && !o.lift && !o.rise))) continue;
+      if (m === a.dir) return m;
+      if (((a.dir + 2) & 3) !== m && side == null) side = m;
+    }
+    return side;
+  }
+
+  // does anything hand plush to this tile? a belt, lift or underground exit that points at it, or a sorting box behind it
+  isFed(n) {
+    const f = this.feedMap.get(n.id); if (f && f.length) return true;
+    for (let q = 0; q < 4; q++) { const o = this.look(n.i - DX[q], n.j, n.k - DZ[q]); if (o && o !== n && (o.type === 'sorter' ? o.dir === q : (o.type === 'belt' && !o.lift && !o.ug && !o.splitter && o.dir === q && !o.rise))) return true; }
+    return false;
+  }
+
+  // Building a line from its far end (the bin back to the source, or turning as you go): a new piece beside the open START of a line (the piece nothing feeds) points into
+  // it, so the line stays one line. Straight behind the start only when you face away from it; beside it (or behind it, any way you face) only for the piece you laid last,
+  // so a new line parallel to an old one is never pulled into it. Returns the direction to face, or null to leave the piece as it was aimed.
+  joinStart(a, d) {
+    const ll = this.game._lastLaid, ahead = this.look(a.i + DX[d], a.j, a.k + DZ[d]);
+    if (ahead && ahead.type === 'belt' && ((ahead.dir + 2) & 3) !== d) return null;   // it already hands its plush to a piece: nothing to join
+    let best = null;
+    for (let m = 0; m < 4; m++) {
+      const n = this.look(a.i + DX[m], a.j, a.k + DZ[m]);
+      if (!n || n.type !== 'belt' || n.rise || n.detector || n.splitter || n.merger || n.smart || n.lift || n.ug) continue;
+      if (((n.dir + 2) & 3) === m) continue;   // it faces us: that is the front of a line (the rail rule)
+      if (this.isFed(n)) continue;
+      const mine = !!(ll && this.game.time - ll.t < 8 && ll.i === n.i && ll.j === n.j && ll.k === n.k), behind = n.dir === m;
+      if (!(mine || (behind && d === ((m + 2) & 3)))) continue;
+      const score = (mine ? 2 : 0) + (behind ? 1 : 0);
+      if (!best || score > best.score) best = { dir: m, score };
+    }
+    return best ? best.dir : null;
+  }
+
+  // the cells between the piece you laid last and the cell you aim at when they are not neighbours (a mouse sweep, a diagonal step): one step at a time on the same level,
+  // first the way the last piece faces. Returns [{ i, j, k, dir }] ending on the aimed cell, or null (not on the same level, too far, or something in the way).
+  bridgeCells(from, to, maxLen) {
+    if (from.j !== to.j) return null;
+    const di = to.i - from.i, dk = to.k - from.k, man = Math.abs(di) + Math.abs(dk);
+    if (man < 2 || man > maxLen) return null;
+    const sgn = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0), xs = from.dir === 0 || from.dir === 2;
+    const orders = (xs ? [true, false] : [false, true]);
+    if (xs ? sgn(di) === 0 : sgn(dk) === 0) orders.reverse();   // nothing to go along the way it faces: the other axis first
+    for (const xFirst of orders) {
+      const cells = []; let i = from.i, k = from.k, ok = true;
+      const stepX = () => { while (i !== to.i) { i += sgn(di); cells.push({ i, j: from.j, k }); } }, stepZ = () => { while (k !== to.k) { k += sgn(dk); cells.push({ i, j: from.j, k }); } };
+      if (xFirst) { stepX(); stepZ(); } else { stepZ(); stepX(); }
+      for (const c of cells) { const why = this.canPlace(c.i, c.j, c.k); if (why && why !== 'Too close') { ok = false; break; } }
+      if (!ok) continue;
+      let pi = from.i, pk = from.k;
+      for (const c of cells) { const st = c.i !== pi ? (c.i > pi ? 0 : 2) : (c.k > pk ? 1 : 3); c.step = st; pi = c.i; pk = c.k; }
+      cells.forEach((c, n) => { c.dir = n < cells.length - 1 ? cells[n + 1].step : c.step; });
+      return cells;
+    }
+    return null;
   }
 
   pick(eye, dir, maxD = 3.6) {
@@ -192,6 +303,7 @@ export class Logistics {
     if (ent.type === 'mech') { ent.buf = ent.buf || []; ent.timer = 1.0; ent.out = 0; ent.state = 'dig'; ent.adv = ent.adv || 0; ent.arm = null; }
     const key = idx(ent.i, ent.j, ent.k);
     this.tiles.set(key, ent);
+    if (this.standIns.size) this.standIns.delete(key);   // (the host's piece is here: the guest's stand-in for it is done)
     this.byId.set(ent.id, ent);
     this.game.world.reserved.add(key);
     if (ent.type === 'belt' && ent.lift) { const up = Math.sign(ent.lift.h); for (let q = 1; q <= Math.abs(ent.lift.h); q++) { const ck = idx(ent.i, ent.j + up * q, ent.k); this.cols.set(ck, ent); this.game.world.reserved.add(ck); } }   // the shaft (above the tile for an up lift, below it for a down lift): nothing else is built in it
@@ -260,8 +372,9 @@ export class Logistics {
       const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.05), M.dark); arm.position.y = 1.95;
       for (const s of [-1, 0, 1]) { const ins = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), M.rail); ins.position.set(s * 0.22, 2.0, 0); g.add(ins); }
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 10), M.dark); base.position.y = 0.04;
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M.glowR); lamp.position.set(0, 1.75, 0.06); lamp.name = 'lamp';
-      g.add(mast, arm, base, lamp);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), M.dead); lamp.position.set(0, 1.78, 0.07); lamp.name = 'lamp';   // lit only while the pole's grid has supply (updated every frame below)
+      const jbox = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.2), M.dark); jbox.position.y = 1.45;   // the junction box the cables plug into (cables.js draws the sockets)
+      g.add(mast, arm, base, lamp, jbox);
     } else if (ent.type === 'fan') {
       const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.5, 8), M.dark); stand.position.y = 0.25;
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 8, 20), M.steel); ring.position.y = 0.62;
@@ -303,23 +416,25 @@ export class Logistics {
 
   rebuildBelts() {
     this.dirty = false;
-    let n = 0, r = 0, nb = 0;
+    let n = 0, r = 0, nb = 0, bR = 0, bL = 0, rR = 0, rL = 0;
     const bm = this.bedMesh.instanceMatrix.array, rm = this.railMesh.instanceMatrix.array, rc = this.railMesh.instanceColor.array;
     const bedMax = this.bedMesh.instanceMatrix.count, railMax = this.railMesh.instanceMatrix.count;
     const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc, off = this._off || (this._off = new THREE.Vector3());
     const tierCols = this._tierCols || (this._tierCols = TIER_COLOR.map((h) => new THREE.Color(h)));
-    const feeders = new Map(); let maxMul = 1; const fm = this.feedMap; fm.clear();
+    const feeders = new Map(), splitFed = new Set(); let maxMul = 1; const fm = this.feedMap; fm.clear();
     for (const t of this.tiles.values()) {
       if (t.type !== 'belt') continue;
       maxMul = Math.max(maxMul, TIER_MUL[tierOf(t)] * (t.hose ? 2 : 1));
       const nx = this.nextOf(t);
       if (nx && nx.type === 'belt' && ((nx.dir + 2) & 3) !== t.dir) { const l = feeders.get(nx.id) || []; l.push(t.dir); feeders.set(nx.id, l); const f = fm.get(nx.id); if (f) f.push(t); else fm.set(nx.id, [t]); }   // (a merger reads who feeds it from feedMap)
+      if (t.splitter) for (const o of this.splitOuts(t)) if (o.tile.type === 'belt' && o.tile.hose && ((o.tile.dir + 2) & 3) !== o.dir) splitFed.add(o.tile.id);   // a splitter hands plush to a hose at its side as well as in front: that hose is fed, not a mouth
     }
     const hoses = [];
     const putRail = (tc) => { m.toArray(rm, r * 16); rc[r * 3] = tc.r; rc[r * 3 + 1] = tc.g; rc[r * 3 + 2] = tc.b; r++; };
     for (const t of this.tiles.values()) {
       if (t.type !== 'belt') continue;
-      const fl = feeders.get(t.id) || []; t.fed = fl.length > 0;
+      const fl = feeders.get(t.id) || []; t.fed = fl.length > 0 || splitFed.has(t.id);
+      if (t.hose && !t.fed) { const bk = this.tiles.get(idx(t.i - DX[t.dir], t.j, t.k - DZ[t.dir])); if (bk && bk.type === 'sorter' && bk.dir === t.dir) t.fed = true; }   // a sorting box hands plush to the hose in front of it: that hose is not an open mouth
       const shaped = !!(t.lift || t.ug);   // lifts and underground ends are drawn as their own meshes
       t.cd = (!shaped && !t.rise && fl.length === 1 && fl[0] !== t.dir) ? fl[0] : null;
       if (t.hose && !shaped) { hoses.push(t); continue; }   // drawn below as a hose
@@ -328,18 +443,17 @@ export class Logistics {
       const ang = YAW[t.dir];
       const tilt = t.rise * Math.PI / 4;
       const len = t.rise ? 1.414 : 1;
-      const y = t.j * C + 0.045 + (t.rise ? 0.3 : 0);
+      const y = t.j * C + 0.045 + (t.rise ? 0.3 * Math.sign(t.rise) : 0);   // a ramp climbs from the deck of its own level to the next one up (centre 0.3 above), or drops to the one below (centre 0.3 under)
       const cx = cellX(t.i), cz = cellZ(t.k);
       if (t.cd != null) {
-        // a corner is a quarter arc: three short beds along the same curve the items ride (a quadratic Bezier through the cell's middle)
-        const ax = cx - DX[t.cd] * C * 0.5, az = cz - DZ[t.cd] * C * 0.5, bx = cx + DX[t.dir] * C * 0.5, bz = cz + DZ[t.dir] * C * 0.5;
-        const at = (s, o) => { const u = 1 - s; return o === 0 ? u * u * ax + 2 * u * s * cx + s * s * bx : u * u * az + 2 * u * s * cz + s * s * bz; };
-        for (let a = 0; a < 3; a++) {
-          const s0 = a / 3, s1 = (a + 1) / 3, x0 = at(s0, 0), z0 = at(s0, 1), x1 = at(s1, 0), z1 = at(s1, 1);
-          const dx = x1 - x0, dz = z1 - z0, chord = Math.hypot(dx, dz), yaw = Math.atan2(dx, dz);
-          e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); sc.set(1, 1, chord / C * 1.1);
-          v.set((x0 + x1) / 2, y, (z0 + z1) / 2); m.compose(v, q, sc); m.toArray(bm, nb * 16); nb++;
-          for (const sd of [-1, 1]) { off.set(sd * 0.27, 0.04, 0).applyQuaternion(q); v.set((x0 + x1) / 2 + off.x, y + off.y, (z0 + z1) / 2 + off.z); m.compose(v, q, sc); putRail(tc); }
+        // a corner is a real quarter circle: one curved deck and two curved rails (beltgeo.js) on the circle the plush ride (their Bezier path is within 1.5 cm of it)
+        const f = bendFrame(cx, cz, t.cd, t.dir), BX = this._bx || (this._bx = new THREE.Vector3()), BY = this._by || (this._by = new THREE.Vector3(0, 1, 0)), BZ = this._bz || (this._bz = new THREE.Vector3());
+        BX.set(f.xAxis[0], 0, f.xAxis[1]); BZ.set(f.zAxis[0], 0, f.zAxis[1]); m.makeBasis(BX, BY, BZ); m.setPosition(f.ox, y, f.oz);
+        const bed = f.right ? this.bendBedR : this.bendBedL, rail = f.right ? this.bendRailR : this.bendRailL, bi = f.right ? bR : bL, ri = f.right ? rR : rL;
+        if (bi < 2048) {
+          m.toArray(bed.instanceMatrix.array, bi * 16); m.toArray(rail.instanceMatrix.array, ri * 16);
+          const rc = rail.instanceColor.array; rc[ri * 3] = tc.r; rc[ri * 3 + 1] = tc.g; rc[ri * 3 + 2] = tc.b;
+          if (f.right) { bR++; rR++; } else { bL++; rL++; }
         }
         n++; continue;
       }
@@ -355,7 +469,9 @@ export class Logistics {
       n++;
     }
     this.maxMul = maxMul; this.bedMesh.count = nb; this.railMesh.count = r;
-    this.drawHoses(hoses); this._goldDirty = true;
+    this.bendBedR.count = this.bendRailR.count = bR; this.bendBedL.count = this.bendRailL.count = bL; this.bendN2 = bR + bL;
+    for (const bm2 of [this.bendBedR, this.bendBedL, this.bendRailR, this.bendRailL]) { bm2.instanceMatrix.needsUpdate = true; if (bm2.instanceColor) bm2.instanceColor.needsUpdate = true; }
+    this.drawHoses(hoses); this._goldDirty = true; this._sinkT = 0;   // (a changed network re-reads which ends feed a bin at once: the piece you just set down is gold the frame after, as its preview was)
     // update order: the tiles nearest the end of their line first, so a plush handed forward finds the next tile already moved (positions are all of one instant)
     const rank = new Map(), belts = [];
     for (const t of this.tiles.values()) if (t.type === 'belt') belts.push(t);
@@ -391,31 +507,33 @@ export class Logistics {
     for (const id of this.sinkSet) {
       const t = this.byId.get(id); if (!t) continue; const yaw = Math.atan2(DX[t.dir], DZ[t.dir]); sc.set(1, 1, 1);
       if (t.hose) { if (nr >= 256) continue; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(cellX(t.i), t.j * C + 0.2, cellZ(t.k)); m.compose(v, q, sc); m.toArray(ra, nr * 16); nr++; }
-      else { if (np >= 256) continue; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(cellX(t.i), t.j * C + 0.1 + (t.rise ? 0.3 : 0), cellZ(t.k)); m.compose(v, q, sc); m.toArray(pa, np * 16); np++; }
+      else { if (np >= 256) continue; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(cellX(t.i), t.j * C + 0.1 + (t.rise ? 0.3 * Math.sign(t.rise) : 0), cellZ(t.k)); m.compose(v, q, sc); m.toArray(pa, np * 16); np++; }
     }
     this.goldPlate.count = np; this.goldRing.count = nr; this.goldPlate.instanceMatrix.needsUpdate = true; this.goldRing.instanceMatrix.needsUpdate = true;
   }
 
-  // the hose tiles: one ribbed tube segment per straight piece (three along the same curve the plush ride at a corner), a flared mouth and a ring where a line opens
+  // the hose tiles: one ribbed tube per straight piece, a real quarter-circle bend where a line turns (the circle of the cell's corner, the same path the plush ride to
+  // within 2 cm), and a flared mouth with a ring at the one open end where a line begins (the piece nothing feeds)
   drawHoses(list) {
     const m = this.m4, q = this.q, e = this.e, v = this.v, sc = this.sc;
-    const hm = this.hoseMesh.instanceMatrix.array, mm = this.mouthMesh.instanceMatrix.array, rm = this.ringMesh.instanceMatrix.array;
-    let nh = 0, nm = 0;
-    const put = (x, y, z, yaw, len) => { if (nh >= MAXBELT * 3) return; e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); v.set(x, y, z); sc.set(1, 1, len); m.compose(v, q, sc); m.toArray(hm, nh * 16); nh++; };
+    const hm = this.hoseMesh.instanceMatrix.array, rmA = this.bendRMesh.instanceMatrix.array, lmA = this.bendLMesh.instanceMatrix.array, mm = this.mouthMesh.instanceMatrix.array, rm = this.ringMesh.instanceMatrix.array;
+    let nh = 0, nr = 0, nl = 0, nm = 0;
+    const X = this._bx || (this._bx = new THREE.Vector3()), Y = this._by || (this._by = new THREE.Vector3(0, 1, 0)), Z = this._bz || (this._bz = new THREE.Vector3());
     for (const t of list) {
       const cx = cellX(t.i), cz = cellZ(t.k), y = t.j * C + 0.2;
       if (t.cd != null) {
-        const ax = cx - DX[t.cd] * C * 0.5, az = cz - DZ[t.cd] * C * 0.5, bx = cx + DX[t.dir] * C * 0.5, bz = cz + DZ[t.dir] * C * 0.5;
-        for (const s of [1 / 6, 0.5, 5 / 6]) { const u = 1 - s; const px = u * u * ax + 2 * u * s * cx + s * s * bx, pz = u * u * az + 2 * u * s * cz + s * s * bz; const dx = 2 * u * (cx - ax) + 2 * s * (bx - cx), dz = 2 * u * (cz - az) + 2 * s * (bz - cz); put(px, y, pz, Math.atan2(dx, dz), 0.62); }
-      } else put(cx, y, cz, Math.atan2(DX[t.dir], DZ[t.dir]), 1.04);
+        const f = bendFrame(cx, cz, t.cd, t.dir); X.set(f.xAxis[0], 0, f.xAxis[1]); Z.set(f.zAxis[0], 0, f.zAxis[1]); m.makeBasis(X, Y, Z); m.setPosition(f.ox, y, f.oz);
+        if (f.right) { if (nr < 2048) { m.toArray(rmA, nr * 16); nr++; } } else if (nl < 2048) { m.toArray(lmA, nl * 16); nl++; }
+      } else if (nh < MAXBELT) { e.set(0, Math.atan2(DX[t.dir], DZ[t.dir]), 0, 'YXZ'); q.setFromEuler(e); v.set(cx, y, cz); sc.set(1, 1, 1.04); m.compose(v, q, sc); m.toArray(hm, nh * 16); nh++; }
       if (!t.fed && nm < 512) {
         const yaw = Math.atan2(DX[t.dir], DZ[t.dir]); e.set(0, yaw, 0, 'YXZ'); q.setFromEuler(e); sc.set(1, 1, 1);
         v.set(cx - DX[t.dir] * (C * 0.5 + 0.2), y, cz - DZ[t.dir] * (C * 0.5 + 0.2)); m.compose(v, q, sc); m.toArray(mm, nm * 16);
         v.set(cx - DX[t.dir] * (C * 0.5 + 0.4), y, cz - DZ[t.dir] * (C * 0.5 + 0.4)); m.compose(v, q, sc); m.toArray(rm, nm * 16); nm++;
       }
     }
-    this.hoseMesh.count = nh; this.mouthMesh.count = nm; this.ringMesh.count = nm;
-    this.hoseMesh.instanceMatrix.needsUpdate = true; this.mouthMesh.instanceMatrix.needsUpdate = true; this.ringMesh.instanceMatrix.needsUpdate = true;
+    this.hoseMesh.count = nh; this.bendRMesh.count = nr; this.bendLMesh.count = nl; this.mouthMesh.count = nm; this.ringMesh.count = nm;
+    for (const mesh of [this.hoseMesh, this.bendRMesh, this.bendLMesh, this.mouthMesh, this.ringMesh]) mesh.instanceMatrix.needsUpdate = true;
+    this.mouthN = nm; this.bendN = nr + nl;
   }
 
   // ---------------------------------------------------------------- simulation
@@ -438,15 +556,8 @@ export class Logistics {
       n.q.push({ sp: item.sp, vr: item.vr, t: 0 });
       return true;
     }
-    if (n.type === 'gen') {
-      const r = species[item.sp] ? species[item.sp].rarity : 9;
-      if (r > FUEL_MAX_RARITY || n.q.length >= genHopper(this.game.T, n)) return false;
-      n.q.push({ sp: item.sp, vr: item.vr });
-      return true;
-    }
-    if (n.type === 'charger') {
-      const r = species[item.sp] ? species[item.sp].rarity : 9;
-      if (r > CHARGER_MAX_RARITY || n.q.length >= CHARGER_HOPPER) return false;
+    if (n.type === 'gen' || n.type === 'charger') {   // generators and the Charging Station: one rule (botfuel.js): Common to Epic, until the hopper (50 plush by default) is full
+      if (!fuelAccepts(this.game, n, item)) return false;
       n.q.push({ sp: item.sp, vr: item.vr });
       return true;
     }
@@ -486,9 +597,9 @@ export class Logistics {
     const spd = T.beltSpeed;
     const tick = this.game.time;
     this._moving = 0;
-    if (!this.visualOnly) this.pickupLoose(dt);
-    this.refreshSinks(dt); { const pu = 0.5 + 0.5 * Math.sin(tick * 5); this.goldMat.color.setRGB(2.0 + 0.8 * pu, 1.5 + 0.6 * pu, 0.25 + 0.15 * pu); }
-    arrowTex.offset.y = (arrowTex.offset.y - dt * spd * 0.5) % 1;
+    if (!this.visualOnly) { this.pickupLoose(dt); this.pullLooseToBins(dt); }
+    this.refreshSinks(dt); { const pu = 0.5 + 0.5 * Math.sin(tick * 5); this.goldMat.color.setRGB(1.7 + 0.7 * pu, 1.1 + 0.45 * pu, 0.1 + 0.08 * pu); }
+    arrowTex.offset.y = (arrowTex.offset.y + dt * spd * 0.5) % 1;   // (a growing offset slides the pattern toward the model's +Z: the belt looks like it runs the way it carries)
     for (const t of this.lifts) this.liftLook(t, tick);
     if (this.parts.size && !(this._partT > tick)) { this._partT = tick + 0.25; this.partLooks(); }
     // belts run in equal sub steps when the fastest tile would move a plush more than 0.8 of a tile in one go, so a Mk6 line at full upgrades still moves
@@ -498,24 +609,28 @@ export class Logistics {
     for (let s = 0; s < sub; s++) for (const t of order) this.updateBelt(t, dt / sub, spd, s === 0);
     for (const t of this.tiles.values()) {
       if (t.type === 'belt') continue;
-      else if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
+      if ((t.type === 'gen' && t.burn > 0) || (t.type === 'fan' && (t.pw ?? 0) > 0.05)) this._moving += (t.type === 'gen' ? 2 : 1) * this.humAt(cellX(t.i), cellZ(t.k), t.j * C + 0.5);   // a burning generator and a running fan hum too
+      if (t.type === 'sorter') { if (!this.visualOnly) this.updateSorter(t, dt); }
       else if (t.type === 'mech') { if (!this.visualOnly) this.updateMech(t, dt); }
       else if (t.type === 'gen') this.updateGen(t, dt, tick);
       else if (t.type === 'charger') this.updateCharger(t, dt);
       else if (t.type === 'fan') { const o = this.objs.get(t.id); const b = o && o.getObjectByName('blades'); if (b) b.rotation.z += dt * 14 * (t.pw ?? 0); }
-      else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.glowR; }
+      else if (t.type === 'pole') { const o = this.objs.get(t.id); const l = o && o.getObjectByName('lamp'); if (l) l.material = (t.pw ?? 0) > 0.6 ? M.glowG : (t.pw ?? 0) > 0.05 ? M.glowO : M.dead; }   // dark = dead: no generator behind it
     }
     this.hum = this._moving;
     this.gateTick(dt);
   }
 
   // one belt tile for dt: the plush on it move at the tile's own speed, then the first one is handed on
+  // how much a machine at (x, z) adds to the hum you hear: full inside 4 m, nothing past 30 m (spatial.js)
+  humAt(x, z, y) { const p = this.game.player.pos; return rolloff(Number.isFinite(y) ? Math.hypot(x - p.x, y - (p.y + 1.5), z - p.z) : Math.hypot(x - p.x, z - p.z), 30); }   // y: how high the machine stands; a belt 40 m up the pile does not hum in the bay
+
   updateBelt(t, dt, spd, count) {
     if (t.hose && !this.visualOnly && !t.fed && (t.pw ?? 0) > 0.05) this.hoseIntake(t, dt);
     const its = t.items;
     if (!its.length) return;
     const pw = t.halt ? 0 : Math.max(t.pw ?? 0, HAND_CRANK);
-    if (count && (t.pw ?? 0) > 0.02 && !t.halt) this._moving++;
+    if (count && (t.pw ?? 0) > 0.02 && !t.halt) this._moving += this.humAt(cellX(t.i), cellZ(t.k), t.j * C + 0.5);
     if (t.detector && !this.visualOnly) {
       for (let n = its.length - 1; n >= 0; n--) {
         const it = its[n];
@@ -568,9 +683,26 @@ export class Logistics {
       if (d2 < bd) { bd = d2; best = i; }
     }
     if (best >= 0 && this.accept(t, { sp: sim.sp[best], vr: sim.vr[best] }, null)) { sim.remove(best); t.suck = 0.25; this.game.fx.sparkle(gx, gy + 0.4, gz, 2, 0.4, 0.9, 1); }
+    else t.suck = 0.2;   // nothing in reach (or no room): look again in a fifth of a second, not on every frame (every mouth scans every loose plush)
   }
 
   // loose plush that land or lie on a belt tile ride it (an avalanche onto a conveyor, a spill, a throw): checked ten times a second, bodies only
+  // plush that spill off the end of a belt or out of a hose and lie within a bin's pull (the SORT bin or any Depot Beacon) are sucked in and sold, so an
+  // end that does not quite touch the bin still feeds it. Thrown plush (flag 1) keep their own throw bonus path, and The One and the specials are never taken.
+  pullLooseToBins(dt) {
+    this._pb = (this._pb || 0) - dt; if (this._pb > 0) return; this._pb = 0.1;
+    const g = this.game, sim = g.sim; if (!sim || !sim.n) return;
+    const bins = BINS.listBins(g).filter((b) => BINS.usable(b)); if (!bins.length) return;
+    for (let i = sim.n - 1; i >= 0; i--) {
+      if (sim.flag[i] === 1 || sim.flag[i] === 99 || sim.sp[i] >= SPECIAL_MIN || sim.sp[i] === NEEDLE) continue;
+      if (sim.y[i] > 3.2) continue;
+      for (const b of bins) {
+        const dx = sim.x[i] - b.x, dz = sim.z[i] - b.z; if (dx * dx + dz * dz > (b.reach + 0.9) * (b.reach + 0.9)) continue;
+        const sp = sim.sp[i], vr = sim.vr[i]; sim.remove(i); g.sellAuto(sp, vr, 1, b.id); g.fx.sparkle(b.x, 1.0, b.z, 2, 1, 0.85, 0.4); break;
+      }
+    }
+  }
+
   pickupLoose(dt) {
     this._pl = (this._pl || 0) - dt; if (this._pl > 0 || !this.tiles.size) return; this._pl = 0.1;
     const sim = this.game.sim; if (!sim || !sim.n) return;
@@ -579,7 +711,7 @@ export class Logistics {
       if (sim.flag[i] === 99 || sim.sp[i] >= SPECIAL_MIN || sim.sp[i] === NEEDLE) continue;
       if (Math.abs(sim.vy[i]) > 3.2) continue;
       const ti = toI(sim.x[i]), tk = toK(sim.z[i]);
-      let t = null; const j = toJ(y); for (const dj of [0, -1]) { const c = this.tiles.get(idx(ti, j + dj, tk)); if (c && c.type === 'belt' && !c.lift && y - (c.j * C) < 0.9 && y - (c.j * C) > -0.1) { t = c; break; } }
+      let t = null; const j = toJ(y); for (const dj of [0, -1]) { const c = this.tiles.get(idx(ti, j + dj, tk)); if (c && c.type === 'belt' && !c.lift && !(c.hose && c.fed) && y - (c.j * C) < 0.9 && y - (c.j * C) > -0.1) { t = c; break; } }
       if (!t || t.items.length >= 3) continue;
       if (this.accept(t, { sp: sim.sp[i], vr: sim.vr[i] }, null)) { sim.remove(i); }
     }
@@ -823,7 +955,7 @@ export class Logistics {
     this.setGate(t, false);
     g.S.stats.scans = (g.S.stats.scans || 0) + 1;
     t.flash = 0.18;
-    if (near) g.gateDing(0.05, 0.035);
+    if (near) g.gateDing(0.05, 0.035, cellX(t.i), t.j * C + 1.2, cellZ(t.k));   // heard from the gate
     return false;
   }
 
@@ -832,7 +964,7 @@ export class Logistics {
       if (t.type !== 'belt' || !t.detector) continue;
       if (t.alarm) {
         t.beepT = (t.beepT || 0) - dt;
-        if (t.beepT <= 0) { t.beepT = 0.55; this.setGate(t, (Math.floor(this.game.time * 3) % 2) === 0); const d = Math.hypot(cellX(t.i) - this.game.player.pos.x, cellZ(t.k) - this.game.player.pos.z); if (d < 60) { this.game.sound.tone('square', 880, 880, 0.18, 0.09 * (1 - d / 60)); this.game.sound.tone('square', 660, 660, 0.18, 0.09 * (1 - d / 60), 0.2); } }
+        if (t.beepT <= 0) { t.beepT = 0.55; this.setGate(t, (Math.floor(this.game.time * 3) % 2) === 0); const d = Math.hypot(cellX(t.i) - this.game.player.pos.x, cellZ(t.k) - this.game.player.pos.z); if (d < 60) { const sv = this.game.sound.at(cellX(t.i), t.j * C + 1.5, cellZ(t.k), 'alarm'); sv.tone('square', 880, 880, 0.18, 0.09); sv.tone('square', 660, 660, 0.18, 0.09, 0.2); } }   // the gate's alarm, from the gate
       } else if (t.flash > 0) { t.flash -= dt; if (t.flash <= 0) this.setGate(t, false); }
     }
   }
@@ -892,7 +1024,7 @@ export class Logistics {
     const sp = species[head.sp];
     if (sp.rarity < t.filter) {
       t.q.shift();
-      g.sellAuto(head.sp, head.vr, 1.0);
+      g.sellAuto(head.sp, head.vr, 1.0, undefined, { x: cellX(t.i), y: t.j * C + 0.9, z: cellZ(t.k) });   // the coin rings at the sorter
       g.fx.coin(cellX(t.i), t.j * C + 0.7, cellZ(t.k), 2);
       g.stats_sorted = (g.stats_sorted || 0) + 1;
       this.setLamp(t, M.glowG);
@@ -946,6 +1078,7 @@ export class Logistics {
       seg.scale.y = len; seg.position.z = len / 2; claw.position.z = len;
     }
     if (m.timer > 0) return;
+    NB.scan(g, 'Mech Scooper', cellX(m.i), cellZ(m.k), 3.6);   // flag remains or a supply cache beside the mech
     // find something to dig: nearest first
     let best = null, bs = 1e9;
     for (let f = 1; f <= 2; f++) for (let l = -1; l <= 1; l++) for (let v = 0; v <= 2; v++) {
@@ -970,7 +1103,12 @@ export class Logistics {
     // nothing within reach: advance
     const [ni, , nk] = this.mechCell(m, 1, 0, 0);
     const okAhead = !w.solid(ni, m.j, nk) && !this.cellTaken(ni, m.j, nk) && (m.j === 0 || w.solid(ni, m.j - 1, nk));   // (a rail piece, a shaft or a door ahead stops it like a belt would)
-    if (!okAhead) { this.setLamp(m, M.glowR); m.timer = 1.0; m.state = 'stuck'; return; }
+    if (!okAhead) {
+      this.setLamp(m, M.glowR); m.timer = 1.0; m.state = 'stuck';
+      m.hold = NB.holdFor(g, 'Mech Scooper', [[ni, m.j, nk], [ni, m.j + 1, nk], [ni, m.j + 2, nk]]);   // remains or a supply cache dead ahead: say so (it is never cut)
+      return;
+    }
+    m.hold = null;
     const oldKey = idx(m.i, m.j, m.k), oi = m.i, oj = m.j, ok = m.k;
     this.tiles.delete(oldKey); w.reserved.delete(oldKey);
     m.i = ni; m.k = nk; m.adv++;
@@ -1018,7 +1156,7 @@ export class Logistics {
           const u = it.t - 0.5;
           let x = cx + DX[t.dir] * u * C, z = cz + DZ[t.dir] * u * C;
           if (t.cd != null) { this.cornerPoint(t, Math.max(0, Math.min(1, it.t)), pt); x = pt.x; z = pt.z; }
-          const y = t.j * C + 0.2 + (t.rise ? (u + 0.5) * t.rise * C : 0) + (t.rise ? 0.3 : 0);
+          const y = t.j * C + 0.2 + (t.rise ? (u + 0.5) * t.rise * C + 0.05 : 0);   // (on a ramp the plush sit on its 45 degree deck: 5 cm higher than on a flat one, and level with the next piece where it hands over)
           cb(it, x, y, z, 0.4);
         }
       } else if (t.type === 'sorter') {

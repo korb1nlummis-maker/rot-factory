@@ -17,13 +17,15 @@ import { BASE_LOAD, PRESS, loadOn } from './loadtrace.js';
 import * as VS from './vehiclescan.js';
 import * as HAUL from './haul.js';   // wave 6: tunnel routes, haul roads, docks and the truck battery
 import * as BINS from './bins.js';   // which bin a machine sells at (an assignment, else the nearest)
+import { saleCoin, binSpot } from './worldsound.js';   // the coin of a sale rings from its bin
+import * as NB from './notebook.js';   // remains and supply caches beside a digger are flagged
 const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];   // the same direction table the belts use
 
 export const EARTH = {
-  excavator: { name: 'Excavator', short: 'Excavator', icon: '🏗️', cost: 9e5, half: 1, hgt: 4, vert: 5, reach: 3, latHalf: 3, canopy: 5.2, shield: 7, powerReach: 3, hy: 1.2, hr: 1.6, dig: true },
-  dozer: { name: 'Bulldozer', short: 'Dozer', icon: '🚜', cost: 6e5, half: 1, hgt: 2, vert: 2, reach: 2, canopy: 4.4, shield: 6, powerReach: 2, hy: 0.7, hr: 1.6, dig: true, direct: true },
-  wheel: { name: 'Bucket-Wheel Excavator', short: 'Bucket Wheel', icon: '⚙️', cost: 8e6, half: 2, hgt: 6, vert: 6, reach: 3, latHalf: 5, canopy: 7.5, shield: 9, powerReach: 6, hy: 2.0, hr: 3.2, dig: true },
-  truck: { name: 'Haul Truck', short: 'Truck', icon: '🚛', cost: 3e5, half: 1, hgt: 2, powerReach: 0, hy: 0.8, hr: 1.4, dig: false },
+  excavator: { name: 'Excavator', short: 'Excavator', icon: '🏗️', cost: 9e5, half: 1, hgt: 4, vert: 5, reach: 3, latHalf: 3, canopy: 5.2, shield: 7, hy: 1.2, hr: 1.6, dig: true },
+  dozer: { name: 'Bulldozer', short: 'Dozer', icon: '🚜', cost: 6e5, half: 1, hgt: 2, vert: 2, reach: 2, canopy: 4.4, shield: 6, hy: 0.7, hr: 1.6, dig: true, direct: true },
+  wheel: { name: 'Bucket-Wheel Excavator', short: 'Bucket Wheel', icon: '⚙️', cost: 8e6, half: 2, hgt: 6, vert: 6, reach: 3, latHalf: 5, canopy: 7.5, shield: 9, hy: 2.0, hr: 3.2, dig: true },
+  truck: { name: 'Haul Truck', short: 'Truck', icon: '🚛', cost: 3e5, half: 1, hgt: 2, hy: 0.8, hr: 1.4, dig: false },
 };
 export const EARTH_TYPES = new Set(Object.keys(EARTH));
 export const isEarth = (t) => EARTH_TYPES.has(t);
@@ -228,7 +230,7 @@ export function sellBatch(game, flat, mult = 1, bin) {
   S.money += total; S.totalEarned += total; S.stats.sold += n;
   if (bin !== undefined) BINS.note(game, bin, n, total);   // the bin it was sold at (the money is the same at every bin)
   game.ui.setMoney(S.money); game.ui.gain(total);
-  if (game.coinCd <= 0) { game.coinCd = 0.12; game.sound.coin(0); }
+  saleCoin(game, binSpot(game, bin));   // the coin rings from the bin it was sold at (worldsound.js)
   return total;
 }
 
@@ -322,6 +324,7 @@ export function updateEarth(m, it, dt, time) {
   const ratio = canopyRatio(game, e);
   e.load = ratio;
   if (ratio > 1) { if (e.state !== 'press') { game.S.stats.earthPress = (game.S.stats.earthPress || 0) + 1; game.ui.toast({ icon: spec.icon, title: `${spec.name} halted`, text: `The mountain presses ${Math.round(ratio * 100)}% of what its canopy can bear here. Better frames (the canopy is rated like your best one) or less depth.` }); } e.state = 'press'; it.timer = 2; return; }
+  NB.scan(game, spec.name, cellX(e.i), cellZ(e.k), 6);   // flag remains or a supply cache beside the digger (nothing here ever cuts one)
   const cells = workCells(game, e, tu);
   if (cells.length) {
     e.state = 'dig';
@@ -628,7 +631,7 @@ export function guestEarth(m, it, dt, time) {
 // ---------------------------------------------------------------- the hover readout
 const pct = (v) => `${Math.round((v ?? 0) * 100)}%`;
 const STATE_TEXT = {
-  off: 'Parked (E to run)', nopower: 'No power: link it to a pole or a generator', idle: 'Waiting', dig: 'Digging', advance: 'Moving up', stuck: 'Blocked ahead',
+  off: 'Parked (E to run)', nopower: 'No power: run a cable to it from a live pole or generator', idle: 'Waiting', dig: 'Digging', advance: 'Moving up', stuck: 'Blocked ahead',
   full: 'Full: needs a belt that is moving behind it, a Haul Truck, or E to empty it', go: 'On the road', back: 'Heading home', load: 'Loading', unload: 'Unloading', wait: 'Waiting',
   scan: 'Stopped under the Vehicle Scanner while the load is scanned', dump: 'Dumping the whole load on the ground: the scanner found The One',
   hold: 'Held in line at the Vehicle Scanner: another load is in its lane, or an alarm is up (take The One with E on the scanner to let trucks through)',
@@ -640,7 +643,7 @@ const STATE_TEXT = {
 const aboardOne = (g, e) => (g.isGuest() ? !!e.one : VS.hasOne(e.type === 'truck' ? e.cargo : e.hop));
 export function earthInfo(g, e) {
   const T = g.T, spec = EARTH[e.type], tu = earthTune(T, e.type), pw = (e.pw ?? 0) > 0.05 && !e.off;
-  const power = (e.pw ?? 0) > 0.05 ? `Powered ${pct(e.pw)}` : 'No power: link it to a pole or a generator';
+  const power = (e.pw ?? 0) > 0.05 ? `Powered ${pct(e.pw)}` : 'No power: run a cable to it from a live pole or generator';
   const count = `${g.machines.count(e.type)} of ${tu.max} placed`;
   if (e.type === 'truck') {
     const where = e.state === 'idle' ? `Waiting for a hopper to fill (${Math.round(tu.range)} m range)` : STATE_TEXT[e.state] || e.state;

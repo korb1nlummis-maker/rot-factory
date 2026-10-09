@@ -72,10 +72,11 @@ export default async function (ctx) {
     return (!hurtOut && fin) || (hurtOut ? 'the pile gave way under a player who was out cold' : 'hp is ' + g.hp);
   });
 
-  await T('qa.climb.a-guest-suffers-the-same-hazard-and-the-host-runs-the-slide', async () => {
-    fresh({}); high(); g.hp = 100; const sent = []; const was = g.isGuest, cmd = g.cmd; g.isGuest = () => true; g.cmd = (t, d) => { sent.push([t, d]); }; const tri = g.slide.triggerPatch.bind(g.slide); let localSlide = 0; g.slide.triggerPatch = () => { localSlide++; };
+  await T('qa.climb.a-guest-suffers-the-same-hazard-and-the-host-runs-the-soft-slide', async () => {
+    // (above 19 m the guest asks for a slab instead: mp_avalanche.js)
+    fresh({}); high(); p().pos.y = 14; g.hp = 100; const sent = []; const was = g.isGuest, cmd = g.cmd; g.isGuest = () => true; g.cmd = (t, d) => { sent.push([t, d]); }; const tri = g.slide.triggerPatch.bind(g.slide); let localSlide = 0; g.slide.triggerPatch = () => { localSlide++; };
     withRandom(0, () => { g._climbT = 5; g.climbRisk(0.1); }); g.isGuest = was; g.cmd = cmd; g.slide.triggerPatch = tri;
-    return (g.hp < 100 && sent.some((m) => m[0] === 'patch') && localSlide === 0) || `guest hp ${g.hp}, commands ${JSON.stringify(sent.map((m) => m[0]))}, local slides ${localSlide}`;
+    return (g.hp === 100 && sent.some((m) => m[0] === 'sslide') && !sent.some((m) => m[0] === 'patch') && localSlide === 0 && !g.avalanche.cur) || `guest hp ${g.hp}, commands ${JSON.stringify(sent.map((m) => m[0]))}, local slides ${localSlide}`;   // (nothing hits the guest; it asks the host for a soft slide with sslide, softslide.js)
   });
 
   await T('qa.slides.a-giant-slide-counts-once-per-cooldown-not-once-per-plush', async () => {

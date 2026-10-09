@@ -3,6 +3,7 @@
 // See catalog.js for the handler contract.
 import { TYPES, REJECT, catalogType, TRANSIENT } from './catalog.js';
 import * as BINS from './bins.js';   // every assignable thing also takes a `dest` (the bin it sells at), see bins.js
+import { actSound } from './worldsound.js';   // what a friend builds is heard from where it stands, what you build at full volume
 
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -132,7 +133,7 @@ export function placeEntity(g, type, fields = {}, opts = {}) {
   g.S.entities.push(ent);
   g.addEntity(ent);   // tiles go through logi.add, everything else through machines.add; both announce ent+ to a guest
   g.power.markDirty();
-  if (!opts.quiet) { g.S.stats.built = (g.S.stats.built || 0) + 1; g.sound.place(); }
+  if (!opts.quiet) { g.S.stats.built = (g.S.stats.built || 0) + 1; actSound(g, ent).place(); }
   if (opts.rebuild !== false) g.rebuildTools();
   return ent;
 }

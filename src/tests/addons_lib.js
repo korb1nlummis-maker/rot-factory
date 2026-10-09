@@ -1,6 +1,7 @@
 // Shared helpers for the src/tests/addons_*.js audit. This file has no default export, so the self test loader skips it.
 // makeKit(ctx) builds the item table and the helpers (equip, put, aim, snapshot) on top of the self test context.
 import { fmt } from '../util.js';
+import { makeWiring } from './wire_lib.js';
 
 export const FRAME_KEYS = ['timber', 'steel', 'concrete', 'rebar', 'titan', 'carbon', 'plasma', 'voidl', 'neutron', 'horizon'];
 
@@ -80,6 +81,8 @@ export function makeKit(ctx) {
 
   // power rig in the open bay: a fed generator and a pole next to it
   const feedGen = (gen, n = 12) => { S().carry = []; for (let q = 0; q < n; q++) S().carry.push({ sp: 2, vr: 0 }); g.useTile(gen); S().carry = []; };
+  const { wire: wire0, wireTo, wireNear } = makeWiring(ctx);   // power travels only through cables (wire_lib.js)
+  const wire = (a, b) => { const r = wire0(a, b); if (!r.ok) throw new Error('wire: ' + r.why); return r; };
   const powerAll = () => { for (const t of tiles()) if (['belt', 'sorter', 'vault', 'mech', 'fan', 'pole', 'gen'].includes(t.type)) t.pw = 1; for (const it of g.machines.items.values()) it.ent.pw = 1; };
   const runLogi = (n, dt = 0.05) => { for (let q = 0; q < n; q++) { powerAll(); g.time += dt; L().update(dt); g.machines.update(dt, g.time); } };
 
@@ -190,5 +193,5 @@ export function makeKit(ctx) {
   // remove one placed thing the way the hammer does
   const removeEnt = (e, kind) => { if (kind === 'cell') return; g.doDecon({ kind: L().byId.has(e.id) ? 'tile' : 'mach', id: e.id }); };
 
-  return { clearBay, hooks, doPlace, makeEnv, placeAny, removeEnt, DX, DZ, equip, stow, items, sceneCount, aimDir, lookUp, hintText, put, tileOf, itemOf, feedGen, powerAll, runLogi, describe, snapshot, diffSnap, lane, supportOf, fmt };
+  return { clearBay, hooks, doPlace, makeEnv, placeAny, removeEnt, DX, DZ, equip, stow, items, sceneCount, aimDir, lookUp, hintText, put, tileOf, itemOf, feedGen, wire, wireTo, wireNear, powerAll, runLogi, describe, snapshot, diffSnap, lane, supportOf, fmt };
 }

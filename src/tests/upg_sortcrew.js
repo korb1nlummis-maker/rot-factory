@@ -92,9 +92,11 @@ export default async function (ctx) {
     };
     let prev = 0;
     for (let l = 0; l <= 3; l++) { const r = reach(l ? { dump: l } : {}); if (!(r > prev)) out.push(`l${l} reach ${r} not above ${prev}`); if (!near(r, exp[l], 0.4)) out.push(`l${l} reach ${r} vs ${exp[l]}`); prev = r; }
-    // the cart is pulled in from 80% of that range (at least 3.2)
+    // the cart is pulled in from the same range as your hands
     fresh({ bag: 3, cart: 3, dump: 3 }); ctx.craft('cart:1'); g.useCart(); const c = S().cart; c.mode = 'stay'; c.y = 0; c.load = [{ sp: 2, vr: 0 }]; c.x = bp.x + 18; c.z = bp.z; g._adC = 0; const m0 = S().money; for (let n = 0; n < 6; n++) g.autoDump(0.1);
     if (c.load.length) out.push('cart at 18 m not pulled with Long-Range Suction 3'); if (!(S().money > m0)) out.push('cart load not sold');
+    // and at every level the cart unloads from exactly the distance the hands do
+    for (const lv of [0, 1, 2, 3]) { fresh({ bag: 3, cart: 3, dump: lv }); ctx.craft('cart:1'); g.useCart(); const cc = S().cart; cc.mode = 'stay'; cc.y = 0; const reachNow = g.T.autoDump; cc.load = [{ sp: 2, vr: 0 }]; cc.x = bp.x + reachNow - 0.4; cc.z = bp.z; g._adC = 0; for (let n = 0; n < 4; n++) g.autoDump(0.1); if (cc.load.length) out.push(`level ${lv}: cart inside ${reachNow - 0.4} m of the bin did not unload`); cc.load = [{ sp: 2, vr: 0 }]; cc.x = bp.x + reachNow + 1.0; g._adC = 0; for (let n = 0; n < 4; n++) g.autoDump(0.1); if (!cc.load.length) out.push(`level ${lv}: cart outside the hands' range unloaded`); }
     return out.length ? out.join('; ') : true;
   });
   await T('upg.sort.magnet-catches-wider-throws-per-level', async () => {

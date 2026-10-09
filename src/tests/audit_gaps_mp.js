@@ -20,7 +20,7 @@ export default async function (ctx) {
     X.setup(); role('host'); cap(); const bad = [];
     const s = X.std(); g.remote = fakeRemote(new V3(s.base.x, 0, s.base.z + 1)); adv(1.2);   // a generator, a pole and two stations: no switch, battery, breaker or meter anywhere
     const net = g.power.nets.find((n) => n.loads && n.loads['Rail Station']); if (!net) return 'the host grid has no rail station load';
-    if (g.power.packRow()) bad.push('test setup: the host sends a grid row although no power part exists');
+    { const row = g.power.packRow(); if (row && row.e.length) bad.push('test setup: the host sends part rows although no power part exists'); }   // (the grids themselves are sent now: a guest reads them)
     sent.length = 0; g.sendDyn(); const dyn = sent.find((m) => m.t === 'dyn'); if (!dyn || !dyn.grid) return 'the dyn message carries no grid near the friend';
     const hostHud = (() => { g._pwHud = true; g._pwHudT = 0; PP.hudTick(g, 0.3); const el = document.getElementById('pwMeterHud'); return el ? el.querySelector('.pwh-t').textContent + ' | ' + el.querySelector('.pwh-l').textContent : ''; })();
     p().pos.set(s.base.x, 0, s.base.z + 1);
@@ -45,10 +45,12 @@ export default async function (ctx) {
 
   await guard('mp.audit_gaps.one-automatic-sale-is-one-coin-on-each-screen', async () => {
     fresh({ belts: 1 }); role('host'); cap(); g.remote = fakeRemote(new V3(-100, 0, 0)); const bad = [], k = coins();
+    p().pos.set(g.hall.binPos.x + 2, 0, g.hall.binPos.z); g.sound._win = null;   // (a coin is heard from the bin: stand next to it)
     try { g.coinCd = 0; g.sellAuto(1, 0, 1); } finally { k.restore(); }
     if (k.calls.length !== 1) bad.push('the host heard ' + k.calls.length + ' coins for one sale');
     const fb = sent.filter((m) => m.t === 'sale'); if (fb.length !== 1 || !fb[0].fb) bad.push('messages ' + JSON.stringify(fb));
-    const m = json(fb[0]); done(); role('guest'); cap(); const k2 = coins(); const money = S().money;
+    const m = json(fb[0]); if (!(Number.isFinite(m.x) && Number.isFinite(m.y) && Number.isFinite(m.z))) bad.push('the message does not say where the coin rang: ' + JSON.stringify(m));
+    done(); role('guest'); cap(); const k2 = coins(); const money = S().money; g.sound._win = null;
     try { g.coinCd = 0; g.netMessage(m); } finally { k2.restore(); }
     if (k2.calls.length !== 1) bad.push('the guest heard ' + k2.calls.length + ' coins'); if (sent.length) bad.push('the guest answered with ' + JSON.stringify(sent)); if (S().money !== money) bad.push('the guest was paid again');
     return bad.length === 0 || bad.join(' || ');
@@ -82,9 +84,9 @@ export default async function (ctx) {
     X.setup(); role('host'); cap(); g.remote = fakeRemote(new V3(-100, 0, 0)); const bad = [], K = X.K, fake = [];
     try {
       for (let n = 0; n < 11; n++) { const type = 'auditk' + n; TYPES[type] = { add: () => ({}), kw: () => 0.5 + n * 0.1, wireName: () => 'Kind ' + n }; fake.push(type); }
-      const gen = K.gen(-9, 2), pole = K.pole(-8, 2); g.power.markDirty(); adv(0.5); void gen; void pole;
-      fake.forEach((type, n) => K.mach(type, -7.6 + (n % 4) * 0.3, 1.2 + Math.floor(n / 4) * 0.3));
-      const meter = K.part('meter', -8.6, 3.0); g.power.markDirty(); adv(1.2);
+      const gen = K.gen(-9, 2), pole = K.pole(-8, 2), pole2 = K.pole(-8, 4); K.wire(gen, pole); K.wire(pole, pole2); g.power.markDirty(); adv(0.5);   // two poles: the 11 kinds and the meter need 12 sockets
+      fake.forEach((type, n) => { const m = K.mach(type, -7.6 + (n % 4) * 0.3, 1.2 + Math.floor(n / 4) * 0.3); K.wire(n < 6 ? pole : pole2, m); });
+      const meter = K.part('meter', -8.6, 3.0); K.wire(pole2, meter); g.power.markDirty(); adv(1.2);
       const hostInfo = JSON.stringify(infoFor(g, { kind: 'mach', id: meter.id }).lines); if (!/and \d+ more kinds/.test(hostInfo)) return 'test setup: the host readout lists no overflow: ' + hostInfo;
       const row = json(g.power.packRow()), saved = g.power.nets, byId = g.power.netById;
       done(); role('guest'); g.power.applyRow(row);

@@ -136,8 +136,8 @@ export default async function (ctx) {
   });
 
   await guard('gaps.ach.a-cable-counts', async () => {
-    P.reset(); reset(); const bad = [], G = P.grid(-8, 3, { gens: 1, fans: 1 }), far = P.mach('strip', -4, 3, { y: 1, h: 0.1, mount: 'ceiling', dir: 0, mode: 'on' });
-    S().items.cable = 1; const r = g.cables.connect(G.pole.id, far.id); if (!r.ok) return r.why; if (stat('cables') !== 1) bad.push('cables ' + stat('cables'));
+    P.reset(); reset(); const bad = [], G = P.grid(-8, 3, { gens: 1, fans: 1, hub: false }), far = P.mach('strip', -4, 3, { y: 1, h: 0.1, mount: 'ceiling', dir: 0, mode: 'on' });
+    const c0 = stat('cables'); S().items.cable = 1; const r = g.cables.connect(G.pole.id, far.id); if (!r.ok) return r.why; if (stat('cables') !== c0 + 1) bad.push('cables ' + stat('cables') + ' after one more than ' + c0);
     return bad.length === 0 || bad.join(' || ');
   });
 

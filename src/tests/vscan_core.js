@@ -31,7 +31,7 @@ export default async function (ctx) {
     return g.placeEntity('vscan', { ...l.ent, ...extra });
   };
   // the first frame after a placement recomputes the grid (and zeroes an unwired scanner's power): let it pass, then give it power by hand
-  const warm = (e) => { adv(0.1); e.pw = 1; };
+  const warm = (e) => { adv(0.1); g.power.dirty = false; g.power.t = 50; e.pw = 1; };   // (power is held on by hand: the unwired scanner would otherwise be solved back to 0 within the next frames)
   const pow = (e, secs, dt = 0.05) => { for (let n = 0; n < secs / dt; n++) { e.pw = 1; g.time += dt; g.updatePlay(dt); } };   // frames with power held on by hand
   const guard = (name, fn) => T(name, async () => {
     const fn0 = g.foundNeedle, mode0 = g.mode;
@@ -171,6 +171,7 @@ export default async function (ctx) {
     fresh(UP); const bad = []; K.clearBay(); S().money = 1e13;
     const gen = await K.put('gen', { x: -9, z: -1.2, dir: 0 }), pole = await K.put('pole', { x: -9, z: 1.2, dir: 0 }); if (!gen.ok || !pole.ok) return 'rig';
     const lit = mk(-8, 6), dark = mk(-8, 14); K.feedGen(K.tileOf(gen.ent), 12);
+    S().items.cable = 4; { const a = g.cables.connect(gen.ent.id, pole.ent.id), b = g.cables.connect(pole.ent.id, lit.id); if (!a.ok || !b.ok) return 'wiring: ' + (a.why || b.why); }   // the near scanner has its cable, the dark one none
     for (const q of [lit, dark]) q.pw = 0; g.power.markDirty(); g.power.update(0.1); adv(1.0, 0.05);
     const net = g.power.nets.find((n) => n.nodes.some((x) => x.type === 'pole'));
     if (!(lit.pw > 0.05)) bad.push('the scanner next to the pole is not powered: ' + lit.pw);
@@ -182,6 +183,7 @@ export default async function (ctx) {
     if (!li.lit || di.lit || !/^Powered/.test(li.lines[1]) || !/^Needs 14 kW/.test(di.lines[1])) bad.push('readouts: ' + JSON.stringify([li.lit, li.lines[1], di.lit, di.lines[1]]));
     const lamps = (e) => g.machines.items.get(e.id).vscan.lamps.map((m) => m.color.getHex());
     if (lamps(lit).some((c) => c !== 0x2e8c4a)) bad.push('lit lamps ' + lamps(lit)); if (lamps(dark).some((c) => c !== 0x222222)) bad.push('dark lamps ' + lamps(dark));
+    S().cables = []; g.cables.reset();   // (the cables of this test do not carry over)
     return bad.length === 0 || bad.join(' || ');
   });
 

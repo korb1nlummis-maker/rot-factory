@@ -57,7 +57,7 @@ export default async function (ctx) {
   });
 
   await guard('truth.world.keys-a-door-locked-to-key-opens-on-e-and-by-sensor-only-while-a-door-key-is-in-your-pack', async () => {
-    X.setup(); const bad = []; const i0 = toI(-20), k0 = toK(4); X.powerAt(-17, 2, 2); const d = X.door(i0, k0, { auto: false, lock: 'key' }); adv(0.5);
+    X.setup(); const bad = []; const i0 = toI(-20), k0 = toK(4); const G0 = X.powerAt(-17, 2, 2); const d = X.door(i0, k0, { auto: false, lock: 'key' }); S().items.cable = (S().items.cable || 0) + 1; g.cables.connect(G0.pole.id, d.id); adv(0.5);   // (the door runs on its own cable)
     look(cellX(d.i0 + 2), 1.2, cellZ(d.k0), 2.4); io.clearHint(); io.tap('KeyE'); adv(0.2); if (d.tgt) bad.push('E opened a key door with no key'); if (!/Door Key/.test(io.hint())) bad.push('no key hint: ' + io.hint());
     S().items.doorkey = 1; io.tap('KeyE'); adv(0.2); if (!d.tgt) bad.push('E did not open the key door with a Door Key in the pack'); io.tap('KeyE'); adv(0.2);
     S().items.doorkey = 1; d.auto = true; d.tgt = 0; d.p = 0; const sensor = (key) => { delete S().items.doorkey; if (key) S().items.doorkey = 1; d.tgt = 0; d.p = 0; d.st = 'closed'; p().pos.set(cellX(d.i0 + 2), 0, cellZ(d.k0) - 1.5); p().vel.set(0, 0, 0); adv(1.5); return !!d.tgt; };

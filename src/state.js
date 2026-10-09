@@ -25,7 +25,10 @@ export function newState(seed) {
     },
     settings: { quality: 'high', vol: 0.7, sens: 1 },
     boosts: { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0 },
-    notes: [],
+    notes: [],      // the worker notes read (S.notes), the other papers read (S.papers), the clues a partner read (S.heard) and what a bot or machine flagged (S.nflags): src/notebook.js
+    papers: [],
+    heard: [],
+    nflags: [],
     contracts: [],
     items: {},
     mats: {},
@@ -158,7 +161,7 @@ export function applyDiff(world, d) {
 export function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
 
 // One-time fresh start for every player. Bump WIPE_TOKEN to wipe all saved games again on the next load.
-const WIPE_TOKEN = 'fresh-start-2026-10-06b';
+const WIPE_TOKEN = 'fresh-start-2026-10-09a';
 try {
   if (localStorage.getItem('rotfactory.wipe') !== WIPE_TOKEN) { localStorage.removeItem(SAVE_KEY); localStorage.setItem('rotfactory.wipe', WIPE_TOKEN); }
 } catch (e) { /* storage unavailable */ }

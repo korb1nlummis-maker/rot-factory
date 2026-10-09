@@ -10,14 +10,19 @@ import { FX } from './fx.js';
 import { Sound } from './audio.js';
 import { UI } from './ui.js';
 import { Machines } from './machines.js';
-import { Logistics, LOGI, CHARGE_PER, CHARGER_CAP, CHARGER_HOPPER, CHARGER_MAX_RARITY } from './logistics.js';
+import { hoseGhost } from './hosegeo.js';
+import { Logistics, LOGI, DX, DZ, CHARGE_PER, CHARGER_CAP, CHARGER_HOPPER, CHARGER_MAX_RARITY } from './logistics.js';
+import * as FUEL from './botfuel.js';   // the one fuel rule (hopper room, rarity) and the bots that keep machines fueled
 import { Power } from './power.js';
 import { Cables } from './cables.js';
 import { Contracts } from './contracts.js';
 import { Crew, STATUS as BOT_STATUS } from './crew.js';
 import { Radio } from './radio.js';
 import { Net, RemotePlayer } from './net.js';
+import * as NG from './netgame.js';   // co-op traffic control: send rates and sizes, the guest's body stream, the world in slices, the F3 net numbers (netperf.js has the pipe)
 import { Slides } from './slide.js';
+import { Avalanches } from './avalanche.js';
+import { SoftSlides } from './softslide.js';
 import { recipes, craft, craftGear, gearRecipes, MATERIALS } from './crafting.js';
 import { ghostify, frameRay } from './machines.js';
 import { Dust } from './dust.js';
@@ -36,6 +41,9 @@ import * as BUILD from './build.js';   // wave 3: floor pads, catwalks, walls, r
 import * as STACK from './stack.js';   // wave 10: stacked building inside the cubes (plates, switchback stairs, ladders, door frames, the load column)
 import * as TRANSIT from './transit.js';   // wave 5: doors, platform lifts, jump pads
 import * as PWP from './powerparts.js';
+import * as GI from './gridinfo.js';
+import * as LL from './lanternlight.js';   // lantern light: the real point light pool and the source list
+import * as WS from './worldsound.js';   // where a world sound comes from (sale coins, what your friend does)
 import * as HL from './hanglamp.js';   // powered hanging lanterns (lights them into glowSources)
 import * as DETECTOR from './detector.js';
 import * as VSCAN from './vehiclescan.js';
@@ -44,6 +52,7 @@ import * as HAUL from './haul.js';   // wave 6: giant arches and the Portal (sup
 import { parseArch } from './loadtrace.js';
 import { partOf as beltPartOf } from './beltdata.js';
 import { PARTS as BELT_PARTS } from './splitparts.js';   // names of the mergers and ruled splitters (wave 2B)
+import * as BI from './beltintake.js';   // belt intake: plain belts pull plush off your hands and cart (and the host side of a guest's feed)
 import * as BP from './beltplan.js';   // belt tiers, lifts, underground pairs and the line planner (wave 1A)
 import * as RAIL from './rail.js';   // Mine Rail shuttle: track, stations, carts (the rush key, the hammer and readout pick)
 import { capacityOf, loadOn, totalLoad, WARN_AT } from './loadtrace.js';
@@ -54,9 +63,13 @@ import { EARTH, isEarth, earthCost, earthTune, newEarthEnt, earthConflict, earth
 import { ISLAND_BODIES } from './island.js';
 import { RARITY, REGIONS, species, pickByRarity, bandOfDist, touchDex, NEEDLE, BULK, REMAINS, CACHE, PAD, isSpecialCell, PALETTES, sellValue } from './plushdata.js';
 import { makeWorker, noteFor, rewardFor, applyBoost, describeBoosts } from './remains.js';
+import * as CARE from './carepackage.js';   // care packages: a courier drone drops a crate every few days and at milestones (carepackage.js)
+import * as NB from './notebook.js';   // the notes expansion: papers, the journal's summary, bot and machine flags, the Bot Scholar (src/notes.js has the clues)
+import * as NOTES from './notes.js';
 import { speciesIcon, needleFrames } from './icons.js';
 import { clamp, lerp, fmt, compaction, escHtml } from './util.js';
 
+import { VAC_DEFAULT_PCT, VAC_MIN_HALF, VAC_REFRESH, VAC_AIM_COS, vacDepth, rateText as vacShow } from './dials.js';   // the VACUUM dial's numbers
 const $ = (id) => document.getElementById(id);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -68,7 +81,7 @@ export class Game {
     this.canvas = $('game');
     this.ui = new UI();
     this.ui.bind(this);
-    this.sound = new Sound();
+    this.sound = new Sound(); this.sound.bindWorld(this);   // world sounds are positional: sound.at(x, y, z, class) hears from the player (spatial.js)
     this.keys = {};
     this.mouse = { l: false, r: false };
     this.mode = 'loading'; // loading | title | play | ended
@@ -141,6 +154,7 @@ export class Game {
     this.hall = buildHall(this.renderer.scene);
     this.shafts = new LightShafts(this.renderer.scene);   // the beam of daylight in a shaft dug out of the pile (lightshaft.js)
     this.fx = new FX(this.renderer.scene);
+    LL.init(this);   // the few real point lights the nearest lanterns borrow (lanternlight.js)
     this.renderer.scene.add(this.camLamp = new THREE.SpotLight(0xfff0d0, 30, 16, 0.55, 0.8, 1.4));
     this.renderer.camera.add(this.camLamp);
     this.camLamp.position.set(0.25, -0.2, 0);
@@ -156,12 +170,20 @@ export class Game {
     this.logi = new Logistics(this);
     this.power = new Power(this);
     this.cables = new Cables(this);
+    // a machine the hammer finds by its shape (a door leaf, a pad, a rail station, an arch rib or the slab of a dock) is found by the cable tool the same way: power travels only
+    // through cables, so every machine has to be something you can aim a wire at, not just the single point in its middle
+    this.cables.shapePick = (eye, dir, maxD) => {
+      let best = null; const take = (r) => { if (r && r.ent && Number.isFinite(r.t) && (!best || r.t < best.t)) best = r; };
+      take(TRANSIT.pick(this, eye, dir, maxD)); take(BUILD.pickBuilt(this, eye, dir, maxD)); take(RAIL.pickRail(this, eye, dir, maxD)); take(HAUL.pickFlat(this, eye, dir, maxD)); take(ARCH.pick(this, eye, dir, maxD));
+      return best;
+    };
     this.dust = new Dust(this);
     this.contracts = new Contracts(this);
     this.crew = new Crew(this);
     this.cart = new Cart(this);
     this.cart2 = new Cart(this, 'other');   // the friend's cart: S.gcart on the host (simulated), S.hcart on a guest (view only)
     this._actor = null;                      // 'g' while the host runs a command that came from the guest
+    CARE.install(this);
     this.radio = new Radio(this);
     this.net = new Net();
     this.net.onOpen = () => this.netOpened();
@@ -177,7 +199,8 @@ export class Game {
   }
 
   loadWorld(S, saved) {
-    this.S = S;
+    this.beltRot = null; this._lastLaid = null; this.bplan = null;   // a turn, a last piece or a route from the game before belong to nothing here
+    this.S = S; this.vacT = 0; this.vacAcc = 0; this._vacRef = null;   // (a vacuum burst, its pull and the aim line it measured belong to the game before)
     S.hcart = null;   // only ever a live view of the host's cart on a guest, never saved state
     this.world = new World(S.seed);
     if (saved && saved.diff) {
@@ -196,8 +219,10 @@ export class Game {
     this.sim.spawnHook = (sp, vr, x, y, z, vx, vy, vz, flag) => this.spawnHook(sp, vr, x, y, z, vx, vy, vz, flag);
     this.netBodies = new Map();
     this.slide = new Slides(this);
+    this.softslide = new SoftSlides(this);   // small soft slides and how deep they bury (softslide.js)
+    this.avalanche = new Avalanches(this);   // climbing avalanches (avalanche.js): slabs that break high up, carry the climber and settle at the foot
     this.sim.hooks = {
-      onStale: (sp, vr) => { this.sellAuto(sp, vr, 0.5); },
+      onStale: (sp, vr, x, y, z) => { this.sellAuto(sp, vr, 0.5, undefined, Number.isFinite(x + y + z) ? { x, y, z } : null); },
       onFreeze: (i, j, k, flag, en) => { if (!this.isGuest()) { if (en > 0.3) this.slide.trigger(i, j, k, en * 0.72); } },
       onBin: (i, x, y, z) => this.onBin(i),
       onImpact: (x, y, z, v) => this.onImpact(x, y, z, v),
@@ -221,14 +246,14 @@ export class Game {
     for (const e of S.entities) this.addEntity(e);
     { const ids = new Set(S.entities.map((e) => e.id)); for (const e of [...S.entities]) if (e.type === 'fan' && e.mounted && !ids.has(e.frameId)) { const t = this.logi.byId.get(e.id); if (t) this.logi.remove(t); S.entities = S.entities.filter((x) => x.id !== e.id); } }   // a Support Fan whose frame is gone cannot hang in the air
     this.ensureFreeGate();
-    S.cables = (Array.isArray(S.cables) ? S.cables : []).filter((c) => this.cables.ent(c.a) && this.cables.ent(c.b));   // hand-wired power cables whose ends still stand
+    S.cables = (Array.isArray(S.cables) ? S.cables : []).filter((c) => c && typeof c === 'object' && this.cables.ent(c.a) && this.cables.ent(c.b));   // hand-wired power cables whose ends still stand
     S.boosts = { sell: 0, dig: 0, digMul: 1, carry: 0, stab: 0, scan: 0, ...(S.boosts || {}) };
     S.stats = { ...newState(0).stats, ...(S.stats || {}) };
     if (!Array.isArray(S.stats.rar) || S.stats.rar.length < 7) S.stats.rar = [0, 0, 0, 0, 0, 0, 0];
     if (!S.gear) { S.gear = {}; for (const id of GEAR) S.gear[id] = S.up[id] || 0; }
     if (S.gear.helmet === undefined) S.gear.helmet = 1; // every worker starts with a hard hat, a lamp and a clock
     if (S.gameMin === undefined) S.gameMin = 0;
-    S.notes = S.notes || []; S.clues = S.clues || []; S.items = S.items || {}; S.mats = S.mats || {}; if ((S.up.hardhat || 0) > 1) { S.up.hpmax = Math.max(S.up.hpmax || 0, S.up.hardhat); S.up.hardhat = 1; } if (S.up.binmag) { S.up.dump = Math.max(S.up.dump || 0, S.up.binmag); delete S.up.binmag; } S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
+    NB.ensure(S); S.items = S.items || {}; S.mats = S.mats || {}; if ((S.up.hardhat || 0) > 1) { S.up.hpmax = Math.max(S.up.hpmax || 0, S.up.hardhat); S.up.hardhat = 1; } if (S.up.binmag) { S.up.dump = Math.max(S.up.dump || 0, S.up.binmag); delete S.up.binmag; } S.crew = S.crew || []; S.contracts = S.contracts || []; S.entities = S.entities || []; S.carry = S.carry || [];
     this.T = this.tune();
     this.world.stabBonus = this.T.stabBonus;
     this.sim.binCatch = this.T.binCatch;
@@ -439,9 +464,12 @@ export class Game {
     else if (e.code === 'KeyK') this.useMedkit();
     else if (e.code === 'KeyP') this.punch();
     else if (e.code === 'KeyQ' && this.cables.wiring) this.cables.cancel('Wire cancelled. <kbd>Q</kbd> again puts the cable away.');
+    else if (e.code === 'KeyQ' && BP.cancel(this)) { /* a route you were aiming is put down; Q again stows the tool */ }
     else if (e.code === 'KeyQ') { this.stowed = !this.stowed; this.machines.setGhost(null); this.plan = null; this.rebuildTools(); const t = this.curTool(); this.ui.hint(this.stowed ? 'Put away. Hands free. <kbd>Q</kbd> takes it out again.' : (t.kind === 'hammer' ? 'Hammer out. <kbd>B</kbd> removes what you aim at. <kbd>Q</kbd> puts it away.' : t.kind === 'hands' ? 'Nothing in that slot: your hands are free. Pick a tool with <kbd>1-9</kbd>.' : 'Tool out. <kbd>B</kbd> or click uses it. <kbd>Q</kbd> puts it away.'), 2.5); }
     else if (e.code === 'KeyX') this.deconstruct(e.shiftKey);   // Shift+X takes down a whole zoop group
     else if (e.code === 'KeyU') this.useCart();
+    else if (e.code === 'Backquote') BI.toggle(this);   // belt intake on or off (beltintake.js)
+    else if ((e.code === 'Minus' || e.code === 'Equal') && e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); this.adjustVac(e.code === 'Equal' ? 1 : -1); }   // Alt + - and Alt + =: the VACUUM dial (Shift is sprint and a pad's zoop width, so Alt is the free modifier)
     else if (e.code === 'Minus' || e.code === 'Equal') { const dir = e.code === 'Equal' ? 1 : -1; if (!BUILD.zoopKey(this, this.curTool(), dir, e.shiftKey) && !TRANSIT.zoopKey(this, this.curTool(), dir)) this.adjustScoop(dir); }   // a pad's zoop length; a jump pad's angle (transit.js)   // zoop length (width with Shift) of the pad in hand
     else if (e.code === 'KeyR') {
       // R punches (laptop friendly); with a ramp in hand it flips the ramp instead
@@ -463,7 +491,7 @@ export class Game {
   onMouse(e, down) {
     // the mouse looks around; left click grabs, right click punches
     if (!e || this.mode !== 'play' || this.ui.isModalOpen() || !document.pointerLockElement) { if (!down && e && e.button === 0) this.keys.KeyG = false; return; }
-    if (down && e.button === 2) this.punch();
+    if (down && e.button === 2) { if (!BP.cancel(this)) this.punch(); }   // (right click puts a route you are aiming down before it punches)
     else if (e.button === 0) { this.keys.KeyG = down; if (down) this.gPress(); }
   }
 
@@ -539,6 +567,8 @@ export class Game {
     this.ui.setHotbar(this.tools, this.stowed ? -1 : this.buildIdx);
     this.machines.setGhost(null);
     this.plan = null; // the old tool's plan must not be placed by the new tool before the next aim update
+    this.beltRot = null;   // the quarter turn R gave the next belt or hose piece goes with the tool
+    BP.guard(this, this.curTool());   // a route you were aiming belongs to the belt or hose it was started with (beltplan.js)
     this.sound.tone('sine', 700, 900, 0.05, 0.05);
   }
   giveItem(id, n = 1) { this.S.items[id] = (this.S.items[id] || 0) + n; this.rebuildTools(); }
@@ -557,9 +587,9 @@ export class Game {
     const u = upgradeById(id);
     const lvl = this.S.up[id] || 0;
     if (!u || lvl >= u.max || !isUnlocked(u, this.S.up, this.S)) return false;
-    const cost = u.cost[lvl];
+    const cost = CARE.priceOf(this, u.cost[lvl]);   // (a gold care package can hold 10% off the next upgrade)
     if (this.S.money < cost) { this.sound.error(); return false; }
-    this.S.money -= cost;
+    this.S.money -= cost; CARE.paid(this);
     this.S.up[id] = lvl + 1;
     this.S.stats.upgrades++;
     this.T = this.tune();
@@ -633,6 +663,7 @@ export class Game {
 
   renderEnv(dt, camPos) {
     // sky factor at the camera
+    if (!Number.isFinite(this.camSky)) this.camSky = 1;   // one bad frame (a camera that was not placed yet) must not poison it for good: NaN here is a black screen
     const w = this.world;
     const i = clamp(toI(camPos.x), 0, NX - 1), j = toJ(camPos.y), k = clamp(toK(camPos.z), 0, NZ - 1);
     const top = w.topAt(i, k);
@@ -669,8 +700,12 @@ export class Game {
   // everything that glows enough to light plush: lanterns and flares first, then lit generators, powered poles and live chargers
   glowSources(camPos, n) {
     const out = [];
-    for (const e of this.machines.lights(camPos, n)) out.push(e.lc ? { x: e.x, y: e.y, z: e.z, r: e.lr, cr: e.lc[0], cg: e.lc[1], cb: e.lc[2], d: -1 } : { x: e.x, y: e.y, z: e.z, r: e.glow ? 6 : 9, cr: e.glow ? 0.5 : 2.2, cg: e.glow ? 1.9 : 1.7, cb: e.glow ? 0.9 : 0.9, d: -1 });   // furnish.js lights carry their own radius (lr) and colour (lc)
-    HL.lampSources(this, camPos, Math.min(4, n - out.length), out);   // powered hanging lanterns: they dim with their grid
+    for (const e of this.machines.lights(camPos, n)) { const src = LL.sourceOf(this, e); if (src) out.push(src); }   // lanterns light a real room (15 m), glow sticks a smaller green one, and both die down as they burn; furnish.js lights carry their own radius (lr) and colour (lc) (lanternlight.js)
+    HL.lampSources(this, camPos, 4, out);   // powered hanging lanterns: they dim with their grid
+    if (out.length > 1) {   // the nearest of lanterns, flares, furnish lights and hanging lanterns together (by distance over radius), so eight lanterns far down the tunnel never push out the lamp next to you
+      const sc = (s) => ((s.x - camPos.x) ** 2 + (s.y - camPos.y) ** 2 + (s.z - camPos.z) ** 2) / (s.r * s.r);
+      out.sort((a, b) => sc(a) - sc(b)); if (out.length > n) out.length = n;
+    }
     if (out.length < n) {
       const cand = [];
       for (const t of this.logi.tiles.values()) {
@@ -703,7 +738,7 @@ export class Game {
       sprint: !!(k.ShiftLeft || k.ShiftRight), jump: !!k.Space && locked && !modal, crouch: !!k.KeyC && locked,   // C only: Ctrl+W closes the browser tab, so Ctrl is not a crouch key
         // either Shift sprints; crouch is C only (Ctrl+W would close the browser tab)
     };
-    const stats = { walk: T.walk * (this.lungSlow ?? 1), crouchMul: T.crouchMul, jump: T.jump };
+    const stats = { walk: T.walk * (this.lungSlow ?? 1) * this.softslide.slow(), crouchMul: T.crouchMul, jump: T.jump * this.softslide.jumpMul() };
     const pb = p.pos.clone();
     if (this.mode === 'play') p.update(dt, input, stats, this.sim);
     S.stats.walked += Math.hypot(p.pos.x - pb.x, p.pos.z - pb.z);
@@ -717,7 +752,7 @@ export class Game {
     this.shake = Math.max(0, this.shake - dt * 1.8);
     const sh = this.shake * T.shakeMul;
     cam.position.set(eye.x + (Math.random() - 0.5) * sh * 0.12, eye.y + (Math.random() - 0.5) * sh * 0.12, eye.z + (Math.random() - 0.5) * sh * 0.12);
-    cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh * 0.02, p.yaw + Math.PI, 0, 'YXZ');
+    cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh * 0.02, p.yaw + Math.PI, this.avalanche ? this.avalanche.roll : 0, 'YXZ');
     cam.updateMatrixWorld(true);
     p.forward(_fwd);
     _right.set(-Math.cos(p.yaw) * -1, 0, 0).set(-Math.cos(p.yaw), 0, Math.sin(p.yaw)).multiplyScalar(-1);
@@ -729,8 +764,14 @@ export class Game {
     U.uLampPos.value.copy(cam.position).addScaledVector(_right, -0.0).y -= 0.15;
     U.uLampDir.value.copy(_fwd);
     U.uLampRange.value = T.lampRange;
-    U.uLampColor.value.setRGB(2.6, 2.35, 1.9).multiplyScalar(T.lampPower * on);
-    this.camLamp.intensity = 22 * T.lampPower * on;
+    // right up against a board, a wall or a plush the lamp would wash everything out: ease it down as the nearest surface in front gets close
+    { let dn = 3.5; const sx = cam.position.x, sy = cam.position.y, sz = cam.position.z;
+      for (let t = 0.12; t < 3.5; t += 0.12) { if (world.solid(toI(sx + _fwd.x * t), toJ(sy + _fwd.y * t), toK(sz + _fwd.z * t))) { dn = t; break; } }
+      if (dn >= 3.5 && this.curTargetRef) dn = Math.min(dn, 2.0);   // a body or board in front counts too
+      const want = 0.3 + 0.7 * Math.min(1, Math.max(0, (dn - 0.25) / 1.9)); this._lampNear = (this._lampNear ?? 1) + (want - (this._lampNear ?? 1)) * Math.min(1, dt * 10); }
+    const ln = this._lampNear ?? 1;
+    U.uLampColor.value.setRGB(2.6, 2.35, 1.9).multiplyScalar(T.lampPower * on * ln);
+    this.camLamp.intensity = 22 * T.lampPower * on * ln * ln;
     if (this.lampCone) { this.lampCone.visible = on > 0; this.lampCone.material.opacity = (0.012 + Math.min(1, this.dust.level) * 0.1) * (1.1 - this.camSky * 0.8) * T.lampPower; this.lampCone.scale.set(T.lampRange / 12, T.lampRange / 12, T.lampRange / 12); }
     this.camLamp.distance = T.lampRange + 4;
     // placed lights
@@ -744,6 +785,8 @@ export class Game {
       const e = gl[i - 1];
       if (e) { L.set(e.x, e.y, e.z, e.r); Lc.setRGB(e.cr, e.cg, e.cb); } else { L.set(0, -999, 0, 1); Lc.setRGB(0, 0, 0); }
     }
+
+    LL.update(this, gl, dt);   // the nearest of those borrow the real point lights, so frames, machines and the hall floor are lit too
 
     // --- interaction
     if (this.mode === 'play' && locked && !modal) this.interact(dt, cam.position, _fwd);
@@ -759,6 +802,7 @@ export class Game {
       this.catchInCart();
     } else {
       for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
+      this.avalanche.guestUpdate(dt);
     }
     this.playerGateScan(dt); if (!this.isGuest()) { this.feedGensFromThrows(); this.feedChargersFromThrows(); }
     this.settleT = (this.settleT ?? 10) - dt;
@@ -803,6 +847,7 @@ export class Game {
     this.streak.t -= dt;
     if (this.streak.t <= 0 && this.streak.n) this.streak.n = 0;
     this.ui.setStreak(this.streak.n, this.streak.t / 4.5);
+    BI.update(this, dt);   // a belt close to you pulls plush off your hands and cart first (and holds the bin back while it can)
     this.autoDump(dt);
     this.updateHud(dt);
 
@@ -952,13 +997,14 @@ export class Game {
 
     // vacuum burst (tap left click once the Plush Vacuum is owned); special targets always use the single grab
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE || tg.sp === PAD);
-    if (this.keys.KeyG && this.throwHold && this.curTool().kind === 'hands' && this.S.carry.length) this.throwOne();   // hold the left button after a throw: rapid fire
-    if (!this.keys.KeyG || !this.S.carry.length) this.throwHold = false;
-    if (T.vac > 0 && !special) {
+    if (this.keys.KeyG && this.throwHold && this.curTool().kind === 'hands' && (this.S.carry.length || this.cartThrowable())) this.throwOne();   // hold the left button after a throw: rapid fire
+    if (!this.keys.KeyG || !(this.S.carry.length || this.cartThrowable())) this.throwHold = false;
+    if (T.vac > 0 && !building && !special && this.vacNow() > 0) {   // the VACUUM dial at 0 switches the vacuum off: a click grabs like plain hands. With a tool out the button is the tool's (a hose or belt click starts a route), never a burst of the vacuum
       if (this.keys.KeyG && !special && !this.throwHold) this.vacT = Math.max(this.vacT || 0, 0.3);
-      if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else this.vacAcc = 0;
+      if ((this.vacT || 0) > 0) { this.vacT -= dt; this.runVacuum(dt, eye, dir); } else { this.vacAcc = 0; this._vacRef = null; }
       this.ui.setGrab(0, false);
     } else {
+      if (building || !(this.vacNow() > 0)) { this.vacT = 0; this.vacAcc = 0; this._vacRef = null; }   // the dial at 0 (or no vacuum) ends a burst: its timer only counts down inside the vacuum's own branch, and a frozen one would block holding the grab by hand
       // grabbing is instant (see gPress); hold the key to keep grabbing until your hands (or cart) are full
       this.grabCd = Math.max(0, (this.grabCd || 0) - dt);
       if (this.keys.KeyG && this.curTool().kind === 'hands' && !this.holdBlock && performance.now() - (this.gDownAt || 0) > 160 && this.storeRoom() && this.grabCd <= 0 && !this.vacT) {
@@ -999,6 +1045,7 @@ export class Game {
       this.giveItem('bulk');
       this.sound.thump(0.15, 150);
       this.fx.dust(cellX(tg.i), cellY(tg.j), cellZ(tg.k), 6, 0.6, 0.6);
+      { const doc = NB.mouthDoc(this, tg.i, tg.j, tg.k); if (doc) NB.readDoc(this, doc, 'A notice pinned to the barricade', true); }   // the barricade at the mouth of an old working had a notice on it
       return true;
     }
     if (tg.type === 'cell') {
@@ -1015,7 +1062,7 @@ export class Game {
       item = { sp: b.sp, vr: b.vr };
       pos = new THREE.Vector3(b.x, b.y, b.z);
       this.netBodies.delete(tg.id);
-      this.netSend({ t: 'take', id: tg.id });
+      this.netSend({ t: 'take', id: tg.id, sp: item.sp, vr: item.vr });   // (sp and vr: if the host no longer has this body it says so and the plush goes back)
     } else {
       const s = this.sim;
       item = { sp: s.sp[tg.idx], vr: s.vr[tg.idx] };
@@ -1073,7 +1120,7 @@ export class Game {
     // standing in the pull of a bin or depot: what you grab goes straight in, so grabbing as fast as the vacuum and scoop allow never waits on the bin to unload your hands
     const pp0 = this.player.pos, sink0 = !sp.volatile && !quiet && this.mode === 'play' ? this.nearestSink(pp0.x, pp0.y + 1, pp0.z, this.T.autoDump) : null;
     if (sink0 && sink0.kind === 'sell') {
-      this.sell(item.sp, item.vr, { dist: 0, streak: true, bin: sink0.bin });
+      this.sell(item.sp, item.vr, { dist: 0, streak: true, own: true, bin: sink0.bin });
       this.fliers.push({ sp: item.sp, vr: item.vr, from: pos.clone(), to: new THREE.Vector3(sink0.x, sink0.y, sink0.z), t: 0, dur: 0.3, arc: 0.6 });
       toHand = false;
     } else
@@ -1087,6 +1134,7 @@ export class Game {
       // flier to the hand
       this.fliers.push({ sp: item.sp, vr: item.vr, from: pos.clone(), t: 0, dur: 0.22, hand: true });
     }
+    if (sp.rarity >= 4 && sp.rarity <= 5) NB.plushPick(this, sp.rarity, pos.x, pos.y, pos.z);   // a Legendary or Mythic plush may have a torn photograph in its tag
     const pal = PALETTES[sp.pal] ? new THREE.Color(PALETTES[sp.pal][1]) : new THREE.Color(1, 0.9, 0.5);
     this.fx.fluff(pos.x, pos.y, pos.z, pal.r, pal.g, pal.b, quiet ? 3 : 8);
     if (!quiet) { this.sound.pop(0.16); this.sound.squeak((0.8 + sp.rarity * 0.18) * (ARCH_PITCH[sp.arch] || 1), 0.1 + sp.rarity * 0.02); }
@@ -1130,17 +1178,40 @@ export class Game {
 
   runVacuum(dt, eye, dir) {
     const T = this.T, S = this.S, w = this.world;
-    this.vacAcc = (this.vacAcc || 0) + dt * T.vacRate;
+    const rate = this.vacNow(), share = T.vacRate > 0 ? Math.min(1, rate / T.vacRate) : 0;   // the VACUUM dial: the suction in use and its share of the most you own
+    this.vacAcc = (this.vacAcc || 0) + dt * rate;
     if (this.dustCd <= 0) { this.dustCd = 0.08; this.sound.whoosh(0.03); }
+    // The Cyclone Vacuum (more than 18 a second) opens the cone and lengthens it so the faster suction has plush to draw on. The dial narrows all of it in proportion to the setting (the cone
+    // never narrows past VAC_MIN_HALF, so the plush you aim at is always inside it), and limits how far past the first plush on your aim line one aim may dig (vacDepth): a gentle setting takes
+    // the face layer where you point and goes deeper only as you keep pointing, so it cannot bore through a tunnel roof in one breath. At 100% there is no limit, as before.
+    const wide = Math.max(0, T.vacRate - 18), cosFull = wide ? Math.max(0.7, 0.95 - 0.0025 * wide) : 0.95, fullHalf = Math.acos(cosFull);
+    const cosMin = Math.cos(Math.min(fullHalf, Math.max(VAC_MIN_HALF, fullHalf * share)));
+    const reach = T.reach + 1.2 + Math.min(2.5, wide / 40) * share;
+    const rc = Math.ceil(reach / C);
+    const ci = toI(eye.x), cj = toJ(eye.y), ck = toK(eye.z);
+    const exposed = (i, j, k) => !(w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1));
+    let dMax = Infinity;
+    if (share < 1) {
+      let R = this._vacRef;   // where the aim line first meets plush, measured when the aim moved (or the last 0.3 s ran out)
+      if (!R || R.age > VAC_REFRESH || dir.x * R.dx + dir.y * R.dy + dir.z * R.dz < VAC_AIM_COS || Math.hypot(eye.x - R.ex, eye.y - R.ey, eye.z - R.ez) > 0.25) {
+        let dRef = Infinity, dCone = Infinity;   // (dCone: the nearest plush in the cone, the reference when nothing is on the aim line, say a line that runs beside a pile or down the bore of a tunnel; with none the whole cone would dig without a limit)
+        for (let dk = -rc; dk <= rc; dk++) for (let dj = -rc; dj <= rc; dj++) for (let di = -rc; di <= rc; di++) {
+          const i = ci + di, j = cj + dj, k = ck + dk, vs = w.get(i, j, k);
+          if (!vs || isSpecialCell(vs)) continue;
+          const x = cellX(i) - eye.x, y = cellY(j) - eye.y, z = cellZ(k) - eye.z, al = x * dir.x + y * dir.y + z * dir.z;
+          if (al < 0.3 || al > reach || (al >= dRef && al >= dCone)) continue;
+          const d2 = x * x + y * y + z * z;
+          if (d2 - al * al <= 0.2) { if (al < dRef && exposed(i, j, k)) dRef = al; }   // (on the aim line: within 0.45 m of it)
+          else if (al < dCone && d2 <= reach * reach && al * al >= cosMin * cosMin * d2 && exposed(i, j, k)) dCone = al;
+        }
+        R = this._vacRef = { dx: dir.x, dy: dir.y, dz: dir.z, ex: eye.x, ey: eye.y, ez: eye.z, age: 0, dist: dRef < Infinity ? dRef : dCone };
+      }
+      R.age += dt; dMax = R.dist + vacDepth(share);
+    }
     while (this.vacAcc >= 1) {
       this.vacAcc -= 1;
       if (!this.storeRoom()) { this.ui.hint('Full. Walk to the SORT bin, or roll out a cart (<kbd>U</kbd>).', 2); this.vacAcc = 0; return; }
-      // find nearest exposed cell in cone. The Cyclone Vacuum (more than 18 a second) opens the cone and lengthens it so the faster suction has plush to draw on
-      const wide = Math.max(0, T.vacRate - 18), cosMin = wide ? Math.max(0.7, 0.95 - 0.0025 * wide) : 0.95;
-      const reach = T.reach + 1.2 + Math.min(2.5, wide / 40);
-      const rc = Math.ceil(reach / C);
-      const ci = toI(eye.x), cj = toJ(eye.y), ck = toK(eye.z);
-      let best = null, bs = 1e9;
+      let best = null, bs = 1e9;   // the nearest exposed plush in the cone
       for (let dk = -rc; dk <= rc; dk++) for (let dj = -rc; dj <= rc; dj++) for (let di = -rc; di <= rc; di++) {
         const i = ci + di, j = cj + dj, k = ck + dk;
         const vs = w.get(i, j, k);
@@ -1148,9 +1219,8 @@ export class Game {
         const x = cellX(i) - eye.x, y = cellY(j) - eye.y, z = cellZ(k) - eye.z;
         const d = Math.hypot(x, y, z);
         if (d > reach || d < 0.3) continue;
-        const cosA = (x * dir.x + y * dir.y + z * dir.z) / d;
-        if (cosA < cosMin) continue;
-        if (w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1)) continue;
+        const al = x * dir.x + y * dir.y + z * dir.z, cosA = al / d;
+        if (cosA < cosMin || al > dMax || !exposed(i, j, k)) continue;
         const sc = d * (2 - cosA);
         if (sc < bs) { bs = sc; best = { type: 'cell', i, j, k }; }
       }
@@ -1161,8 +1231,10 @@ export class Game {
 
   throwOne() {
     const S = this.S, T = this.T;
-    if (this.throwCd > 0 || !S.carry.length || this.mode !== 'play') return;
-    const it = S.carry[S.carry.length - 1];
+    if (this.throwCd > 0 || this.mode !== 'play') return;
+    const fromCart = !S.carry.length && this.cartThrowable();   // empty hands: throw from the cart next to you
+    if (!S.carry.length && !fromCart) return;
+    const it = fromCart ? S.cart.load[S.cart.load.length - 1] : S.carry[S.carry.length - 1];
     this.throwCd = 0.12;
     const p = this.player, cam = this.renderer.camera;
     p.forward(_fwd);
@@ -1170,12 +1242,15 @@ export class Game {
     const pw = T.throwPower;
     const made = this.sim.spawn(it.sp, it.vr, o.x + _fwd.x * 0.6, o.y + _fwd.y * 0.6 - 0.1, o.z + _fwd.z * 0.6, _fwd.x * pw + p.vel.x * 0.7, _fwd.y * pw + p.vel.y * 0.3 + 1.6, _fwd.z * pw + p.vel.z * 0.7, 1);
     if (made < 0) { this.ui.hint('Too much plush on the floor to throw more.', 2); return; }
-    S.carry.pop();
+    if (fromCart) { S.cart.load.pop(); if (this.isGuest()) this.cmd('cartpop', {}); } else S.carry.pop();
     S.stats.thrown++;
     this.ui.setCarry(S.carry, T.carry);
     this.sound.whoosh(0.12);
     this.heldPop = -0.6;
   }
+
+  // plush you can throw from the cart: your own cart within reach with something in it
+  cartThrowable() { const c = this.S.cart; return !!(c && c.load && c.load.length && this.cartDist() < 5); }
 
   toggleLamp() {
     this.lampOn = this.lampOn === false;
@@ -1228,17 +1303,17 @@ export class Game {
   gPress() {
     // a tool in your hand: click uses it (hammer hits, building items are set down). Empty slot = bare hands: grab and throw.
     const held = this.curTool();
-    if (held.kind !== 'hands') { this.useTool(held); return; }
+    if (held.kind !== 'hands') { this.useTool(held, true); return; }
     const tg = this.curTargetRef;
     const special = tg && (tg.type === 'body' || tg.type === 'nbody' || tg.sp === BULK || tg.sp === REMAINS || tg.sp === CACHE || tg.sp === PAD);
     this.gDownAt = performance.now();
     // holding plush: aiming at something you can still pick up keeps picking up until you are full (hands, then the cart); with nothing to grab, or
     // when everything is full, the click throws, and holding the button keeps throwing
-    if (this.S.carry.length && !(tg && !special && this.storeRoom())) { this.holdBlock = true; this.throwHold = true; this.throwOne(); return; }
+    if ((this.S.carry.length || this.cartThrowable()) && !(tg && !special && this.storeRoom())) { this.holdBlock = true; this.throwHold = true; this.throwOne(); return; }
     this.throwHold = false; this.holdBlock = false;
     if (!tg) return;
     if (!this.storeRoom()) { this.ui.hint('Hands full. Walk to the SORT bin.', 2); return; }
-    if (this.T.vac > 0 && !special) { this.vacT = 1.8; return; }
+    if (this.T.vac > 0 && !special && this.vacNow() > 0) { this.vacT = 1.8; return; }   // (the VACUUM dial at 0 turns it off: the click is a plain grab)
     this.instantGrab(tg);
   }
 
@@ -1256,7 +1331,8 @@ export class Game {
     this.useTool(this.curTool());
   }
 
-  useTool(t) {
+  useTool(t, click) {
+    if (click && BP.clickLay(this, t)) return;   // a belt or hose and a click: anchor a route, or lay it (beltplan.js)
     if (BUILD.holdStart(this, t)) return;   // a floor pad: the press anchors a hold-and-drag zoop, the release places it (build.js)
     if (t.kind === 'hands') { this.ui.hint('Empty hands: click grabs, <kbd>F</kbd> is the flashlight. Pick a tool with <kbd>1-9</kbd> (open the inventory with <kbd>I</kbd>).', 2.5); return; }
     if (t.kind === 'hammer') { this.hammerHit(); return; }
@@ -1270,7 +1346,7 @@ export class Game {
   describeRef(ref) {
     if (!ref) return null;
     if (ref.kind === 'cart') return 'your cart';
-    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : BELT_PARTS[beltPartOf(t)] ? BELT_PARTS[beltPartOf(t)].name : t.splitter ? 'Belt Splitter' : t.mounted ? 'Support Fan' : t.type === 'charger' ? 'Charging Station' : t.type) : null; }
+    if (ref.kind === 'tile') { const t = this.logi.byId.get(ref.id); return t ? (t.detector ? 'Detector Gate' : BELT_PARTS[beltPartOf(t)] ? BELT_PARTS[beltPartOf(t)].name : t.splitter ? 'Belt Splitter' : t.hose ? 'Vacuum Hose piece' : t.mounted ? 'Support Fan' : t.type === 'charger' ? 'Charging Station' : t.type) : null; }
     if (ref.kind === 'mach') { const it = this.machines.items.get(ref.id); if (!it) return null; const e = it.ent; if (BUILD.isBuildType(e.type)) return BUILD.nameOf(e); if (TRANSIT.isTransit(e.type)) return TRANSIT.nameOf(e); if (e.type === 'garch') return ARCH.nameOf(e.span, e.mat) + (() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })(); return e.type === 'frame' ? `${FRAME_TYPES[e.kind].name} (4x4x4)${(() => { const sp = this.world.supports.find((q) => q.id === e.id); return sp && sp.load !== undefined ? ', load ' + Math.round(sp.load * 100) + '%' : ''; })()}` : e.jack ? 'Hydraulic Jack' : e.glow ? 'Glow Stick' : e.dyn ? 'Dynamite' : e.type === 'road' ? 'Haul Road Plate' : e.type === 'dock' ? 'Truck Dock' : (RAIL.nameOf(e) || e.type); }
     if (ref.kind === 'cable') { const c = this.cables.rec(ref.id); return c ? `Power Cable, ${this.cables.length(c).toFixed(1)} m` : null; }
     if (ref.kind === 'bulk') return 'Bulkhead Panel';
@@ -1405,7 +1481,13 @@ export class Game {
     if (!this.isGuest() && b.carry.length) { const n = [0, 0, 0, 0, 0, 0]; for (const it of b.carry) n[Math.min(5, species[it.sp] ? species[it.sp].rarity : 0)]++; carry += ': ' + n.map((c, r) => (c ? `${c} ${RARITY[r].name}` : '')).filter(Boolean).join(', '); }
     const dt = b.deliver ? this.logi.byId.get(b.deliver) : null;
     const dn = dt ? { gen: 'Generator', sorter: 'Sorting Box', vault: 'Vault Crate', belt: 'belt', charger: 'Charging Station' }[dt.type] || dt.type : '';
-    this.ui.setBotInfo(true, { title: b.name.toUpperCase(), lines: [`Level ${b.level}  ·  Battery ${Math.round(b.battery * 100)}%`, carry, `Doing: ${BOT_STATUS[b.state] || b.state}${dn ? `  ·  drop-off: ${dn}` : ''}`, `Unloads at: ${BINS.destText(this, { k: 'bot', o: b })}`], act: 'E: ' + act.text, ok: act.ok });
+    this.ui.setBotInfo(true, { title: b.name.toUpperCase(), lines: [`Level ${b.level}  ·  Battery ${Math.round(b.battery * 100)}%`, carry, `Doing: ${this.crew.headStatus(b)}${dn ? `  ·  drop-off: ${dn}` : ''}`, `Unloads at: ${BINS.destText(this, { k: 'bot', o: b })}  ·  Keeps machines fueled: ${FUEL.enabled(this, b) ? 'on' : 'off'}`], act: 'E: ' + act.text, ok: act.ok });
+  }
+
+  // 'keep machines fueled' on or off: id 0 is the whole crew, a bot's id is that bot (the host decides, a guest asks)
+  crewFuelToggle(id, on) {
+    if (this.isGuest()) { this.cmd('crew', { act: 'fuelcfg', id, on: !!on }); return true; }
+    return FUEL.setToggle(this, id, !!on);
   }
 
   crewCommand(b, d) {
@@ -1414,9 +1496,9 @@ export class Game {
       let tgt = null;
       if (d.d !== undefined) { const a = this.crewAim(), p = this.player.pos; tgt = a && a.kind === 'spot' ? { k: 'spot', x: +a.x.toFixed(2), y: +a.y.toFixed(2), z: +a.z.toFixed(2), dir: +d.d } : { k: 'spot', x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), dir: +d.d }; }
       else {
-        let best = null, bd = 1e9;
-        for (const t of this.logi.tiles.values()) { if (t.type !== (d.a === 'charge' ? 'charger' : 'gen') || (d.a === 'charge' && !((t.reserve || 0) > 0.02))) continue; const q = Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z); if (q < bd) { bd = q; best = t; } }
-        if (!best) { this.ui.hint(d.a === 'charge' ? 'No Charging Station with charge. Feed one Common to Epic plush.' : 'No generator to keep fuelled.', 3); return; }
+        let best = null, bd = 1e9, unwired = false;
+        for (const t of this.logi.tiles.values()) { if (t.type !== (d.a === 'charge' ? 'charger' : 'gen') || (d.a === 'charge' && !((t.reserve || 0) > 0.02))) continue; if (d.a === 'charge' && !FUEL.chargerPowered(t)) { unwired = true; continue; } const q = Math.hypot(cellX(t.i) - b.x, cellZ(t.k) - b.z); if (q < bd) { bd = q; best = t; } }
+        if (!best) { this.ui.hint(d.a === 'charge' ? (unwired ? 'Not wired: run a cable to the Charging Station from a live grid.' : 'No Charging Station with charge. Feed one Common to Epic plush.') : 'No generator to keep fuelled.', 3); return; }
         tgt = { k: 'tile', id: best.id };
       }
       this.crewIssue(b, tgt); return;
@@ -1425,7 +1507,7 @@ export class Game {
     if (d.d !== undefined) this.crew.order(b, +d.d, b.x, b.y, b.z);
     else if (d.a === 'follow') this.crew.follow(b);
     else if (d.a === 'home') this.crew.sendHome(b);
-    else if (d.a === 'stay') this.crew.stand(b);
+    else if (d.a === 'stay') { this.crew.stand(b); b.stay = true; }   // 'Stay at the bin' also means: no fuel scooping until it is given something else to do
   }
 
   // does a belt end close enough to the bin or a depot to feed it?
@@ -1459,10 +1541,7 @@ export class Game {
     }
     if (t.type === 'gen') {
       let n = 0; const hop = PWP.genHopper(T, t);
-      for (let q = S.carry.length - 1; q >= 0; q--) {
-        const it = S.carry[q];
-        if (species[it.sp].rarity <= FUEL_MAX_RARITY && t.q.length < hop) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
-      }
+      for (let q = S.carry.length - 1; q >= 0; q--) if (this.logi.accept(t, S.carry[q], null)) { S.carry.splice(q, 1); n++; }   // (the one fuel rule: Common to Epic while the hopper has room)
       this.ui.setCarry(S.carry, T.carry); this.power.markDirty();
       const tooGood = S.carry.some((c) => species[c.sp].rarity > FUEL_MAX_RARITY);
       this.ui.hint(n ? `Fed ${n} plush to the ${PWP.genKindOf(t).key === 'std' ? 'generator' : PWP.genKindOf(t).name.toLowerCase()} (${t.q.length}/${hop}).` : t.q.length >= hop ? `The fuel hopper is full (${t.q.length}/${hop}).` : `Nothing to burn. It takes Common to Epic plush${tooGood ? ' (Legendary and Mythic are too valuable to burn)' : ''}.`, 3);
@@ -1470,10 +1549,7 @@ export class Game {
     }
     if (t.type === 'charger') {
       let n = 0;
-      for (let q = S.carry.length - 1; q >= 0; q--) {
-        const it = S.carry[q];
-        if (species[it.sp].rarity <= CHARGER_MAX_RARITY && t.q.length < CHARGER_HOPPER) { t.q.push(S.carry.splice(q, 1)[0]); n++; }
-      }
+      for (let q = S.carry.length - 1; q >= 0; q--) if (this.logi.accept(t, S.carry[q], null)) { S.carry.splice(q, 1); n++; }
       this.ui.setCarry(S.carry, T.carry);
       const tooGood = S.carry.some((c) => species[c.sp].rarity > CHARGER_MAX_RARITY);
       this.ui.hint(n ? `Fed ${n} plush to the Charging Station (hopper ${t.q.length}/${CHARGER_HOPPER}, charge ${(t.reserve || 0).toFixed(1)}/${CHARGER_CAP}).` : t.q.length >= CHARGER_HOPPER ? `The hopper is full (${t.q.length}/${CHARGER_HOPPER}).` : `Nothing to charge with. It takes Common to Epic plush${tooGood ? ' (Legendary and Mythic are too valuable)' : ''}.`, 3);
@@ -1684,16 +1760,19 @@ export class Game {
     if (this.dust) this.dust.hostLevel = 0;
     if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
     if (this.world) { this.world.onSet = null; this.world.onCreakCell = null; }
+    this._worldGen = null; this.netPending.length = 0; this.net.inbox.reset(); this.net.pipe.reset(); NG.hideOverlay(this);
     this.ui.toast({ icon: '👋', title: 'Friend left', text: 'The connection closed.', ms: 4000 });
   }
 
   netMessage(m) {
-    if (this.net.role === 'guest' && !this.guestReady && m.t !== 'hi' && m.t !== 'world') { this.netPending.push(m); return; }
+    if (!m || typeof m !== 'object' || typeof m.t !== 'string') return;
+    if (this.net.role === 'host' && NG.HOST_ONLY.has(m.t)) return;   // (only a host sends these: a friend's copy of one is forged or broken, and would rewrite the host's money or restart its game)
+    if (this.net.role === 'guest' && !this.guestReady && m.t !== 'hi' && m.t !== 'world' && m.t !== 'png' && m.t !== 'pog') { NG.hold(this, m); return; }
     switch (m.t) {
       case 'hi':
         if (m.v && typeof __BUILD__ !== 'undefined' && m.v !== __BUILD__) this.ui.toast({ icon: '⚠️', title: 'Different versions', text: `You are on ${__BUILD__}, your friend is on ${m.v}. Both press Ctrl/Cmd+Shift+R to load the latest, or things will not match.`, ms: 9000 });
         this.remote = this.remote || new RemotePlayer(this.renderer.scene, m.name);
-        if (this.net.role === 'host') this.sendWorld();
+        if (this.net.role === 'host') NG.beginWorld(this);   // the world goes out a few slices a frame (netgame.js); sendWorld() sends it all at once
         break;
       case 'world': {
         // guest: fall into the host's warehouse with a fresh character
@@ -1708,7 +1787,7 @@ export class Game {
           this.world.onSet = (i, j, k, sp, vr) => { this.netOut.push(i, j, k, sp, vr); };
           this.guestReady = true;
           const q = this.netPending.splice(0);
-          for (const x of q) this.netMessage(x);
+          NG.replayHeld(this, q);   // handled over the next frames, a few ms each
         });
         break;
       }
@@ -1721,7 +1800,7 @@ export class Game {
         const cellsEnd = Math.min(Array.isArray(m.a) ? m.a.length : 0, 20000);   // a message carries at most 800 cells (4000 numbers); a forged one cannot make the host chew through millions
         for (let n = 0; n + 4 < cellsEnd; n += 5) {
           const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2], sp = m.a[n + 3], vr = m.a[n + 4];
-          if (!(Number.isInteger(i) && Number.isInteger(j) && Number.isInteger(k) && w.inside(i, j, k) && Number.isInteger(sp) && sp >= 0 && sp < 65536 && Number.isInteger(vr) && vr >= 0 && vr < 256)) continue;
+          if (!(Number.isInteger(i) && Number.isInteger(j) && Number.isInteger(k) && w.inside(i, j, k) && Number.isInteger(sp) && sp >= 0 && sp < 65536 && (sp === 0 || species[sp] !== undefined) && Number.isInteger(vr) && vr >= 0 && vr < 256)) continue;
           w.setCell(i, j, k, sp, vr);
           if (w.stabQueue.length < 30000) w.stabQueue.push({ i, j, k });
           if (sp === 0) { if (!this.isGuest()) this.dust.add(cellX(i), cellY(j), cellZ(k), 0.006); if (Math.random() < 0.3) this.fx.dust(cellX(i), cellY(j), cellZ(k), 2, 0.4, 0.5); }   // the dust field lives on the host: a guest's digging has to feed it there
@@ -1729,30 +1808,35 @@ export class Game {
         w._remoteApply = false;
         break;
       }
-      case 'pos': if (this.remote) this.remote.set(m); break;
+      case 'pos': if (this.remote) { this.remote.set(m); WS.partnerStep(this, m); } break;
       case 'cmd': this.netCmd(m.c, m.d); break;
       case 'shared': this.applyShared(m); break;
       case 'dyn': this.applyDyn(m); break;
       case 'give': for (const it of m.items) { if (it.sp === NEEDLE) { this.foundNeedle('the vault'); continue; } if (this.S.carry.length < this.T.carry) this.S.carry.push(it); else this.sim.spawn(it.sp, it.vr, this.player.pos.x, this.player.pos.y + 1.2, this.player.pos.z, 0, 1, 0, 0); } this.ui.setCarry(this.S.carry, this.T.carry); break;
       case 'toast': this.ui.toast({ icon: m.icon, title: m.title, text: m.text, ms: 5000 }); break;
-      case 'note': this.ui.showNote(m.entry); this.openModal('note'); break;
-      case 'spawn': { const a = m.a; this.sim.spawn(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 1); break; }
-      case 'take': { const i = this.sim.indexOfId(m.id); if (i >= 0) this.sim.remove(i); break; }
-      case 'lost': this.S.needleLost = true; this.ui.toast({ icon: '🔥', title: 'THE ONE is gone', text: 'It was thrown away without passing a gate.', cls: 'ach', ms: 12000 }); break;
-      case 'sale': if (m.fb) { if (this.isGuest() && this.coinCd <= 0) { this.coinCd = 0.12; this.sound.coin(0); } break; }   // host to guest: only the sound of an automatic sale (the host sold it, the money is shared)
-        if (m.sp === NEEDLE) { this.needleLost('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true }); break;
-      case 'bodies': {
-        const seen = new Set();
-        const a = m.a;
-        for (let n = 0; n < a.length; n += 11) {
-          const id = a[n]; seen.add(id);
-          let b = this.netBodies.get(id);
-          if (!b) { b = { id, x: a[n + 3], y: a[n + 4], z: a[n + 5], q: [a[n + 6], a[n + 7], a[n + 8], a[n + 9]] }; this.netBodies.set(id, b); }
-          b.sp = a[n + 1]; b.vr = a[n + 2]; b.tx = a[n + 3]; b.ty = a[n + 4]; b.tz = a[n + 5]; b.tq = [a[n + 6], a[n + 7], a[n + 8], a[n + 9]]; b.sq = a[n + 10];
-        }
-        for (const id of [...this.netBodies.keys()]) if (!seen.has(id)) this.netBodies.delete(id);
-        break;
+      case 'note': {   // the host opened a find for me: it goes in my own journal (worker note, papers), then it is shown
+        if (this.net.role !== 'guest') break;
+        const e = NB.cleanEntry(m.entry); if (!e) break;
+        e.docs = e.docs.filter((d) => !d.clue || NOTES.clueHolds(d.clue, NOTES.truthOf(this.world.needle)));   // a paper whose clue is not true is not kept
+        const fresh = NB.receive(this, e, false); if (!e.worker && !fresh.length) break;   // a notice already read (the next barricade cell of the same working) shows nothing
+        e.sum = NB.sumLine(this);
+        this.ui.showNote(e); this.openModal('note'); break;
       }
+      case 'nclue': if (this.net.role === 'guest') NB.heard(this, m.doc, m.who); break;   // the host read a paper with a clue: it is true for me too
+      case 'nflag': if (this.net.role === 'guest') NB.acceptFlag(this, m.f, true); break;   // a digger of the host's found something
+      case 'nflags': if (this.net.role === 'guest' && Array.isArray(m.list)) for (const f of m.list.slice(0, 40)) NB.acceptFlag(this, f, false); break;
+      case 'spawn': { const a = m.a; if (!NG.validSpawn(a)) break; this.sim.spawn(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 1); WS.partnerThrow(this, a); break; }
+      case 'take': { const i = this.sim.indexOfId(m.id); if (i >= 0) this.sim.remove(i); else if (Number.isInteger(m.sp) && Number.isInteger(m.vr)) this.netSend({ t: 'nope', sp: m.sp, vr: m.vr }); break; }   // the body is gone here (it settled, was sold or was taken by the host while the friend's picture was old): the friend gets no plush from it
+      case 'nope': if (this.net.role === 'guest') { const c = this.S.carry; for (let q = c.length - 1; q >= 0; q--) if (c[q].sp === m.sp && c[q].vr === m.vr) { c.splice(q, 1); this.ui.setCarry(c, this.T.carry); this.ui.hint('Too slow: that plush was already gone.', 2.5); break; } } break;
+      case 'lost': this.S.needleLost = true; this.ui.toast({ icon: '🔥', title: 'THE ONE is gone', text: 'It was thrown away without passing a gate.', cls: 'ach', ms: 12000 }); break;
+      case 'fl': this.guestFlight(m); break;
+      case 'sale': if (m.fb) { if (this.isGuest()) WS.saleHear(this, m); break; }   // host to guest: only the sound of an automatic sale (the host sold it, the money is shared)
+        if (m.sp === NEEDLE) { this.needleLost('the SORT bin'); } else this.sell(m.sp, m.vr, { dist: m.dist, streak: true, own: true }); break;   // (the message only comes for plush this player threw, so its coin is theirs in full)
+      case 'bodies': NG.applyBodies(this, m); break;   // (packed whole numbers, near ones every time and far ones less often; the old float rows still work)
+      case 'dynb': NG.applyBelts(this, m.belts); break;   // the rest of the belt rows of a dyn that did not fit in one message
+      case 'png': NG.ping(this, m); break;
+      case 'pog': NG.pong(this, m); break;
+      case 'avwarn': case 'avrun': case 'avend': case 'avride': if (this.guestReady) this.avalanche.guestMsg(m); break;   // the host's climbing avalanche: the crack, the rumble, the end, and the flow that carries me
       case 'creak': {
         for (let n = 0; n < m.a.length; n += 3) { const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2]; this.world.creaking.set((j * NZ + k) * NX + i, { i, j, k, t: 2.5 }); }
         if (m.a.length) this.onCreak(cellX(m.a[0]), cellY(m.a[1]), cellZ(m.a[2]), m.a.length / 3);
@@ -1761,7 +1845,7 @@ export class Game {
       case 'isl': this.islandWarn(m.x, m.y, m.z, m.n, m.b); break;   // the host found a slab cut off from the pile: the guest hears and sees the warning too
       case 'boom': {
         const d = Math.hypot(m.x - this.player.pos.x, m.y - this.player.pos.y, m.z - this.player.pos.z);
-        this.sound.rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
+        this.sound.at(m.x, m.y, m.z, 'boom').rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
         if (d < 18) this.shake = Math.max(this.shake, Math.min(1.2, 14 / (d + 6)));
         this.fx.dust(m.x, m.y, m.z, 16, 1.4, 1.6);
         if (m.R !== undefined) { this.fx.burst(m.x, m.y + 0.6, m.z, 70, 1, 0.6, 0.2, 6, 0.14, 1.4); this.blastOnPlayer(m.x, m.y, m.z, m.R, true); }   // a real blast: the guest gets shoved and hurt like the host would be
@@ -1769,11 +1853,11 @@ export class Game {
       }
       case 'razzo': this.razzoOnPlayer(m.x, m.y, m.z, m.mk); break;
       case 'hit': this.onPlayerHit(m.v); break;
-      case 'slide': if (this.guestReady) this.slideFeel(Math.hypot(m.x - this.player.pos.x, m.z - this.player.pos.z), m.r); break;
+      case 'slide': if (this.guestReady) { this.slideSound(m.x, m.z, m.r); this.slideFeel(Math.hypot(m.x - this.player.pos.x, m.z - this.player.pos.z), m.r); } break;
       case 'sfail': this.supportFailFx(m.x, m.y, m.z, m.name, m.ratio); break;
       case 'swarn': this.supportWarnFx(m.x, m.z, m.name, m.ratio, m.sec, m.y); break;
       case 'sbreak': this.breakSupport(m.st, m.e); break;
-      case 'sstrain': this.sound.creak(0.25); this.ui.hint(m.note, 5); break;
+      case 'sstrain': { const sx = +m.x, sy = +m.y, sz = +m.z; (Number.isFinite(sx + sy + sz) ? this.sound.at(sx, sy, sz, 'creak') : this.sound).creak(0.25); this.ui.hint(m.note, 5); break; }   // the host set it for me: it creaks where it stands
       case 'ent+': this.remoteEnt(m.ent); break;
       case 'ent-': this.removeViewEnt(m.id); break;
       case 'xrow': EXT.guestRow(this, m.k, m.d); break;
@@ -1814,8 +1898,15 @@ export class Game {
     const k = tool.kind, T = this.T;
     if ((k === 'gen') !== (tool.id === 'gen' || !!PWP.GEN_BY_ITEM[tool.id])) return 'That item does not make that machine';   // the generator ladder: a generator comes only from a generator item, and a generator item makes nothing else
     if (EXT.isCatalogTool(k)) return EXT.conflictTool(this, tool, e);   // catalog tools: TYPES[kind].conflict
+    if (['belt', 'sorter', 'vault', 'mech', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(k) && e.type !== 'splitbelt' && e.type !== 'gatebelt' && e.type !== 'tierbelt') {   // a guest's item must be the one that makes this machine, set on a real cell, facing a real way, and only a ramp climbs
+      const r = recipes(this).find((x) => x.id === tool.id);
+      if (!r || r.kind !== k || !!r.hose !== !!tool.hose || !!r.ramp !== !!tool.ramp) return 'That item does not make that';
+      if (!Number.isInteger(e.i) || !Number.isInteger(e.j) || !Number.isInteger(e.k)) return 'Bad cell';
+      if (e.dir !== undefined && !(Number.isInteger(e.dir) && e.dir >= 0 && e.dir <= 3)) return 'That piece faces no way';
+      if (e.rise && !(k === 'belt' && tool.ramp && (e.rise === 1 || e.rise === -1))) return 'Only a ramp climbs';
+    }
     if (k === 'belt') { const why = BP.conflict(this, tool, e); if (why) return why; if (e.type === 'tierbelt') return null; }   // belt marks (beltplan.js)
-    if ((k === 'splitter' && e.type === 'splitbelt') || (k === 'gate' && e.type === 'gatebelt')) { const t = this.logi.byId.get(e.id); return !t ? 'That belt is gone' : (t.splitter || t.detector || t.merger) ? 'That piece is already converted' : null; }
+    if ((k === 'splitter' && e.type === 'splitbelt') || (k === 'gate' && e.type === 'gatebelt')) { const t = this.logi.byId.get(e.id); return !t ? 'That belt is gone' : t.hose ? 'A hose has no splitters or gates: it is one line from its mouth to where it ends' : (t.splitter || t.detector || t.merger) ? 'That piece is already converted' : null; }
     if (['belt', 'sorter', 'vault', 'mech', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(k)) {
       const why = this.logi.canPlace(e.i, e.j, e.k); if (why && why !== 'Too close') return why;
       if (k === 'mech' && this.logi.count('mech') >= T.mechMax) return `Mech limit reached (${T.mechMax})`;
@@ -1839,18 +1930,7 @@ export class Game {
   pasteCfg(ent) { return EXT.pasteCfg(this, ent); }                     // { ok, why }
   placeEntity(type, fields, opts) { return EXT.placeEntity(this, type, fields, opts); }   // host only: new id, S.entities, addEntity, ent+ to a guest
 
-  sendWorld() {
-    const w = this.world;
-    this.netSend({ t: 'world', seed: this.S.seed, gameMin: this.S.gameMin });
-    let buf = [];
-    w.forEachDiff((id, sp, vr) => { buf.push(id, sp, vr); if (buf.length >= 9000) { this.netSend({ t: 'diff', a: buf }); buf = []; } });
-    if (buf.length) this.netSend({ t: 'diff', a: buf });
-    const list = this.S.entities.map((e) => this.stripEnt(e));
-    for (let n = 0; n < list.length; n += 400) this.netSend({ t: 'ents', list: list.slice(n, n + 400) });
-    this.netSend({ t: 'cables', list: this.cables.list().map((c) => ({ id: c.id, a: c.a, b: c.b })) });
-    this.sendShared();
-    this.netSend({ t: 'ready' });
-  }
+  sendWorld() { NG.sendWorldNow(this); }   // the whole world now (a joining friend gets it a few slices a frame instead: netgame.js worldSteps)
 
   // a locally built structure the friend should see too
   netEnt(ent) { if (this.net.open && this.net.role === 'host') this.netSend({ t: 'ent+', ent: this.stripEnt(ent) }); }
@@ -1866,6 +1946,7 @@ export class Game {
     const S = this.S;
     switch (c) {
       case 'buy': { const lv = S.up[d.id] || 0; if (this.buy(d.id) && (S.up[d.id] || 0) > lv) { const u = upgradeById(d.id); if (u) this.netSend({ t: 'toast', icon: '🛒', title: u.name + (u.max > 1 ? ' ' + (lv + 1) : ''), text: u.names ? u.names[lv + 1] : 'Upgrade purchased' }); } break; }
+      case 'careOpen': CARE.guestOpen(this, d); break;   // a guest opens a care package crate (the host checks it stands within reach of the guest and is still closed)
       case 'craft': craft(this, d && d.id, d && d.n); if (this.ui.openModal === 'craft') this.ui.renderCraft(); break;   // the host's own open bench shows what the guest made
       case 'craftGear': craftGear(this, d && d.id); if (this.ui.openModal === 'craft') this.ui.renderCraft(); break;
       case 'place': { const tool = d.tool; const why = this.placeConflict(tool, d.ent); if (why) { this.netSend({ t: 'toast', icon: '⚠️', title: 'Could not place', text: why }); break; } this.plan = { ok: true, ent: d.ent }; this._forGuest = true; try { this.placeCurrent(tool); } finally { this._forGuest = false; } this.plan = null; break; }
@@ -1875,7 +1956,7 @@ export class Game {
       case 'rail': RAIL.runCmd(this, d); break;   // a guest's Mine Rail command: rush, sit, leave, load (rail.js re-checks everything)
       case 'vscan': VSCAN.guestTake(this, d); break;   // a friend pressed E on a Vehicle Scanner that holds The One (vehiclescan.js re-checks they stand there)
       case 'arch': DETECTOR.guestCross(this, d); break;   // a friend walked through a detector arch (detector.js re-checks they stand there)
-      case 'cable': this.cables.report(this.cables.connect(d.a, d.b), false); break;
+      case 'cable': { const why = this.cables.guestWhy(d); this.cables.report(why ? { ok: false, why } : this.cables.connect(d.a, d.b), false); break; }   // (ids, reach, length, sockets and the cable item are all checked on the host)
       case 'earth': { const eit = this.machines.items.get(d.id); if (eit && isEarth(eit.ent.type) && VSCAN.guestReach(this, eit.ent, eit.ent.hop || eit.ent.cargo)) { const r = useEarth(this, eit, Math.max(0, Math.min(5000, +d.room || 0))); if (r.took) { const items = []; for (let q = 0; q < r.took.length; q += 2) items.push({ sp: r.took[q], vr: r.took[q + 1] }); this.netSend({ t: 'give', items }); } else this.power.markDirty(); } break; }
       case 'tile': {
         const t = this.logi.byId.get(d.id);
@@ -1885,29 +1966,42 @@ export class Game {
           if (take.length) this.netSend({ t: 'give', items: take });
         } else if (t.type === 'gen' || t.type === 'charger') {
           const back = [];
-          for (const it of d.items || []) if (!this.logi.accept(t, it, null)) back.push(it);
+          const sent = Array.isArray(d.items) ? d.items.slice(0, 256) : [];   // (a hand-over is a few dozen plush: a list of thousands is forged and is cut; the hopper itself still stops at its size)
+          for (const it of sent) if (!it || !Number.isInteger(it.sp) || !Number.isInteger(it.vr) || !this.logi.accept(t, it, null)) { if (it && Number.isInteger(it.sp) && Number.isInteger(it.vr)) back.push({ sp: it.sp, vr: it.vr }); }
           if (back.length) this.netSend({ t: 'give', items: back });
           this.power.markDirty();
         } else this.useTile(t);
         break;
       }
-      case 'feed': { const t = this.logi.byId.get(d.id); if (t) this.logi.accept(t, { sp: d.sp, vr: d.vr }, null); break; }
+      case 'feed': BI.hostFeed(this, d); break;   // a plush the guest hands to a belt or a sorter (belts re-check the range, the species and the rate: beltintake.js)
+      case 'intake': BI.hostToggle(this, d); break;   // the guest switched belt intake off or on (it governs the guest's cart, which the host runs)
       case 'sell': this.sell(d.sp, d.vr, { dist: d.dist, streak: d.streak, bin: BINS.binById(this, d.bin) ? d.bin : undefined }); break;
       case 'bindest': BINS.runCmd(this, d); break;   // a friend picked the bin of a bot or their own cart (machines and belt ends go through `cfg`)
       case 'reroll': this.contracts.reroll(d.i); break;
       case 'cart': this.useCart(d); break;
       case 'spend': if ((S.items[d.id] || 0) > 0) { S.items[d.id]--; if (S.items[d.id] <= 0) delete S.items[d.id]; } break;
+      case 'cartpop': { const gc = this.myCart(); if (gc && gc.load.length) gc.load.pop(); break; }
       case 'cartload': { const gc = this.myCart(); if (gc && gc.load.length < CART_CAP[gc.tier]) gc.load.push({ sp: d.sp, vr: d.vr }); break; }
-      case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK && !BUILD.ownerAt(this, d.i, d.j, d.k) && !TRANSIT.doorAt(this, d.i, d.j, d.k)) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); } break; }
+      case 'bulk': { const w = this.world; if (w.get(d.i, d.j, d.k) === BULK && !BUILD.ownerAt(this, d.i, d.j, d.k) && !TRANSIT.doorAt(this, d.i, d.j, d.k)) { w.setCell(d.i, d.j, d.k, 0, 0); w.stabQueue.push({ i: d.i, j: d.j, k: d.k }); this.giveItem('bulk'); const doc = NB.mouthDoc(this, d.i, d.j, d.k); if (doc) { if (doc.clue) NB.heard(this, doc, this.remote && this.remote.name); this.netSend({ t: 'note', entry: NB.entryOf(doc, 'A notice pinned to the barricade') }); } } break; }
       case 'open': {
+        if (!d || !NB.openOk(this, d.k, d.i, d.j, d.kk)) break;   // only a real remains or cache, near the friend (a forged cell would delete plush, or The One)
         const r = d.k === 'remains' ? this.openRemains(d.i, d.j, d.kk, true) : this.openCache(d.i, d.j, d.kk, true);
-        if (r && r.text !== undefined) this.netSend({ t: 'toast', icon: '📦', title: 'Supply cache', text: r.text });
+        if (r && r.docs && r.docs.length) this.netSend({ t: 'note', entry: r });
+        else if (r && r.text !== undefined) this.netSend({ t: 'toast', icon: '📦', title: 'Supply cache', text: r.text });
         else if (r && r.name) this.netSend({ t: 'note', entry: r });
+        break;
+      }
+      case 'pnote': {   // the friend's pick turned up a rare plush's tag: the host makes the same paper from the same place and tells itself
+        if (!NB.plushOk(this, d)) break;
+        const doc = NB.plushDocAt(this, d);
+        if (doc) NB.heard(this, doc, this.remote && this.remote.name);
         break;
       }
       case 'pay': { const n = Math.max(0, Math.min(1e9, Math.round(+d.n || 0))); if (S.money >= n) S.money -= n; break; }
       case 'tread': if (this.world.get(d.i, d.j, d.k) !== 0) this.slide.trigger(d.i, d.j, d.k, Math.min(3, +d.e || 0)); break;   // the guest's footing loads the face under it exactly as the host's would
+      case 'avclimb': this.avalanche.fromGuest(d); break;   // the guest climbed too high without gear: the host judges the slope and runs the slab
       case 'patch': this.slide.triggerPatch(d.i, d.k, Math.min(6, +d.e || 0), 3); break;
+      case 'sslide': this.softslide.fromGuest(d); break;   // the guest's footing gave way: the host judges where it is and how high, then runs the soft slide
       case 'fuse': {
         // a Razzo the guest let go of keeps burning here, where the bodies live: the host tracks it from the guest's hands
         this.fuses = this.fuses || [];
@@ -1919,6 +2013,7 @@ export class Game {
       case 'crew': {
         if (d.act === 'farmAhead') this.crew.orderAll(d.dir, d.x, d.y, d.z);
         else if (d.act === 'homeAll') this.crewHomeAll();
+        else if (d.act === 'fuelcfg') FUEL.setToggle(this, d.id, d.on);   // the guest flips 'keep machines fueled' (a bot's own, or id 0 for the crew): the host checks the id and takes only a true or false
         else if (d.act === 'one') { const b = this.S.crew.find((x) => x.id === d.id); if (b) this.crewCommand(b, d.d); }
         else if (d.act === 'ctx') { const b = this.S.crew.find((x) => x.id === d.id); if (b) { const r = this.crew.command(b, d.tgt, true); this.netSend({ t: 'toast', icon: '🤖', title: b.name, text: r.msg }); } }
         break;
@@ -1939,9 +2034,9 @@ export class Game {
 
   applyShared(m) {
     const S = this.S;
-    const key = JSON.stringify([m.up, m.gear, m.items, m.boosts, m.mats]);
+    const key = m.up !== undefined ? JSON.stringify([m.up, m.gear, m.items, m.boosts, m.mats]) : this._sharedKey;   // (the light kind carries no upgrades, gear or items: they are sent when they change)
     if (m.money > S.money + 0.5 && S.money > 0) this.ui.gain(m.money - S.money);
-    S.money = m.money; S.totalEarned = m.te; S.contracts = m.contracts || [];
+    S.money = m.money; S.totalEarned = m.te; if (m.contracts !== undefined) S.contracts = m.contracts || [];
     // Golden Hour and grid surges start on the host: the guest gets the same toast and sound when the shared timers flip
     if (m.golden > 0 && !(this.golden > 0)) { this.sound.ach(); this.ui.toast({ icon: '🌟', title: 'Golden Hour', text: 'Buyers are in a good mood. Everything sells for double for 75 seconds.', ms: 7000 }); }
     else if (!(m.golden > 0) && this.golden > 0) this.ui.toast({ icon: '🌟', title: 'Golden Hour is over', text: 'Prices are back to normal.', ms: 3000 });
@@ -1982,7 +2077,7 @@ export class Game {
     for (const it of this.machines.items.values()) if (it.ent.type === 'borer') movers.push([it.ent.id, it.ent.i, it.ent.k, Math.round((it.ent.pw ?? 0) * 100)]); else if (isEarth(it.ent.type)) movers.push(earthRow(it)); else if (it.ent.type === 'claw') movers.push([it.ent.id, 0, 0, Math.round((it.ent.pw ?? 0) * 100), +(it.phase || 0).toFixed(2), it.target ? it.target.i : -1, it.target ? it.target.j : 0, it.target ? it.target.k : 0, +(it.idle || 0).toFixed(1)]);
     const crew = this.S.crew.map((b) => {
       const sample = b.carry.slice(-4).flatMap((x) => [x.sp, x.vr]);
-      return [b.id, b.name, b.color, b.level, Math.round(b.xp), b.state, b.carry.length, +b.battery.toFixed(2), +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +(b.yaw % 6.2832).toFixed(2), sample, b.arm ? 1 : 0, b.aim || null, b.dir || 0, b.deliver || 0, b.dest || 0];
+      return [b.id, b.name, b.color, b.level, Math.round(b.xp), b.state, b.carry.length, +b.battery.toFixed(2), +b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +(b.yaw % 6.2832).toFixed(2), sample, b.arm ? 1 : 0, b.aim || null, b.dir || 0, b.deliver || 0, b.dest || 0, b.fuelJob ? b.fuelJob.id : 0, b.fuelJob ? (b.fuelJob.k === 'scoop' ? 2 : 1) : 0, b.fuelOff ? 1 : 0, this.crew.navCode(b)];   // [18..20]: the machine a bot is fueling (and whether it is scooping for it), the bot's own 'keep machines fueled' switch
     });
     const packCart = (c) => (c ? { tier: c.tier, mode: c.mode, x: +c.x.toFixed(2), y: +c.y.toFixed(2), z: +c.z.toFixed(2), yaw: +c.yaw.toFixed(2), n: c.load.length, dest: c.dest | 0, load: c.load.slice(-60).flatMap((x) => [x.sp, x.vr]) } : null);
     const cart = packCart(this.S.cart), gcart = packCart(this.S.gcart);   // cart: the host's own, gcart: the guest's own
@@ -1990,20 +2085,17 @@ export class Game {
     if (rp) { const net = this.power.nearest(rp.x, rp.y + 1, rp.z); if (net) grid = { supply: net.supply, demand: net.demand, sat: net.sat, tripped: net.tripped ? 1 : 0, cap: net.cap, loads: PWP.packLoads(net), kinds: PWP.countLoads(net) }; }   // (the guest's M readout falls back on this when the world has no power part to send a grid row)
     const dust = rp ? this.dust.at(rp.x, rp.y + 1.2, rp.z) : 0;
     const alarms = []; for (const t of L.tiles.values()) if (t.type === 'belt' && t.detector && t.alarm) alarms.push(t.id);
-    this.netSend({ t: 'dyn', belts, bpw, tiles, movers, crew, cart, gcart, grid, dust, alarms, cpw: this.cables.pwRows() });
+    NG.sendDyn(this, { belts, bpw, tiles, movers, crew, cart, gcart, grid, dust, alarms, cpw: this.cables.pwRows(), cf: this.S.crewFuel === false ? 0 : 1 });   // (a big factory's belts go in several messages)
   }
 
   applyDyn(m) {
     const L = this.logi;
-    const bw = new Map(); const bl = m.bpw || [];
-    for (let n = 0; n < bl.length; n += 3) bw.set(bl[n], n);
-    for (const t of L.tiles.values()) if (t.type === 'belt') { const n = bw.get(t.id); t.pw = n === undefined ? 0 : bl[n + 1] / 100; t.halt = n !== undefined && bl[n + 2] === 1; }
-    for (const a of m.belts) {
-      const t = L.byId.get(a[0]); if (!t) continue;
-      const its = [];
-      for (let n = 1; n < a.length; n += 3) its.push({ sp: a[n], vr: a[n + 1], t: a[n + 2] / 100 });
-      t.items = its;
+    if (m.bpw) {   // (left out when nothing changed since the last one: a big factory sends thousands of these)
+      const bw = new Map(); const bl = m.bpw;
+      for (let n = 0; n < bl.length; n += 3) bw.set(bl[n], n);
+      for (const t of L.tiles.values()) if (t.type === 'belt') { const n = bw.get(t.id); t.pw = n === undefined ? 0 : bl[n + 1] / 100; t.halt = n !== undefined && bl[n + 2] === 1; }
     }
+    NG.applyBelts(this, m.belts);
     for (const a of m.tiles) {
       const t = L.byId.get(a[0]); if (!t) continue;
       t.pw = a[1] / 100; t.burn = a[2];
@@ -2029,13 +2121,14 @@ export class Game {
       if (!b) { b = { id: a[0], x: a[8], y: a[9], z: a[10], yaw: a[11], carry: [], trail: [], path: [] }; this.crewViews.set(a[0], b); }
       b.name = a[1]; b.color = a[2]; b.level = a[3]; b.xp = a[4]; b.state = a[5]; b.battery = a[7];
       b.gx = a[8]; b.gy = a[9]; b.gz = a[10]; b.gyaw = a[11]; b.dir = a[15]; b.deliver = a[16] || null; b.dest = a[17] | 0;
+      b.fuelJob = Number.isInteger(a[18]) && a[18] > 0 ? { id: a[18], k: a[19] === 2 ? 'scoop' : 'give', n: 0 } : null; b.fuelOff = a[20] === 1 ? true : undefined; b.nvc = a[21] | 0;   // (what the host says: the guest only shows it)
       const sample = a[12], n = a[6];
       b.carry = new Array(n);
       for (let q = 0; q < n; q++) { const s2 = (q >= n - sample.length / 2) ? (q - (n - sample.length / 2)) * 2 : -1; b.carry[q] = s2 >= 0 ? { sp: sample[s2], vr: sample[s2 + 1] } : { sp: 1, vr: 0 }; }
       if (a[13]) { b.arm = performance.now() / 1000; b.aim = a[14]; }
       list.push(b);
     }
-    for (const id of [...this.crewViews.keys()]) if (!list.some((b) => b.id === id)) this.crewViews.delete(id);
+    { const live = new Set(); for (const b of list) live.add(b.id); for (const id of [...this.crewViews.keys()]) if (!live.has(id)) this.crewViews.delete(id); }   // (a Set: a crew of a hundred was a hundred squared)
     const crewChanged = (S.crew || []).length !== list.length;
     S.crew = list;
     this.crew.sync();
@@ -2044,8 +2137,10 @@ export class Game {
     // my own cart is the host's gcart (it lands in S.cart, which all the local cart code reads), the host's is a view only (S.hcart)
     this.applyCartView('cart', m.gcart);
     this.applyCartView('hcart', m.cart);
-    for (const t of L.tiles.values()) if (t.type === 'belt' && t.detector) { const on = m.alarms.includes(t.id); if (on !== !!t.alarm) { t.alarm = on; L.setGate(t, on); } }
+    const alarmSet = new Set(m.alarms);
+    for (const t of L.tiles.values()) if (t.type === 'belt' && t.detector) { const on = alarmSet.has(t.id); if (on !== !!t.alarm) { t.alarm = on; L.setGate(t, on); } }
     this.guestGrid = m.grid;
+    S.crewFuel = m.cf === 0 ? false : undefined;   // the crew-wide 'keep machines fueled' switch is the host's
     if (m.cpw) this.cables.applyPw(m.cpw);
     this.dust.hostLevel = m.dust;
   }
@@ -2071,41 +2166,7 @@ export class Game {
     setTimeout(() => d.remove(), 9000);
   }
 
-  netUpdate(dt) {
-    if (!this.net.open) return;
-    this._nt = (this._nt || 0) - dt;
-    if (this.netOut.length && this._nt <= 0.0) {
-      this.netSend({ t: 'cells', a: this.netOut.splice(0, 4000) });
-    }
-    this._np = (this._np || 0) - dt;
-    if (this._np <= 0) {
-      this._np = 0.1;
-      const p = this.player;
-      this.netSend({ t: 'pos', x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(3), pitch: +p.pitch.toFixed(3), lamp: this.lampOn !== false });
-    }
-    if (this.net.role === 'host') {
-      this._nb = (this._nb || 0) - dt;
-      if (this._nb <= 0) {
-        this._nb = 0.12;
-        const s = this.sim, p = this.player.pos, rp = this.remote ? this.remote.pos : null, a = [];
-        for (let i = 0; i < s.n && a.length < 3300; i++) {
-          const nearMe = (s.x[i] - p.x) ** 2 + (s.z[i] - p.z) ** 2 < 6400;
-          const nearHim = rp && (s.x[i] - rp.x) ** 2 + (s.z[i] - rp.z) ** 2 < 6400;
-          if (!nearMe && !nearHim) continue;
-          a.push(s.bid[i], s.sp[i], s.vr[i], +s.x[i].toFixed(2), +s.y[i].toFixed(2), +s.z[i].toFixed(2), +s.q[i * 4].toFixed(3), +s.q[i * 4 + 1].toFixed(3), +s.q[i * 4 + 2].toFixed(3), +s.q[i * 4 + 3].toFixed(3), +s.sq[i].toFixed(2));
-        }
-        this.netSend({ t: 'bodies', a });
-      }
-      if (this.creakOut && this.creakOut.length) this.netSend({ t: 'creak', a: this.creakOut.splice(0, 90) });
-      this._nd = (this._nd || 0) - dt;
-      if (this._nd <= 0 && this.remote) { this._nd = 0.17; this.sendDyn(); }
-      this._ns = (this._ns || 0) - dt;
-      if (this._ns <= 0) { this._ns = 0.6; this.sendShared(); }
-    }
-    if (this.net.role === 'host') { this._ntm = (this._ntm || 0) - dt; if (this._ntm <= 0) { this._ntm = 6; this.netSend({ t: 'time', gameMin: this.S.gameMin }); } }
-    if (this.remote) this.remote.update(dt);
-    if (!this._nflush) this._nflush = 0;
-  }
+  netUpdate(dt) { NG.update(this, dt); }   // netgame.js: cells on a budget, positions, the host's bodies and rows, the ping, the slow badge and the F3 numbers
 
   // ======================= the working day =======================
   // 1 game minute = 2 real seconds. The hall is lit from 07:00 to 19:00. At closing there is a chime and then it is dark.
@@ -2128,11 +2189,20 @@ export class Game {
     return pool[n % pool.length];
   }
   dayMinute() { return ((7 * 60 + (this.S.gameMin || 0)) % 1440 + 1440) % 1440; }
+  nightShiftOn() { return ((this.S.up && this.S.up.nightshift) | 0) > 0; }
+  // the red button in the hub: E buys Night Shift for the whole team (the lights stay on after closing), or says it is already on
+  pressNightShift() {
+    const u = upgradeById('nightshift');
+    if (this.nightShiftOn()) { this.ui.hint('Night Shift is on: the lights stay on after closing.', 3); this.sound.soft(0.1); return true; }
+    if (this.S.money < u.cost[0]) { this.sound.error(); this.ui.hint(`Night Shift costs ◈ ${fmt(u.cost[0])}. You have ◈ ${fmt(this.S.money)}.`, 3.5); return true; }
+    const ok = this.buy('nightshift'); if (ok && !this.isGuest()) { this.sound.tone('sawtooth', 220, 440, 0.4, 0.1); this.ui.toast({ icon: '💡', title: 'Night Shift', text: 'The lights stay on after closing, for the whole team.', ms: 6000 }); this.syncLights(); }
+    return true;
+  }
   isOpen() { const m = this.dayMinute(); return m >= 420 && m < 1140; }
 
   // the hall lights match the clock the moment a world loads (a save at night, or a friend joining after closing), not after a slow fade
   syncLights() {
-    this.lightLevel = (this.isOpen() && !(this.outage > 0)) ? 1 : 0;
+    this.lightLevel = ((this.isOpen() || this.nightShiftOn()) && !(this.outage > 0)) ? 1 : 0;
     if (this.hall && this.hall.setLevel) this.hall.setLevel(this.lightLevel);
   }
 
@@ -2156,12 +2226,12 @@ export class Game {
           this.ui.toast({ icon: '📋', title: 'Shift report', text: `Earned ◈ ${fmt(earn)}. ${plush} plush handled, ${dug} cells dug${died ? `, ${died} death${died > 1 ? 's' : ''}` : ''}. ${earn <= 0 ? 'Management is not pleased.' : earn > 50000 ? 'Management is suspicious.' : 'Management nods.'}`, ms: 10000 });
           this._shift = null;
         }
-        this.ui.toast({ icon: '🌙', title: 'Warehouse closed', text: 'Ding dong. The facility is now closed. The lights go out in a moment. Your helmet lamp is all you have.', ms: 9000 });
+        this.ui.toast({ icon: '🌙', title: 'Warehouse closed', text: this.nightShiftOn() ? 'Ding dong. The facility is closed, but Night Shift keeps the lights on.' : 'Ding dong. The facility is now closed. The lights go out in a moment. Your helmet lamp is all you have.', ms: 9000 });
         this.closingGrace = 6;
       }
     }
     if (this.closingGrace > 0) this.closingGrace -= dt;
-    const lit = (open || this.closingGrace > 0) && !(this.outage > 0);
+    const lit = (open || this.closingGrace > 0 || this.nightShiftOn()) && !(this.outage > 0);
     const target = lit ? 1 : 0;
     this.lightLevel = this.lightLevel ?? 1;
     const k = Math.min(1, dt * (lit ? 2.5 : 0.9));
@@ -2252,8 +2322,12 @@ export class Game {
     S.stats.caches = (S.stats.caches || 0) + 1;
     this.fx.sparkle(cellX(i), cellY(j), cellZ(k), 18, 1, 0.9, 0.5);
     this.sound.ach();
-    if (forGuest) return { text };
-    this.ui.toast({ icon: '📦', title: 'Supply cache', text, ms: 5000 });
+    const doc = NB.cacheDoc(this, i, j, k);   // some caches also hold a delivery manifest or an inventory ledger
+    const entry = doc ? { id: doc.id, name: 'Supply cache', role: '', dist, text: '', reward: text, docs: [doc], worker: false } : null;
+    if (forGuest) { if (doc && doc.clue) NB.heard(this, doc, this.remote && this.remote.name); return entry || { text }; }
+    if (!entry) { this.ui.toast({ icon: '📦', title: 'Supply cache', text, ms: 5000 }); return true; }
+    NB.receive(this, entry); entry.sum = NB.sumLine(this);
+    this.ui.showNote(entry); this.openModal('note');
     return true;
   }
 
@@ -2276,6 +2350,7 @@ export class Game {
   }
 
   useKey() {
+    if (CARE.useKey(this)) return;   // E on a care package crate
     if (BINPANEL.pasteToCart(this)) return;   // a copied bin (Shift+;) pastes onto your own cart: it is no machine, so the catalog paste never sees it
     if (this.crewUseKey()) return;
     if (EXT.useKey(this)) return;   // catalog types: paste a copied config, or the type's own use()
@@ -2290,7 +2365,7 @@ export class Game {
     }
     {   // the desk, the bench, the kiosk and the bin: the one you stand nearest to answers (the desk and the bench are only 4 m apart, so a fixed order made E at the desk open the bench)
       const S = this.S, pp = this.player.pos, h = this.hall, dist = (q) => Math.hypot(pp.x - q.x, pp.z - q.z);
-      const at = [[dist(h.craftPos), 3.6, () => this.openModal('craft')], [dist(h.kioskPos), 3.0, () => this.openModal('dossier')], [dist(h.termPos), 3.4, () => this.openModal('shop')],
+      const at = [[dist(h.nightPos), 2.2, () => this.pressNightShift()], [dist(h.craftPos), 3.6, () => this.openModal('craft')], [dist(h.kioskPos), 3.0, () => this.openModal('dossier')], [dist(h.termPos), 3.4, () => this.openModal('shop')],
         [dist(h.binPos), 3.6, () => { if (S.carry.length) this.sellAll(); else this.ui.hint('Nothing to sell. Grab some plush first.', 2); }]].filter((c) => c[0] < c[1]).sort((x, y) => x[0] - y[0]);
       if (at.length) { at[0][2](); return; }
     }
@@ -2326,7 +2401,7 @@ export class Game {
     this.ui.setCarry(S.carry, this.T.carry);
     const bp = this.hall.binPos;
     items.forEach((it, n) => {
-      this.sell(it.sp, it.vr, { dist: 0, streak: true });
+      this.sell(it.sp, it.vr, { dist: 0, streak: true, own: true });
       this.fliers.push({ sp: it.sp, vr: it.vr, from: this.renderer.camera.position.clone().add(new THREE.Vector3(0, -0.4, 0)), to: new THREE.Vector3(bp.x, 1.0, bp.z), t: -n * Math.min(0.09, 1.2 / items.length), dur: 0.5, arc: 1.2 });
     });
   }
@@ -2355,7 +2430,7 @@ export class Game {
     const T = this.T, S = this.S, pp = this.player.pos;
     this._adT = (this._adT || 0) - dt;
     this._adC = (this._adC || 0) - dt; this._adCg = (this._adCg || 0) - dt;
-    if (S.carry.length && this._adT <= 0) {
+    if (S.carry.length && this._adT <= 0 && !BI.beltHolds(this, '_adT')) {
       const sink = this.nearestSink(pp.x, pp.y + 1, pp.z, T.autoDump);
       if (sink) {
         const batch = this.binBatch(S.carry.length); let took = 0;
@@ -2363,7 +2438,7 @@ export class Game {
           const it = S.carry[S.carry.length - 1];
           if (!(sink.kind === 'sell' || this.isGuest() || this.logi.accept(sink.ent, it, null))) break;
           S.carry.pop(); took++;
-          if (sink.kind === 'sell') this.sell(it.sp, it.vr, { dist: 0, streak: true, bin: sink.bin });
+          if (sink.kind === 'sell') this.sell(it.sp, it.vr, { dist: 0, streak: true, own: true, bin: sink.bin });
           else if (this.isGuest()) this.cmd('feed', { id: sink.ent.id, sp: it.sp, vr: it.vr });
           if (n < 10) { const cam = this.renderer.camera.position; this.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(cam.x, cam.y - 0.5, cam.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: -n * 0.015, dur: 0.36, arc: 0.7 }); }
         }
@@ -2389,8 +2464,8 @@ export class Game {
 
   // a cart near a sink (the bin, a sorter) unloads itself; the host runs this for its own cart and for the friend's
   autoDumpCart(c, tk, T) {
-    if (c && c.load.length && (this[tk] || 0) <= 0) {
-      const sink = this.cartSink(c, Math.max(3.2, T.autoDump * 0.8));
+    if (c && c.load.length && (this[tk] || 0) <= 0 && !BI.beltHolds(this, tk)) {
+      const sink = this.cartSink(c, T.autoDump);   // the cart is pulled in from exactly the distance your own hands are
       if (sink) {
         const batch = this.binBatch(c.load.length); let took = 0;
         for (let n = 0; n < batch && c.load.length; n++) {
@@ -2420,7 +2495,7 @@ export class Game {
     if (this.isGuest()) {
       // the host keeps the shared wallet; we only play the feedback
       if (opt.streak) { if (this.streak.t > 0) this.streak.n++; else this.streak.n = 1; this.streak.t = 4.5; }
-      if (this.coinCd <= 0) { this.coinCd = 0.04; this.sound.coin(this.streak.n); }
+      if (this.coinCd <= 0) { if (opt.own || opt.bonus) { this.coinCd = 0.04; this.sound.coin(this.streak.n); } else { const sp0 = WS.binSpot(this, opt.bin), sv = this.sound.at(sp0.x, sp0.y, sp0.z, 'coin'); if (sv.audible) { this.coinCd = 0.04; sv.coin(this.streak.n); } } }   // your own sale is heard in full, one that came in from your friend is heard from the bin
       this.cmd('sell', { sp, vr, dist: opt.dist || 0, streak: !!opt.streak, bin: opt.bin });
       return;
     }
@@ -2441,14 +2516,16 @@ export class Game {
     this.ui.setMoney(S.money);
     this.ui.gain(v);
     const bp = (opt.bin > 0 && BINS.binById(this, opt.bin)) || this.hall.binPos;   // the coins fly where it was sold: the depot, or the SORT bin
-    if (this.coinCd <= 0) { this.coinCd = 0.04; this.sound.coin(this.streak.n); }
-    if (swish) this.sound.swish();
+    if (this.coinCd <= 0) {   // your own throw or sale rings in full; plush that fell in by itself or came from your friend rings from the bin, so it fades with distance
+      const sv = opt.own || opt.bonus ? this.sound : this.sound.at(bp.x, (bp.y || 0) + 1.2, bp.z, 'coin');
+      if (sv.audible !== false) { this.coinCd = 0.04; sv.coin(this.streak.n); if (swish) sv.swish(); }
+    }
     this.fx.coin(bp.x, 1.2, bp.z, Math.min(6, 1 + Math.floor(Math.log10(v + 1) * 2)));
     this.fx.burst(bp.x, 1.1, bp.z, 4, 1, 0.55, 0.15, 2.5, 0.07, 0.6);
     if (swish && opt.dist >= 12) this.ui.hint(`Swish! ${opt.dist.toFixed(0)} m shot.`, 2);
   }
 
-  sellAuto(sp, vr, mult = 1, bin) {
+  sellAuto(sp, vr, mult = 1, bin, at = null) {   // `at`: where the machine that sold it stands (when it is not at a bin); the coin rings from the bin it was sold at
     const S = this.S;
     if (sp === NEEDLE) { this.needleLost('a machine'); return; }
     const v = Math.max(1, Math.round(this.valueOf(sp, vr, 0) * mult * (this.golden > 0 ? 2 : 1)));
@@ -2456,10 +2533,7 @@ export class Game {
     if (bin !== undefined) BINS.note(this, bin, 1, v);   // which bin it was sold at (the same money at every bin)
     this.contracts.onSale(sp, vr);
     this.ui.setMoney(S.money); this.ui.gain(v);
-    if (this.coinCd <= 0) {
-      this.coinCd = 0.12; this.sound.coin(0);
-      if (this.net.open && this.net.role === 'host') this.netSend({ t: 'sale', fb: 1 });   // the friend hears the coin too (belts, carts, bots and salvage sell on the host): one message per 0.12 s, like the host's own sound
-    }
+    WS.saleCoin(this, bin === undefined && at ? at : WS.binSpot(this, bin));   // the coin rings from the bin (or the machine); a rig selling deep in a tunnel is silent up here, and the friend hears it from their own spot (worldsound.js)
   }
 
   // ======================= fliers =======================
@@ -2475,6 +2549,28 @@ export class Game {
     void bp;
   }
 
+  // a visual flight of one plush (a rig throwing into the bin, a bot fueling a machine, a rail cart unloading ...). The host sends it to the guest too, so both
+  // screens see every machine at work; the guest never sells anything from it (flights are drawing only)
+  flyFx(f) {
+    if (this.fliers.length < 320) this.fliers.push(f);
+    if (this.net.open && !this.isGuest() && f.from && f.to) {
+      const q = this._flQ || (this._flQ = []);
+      if (q.length < Math.max(8, Math.round(48 * this.net.pipe.quality()))) q.push([f.sp | 0, f.vr | 0, +f.from.x.toFixed(2), +f.from.y.toFixed(2), +f.from.z.toFixed(2), +f.to.x.toFixed(2), +f.to.y.toFixed(2), +f.to.z.toFixed(2), +(f.dur || 0.5).toFixed(2), +(f.arc || 0).toFixed(2), +(f.t || 0).toFixed(2)]);
+    }
+  }
+  flushFx(dt) {
+    this._flT = (this._flT || 0) - dt; if (this._flT > 0 || !this._flQ || !this._flQ.length) return; this._flT = NG.IV.fl[this.net.pipe.level | 0];
+    this.netSend({ t: 'fl', a: this._flQ.splice(0, 16) });
+  }
+  guestFlight(m) {
+    if (!this.isGuest() || !Array.isArray(m.a) || this.mode !== 'play') return;
+    for (const r of m.a.slice(0, 16)) {
+      if (!Array.isArray(r) || r.length < 10 || !r.slice(2, 10).every((v) => Number.isFinite(+v))) continue;
+      if (this.fliers.length > 160) break;
+      this.fliers.push({ sp: r[0] | 0, vr: r[1] | 0, from: new THREE.Vector3(+r[2], +r[3], +r[4]), to: new THREE.Vector3(+r[5], +r[6], +r[7]), t: Math.min(0, +r[10] || 0), dur: Math.max(0.1, Math.min(4, +r[8])), arc: Math.max(0, Math.min(8, +r[9])) });
+    }
+  }
+
   rigPluck(taken, x, y, z, ent) {
     const S = this.S;
     S.stats.plush++; S.stats.rar[species[taken.sp].rarity]++; S.stats.cells++;
@@ -2483,7 +2579,7 @@ export class Game {
     const pk = BINS.pickHall(this, ent && ent.dest), bp = pk.bin;   // a rig sells at the SORT bin unless it has a bin of its own that works
     if (pk.why && ent) BINS.fallback(this, { k: 'ent', o: ent }, pk.why, pk.named ? pk.named.name : '');
     this.sellAuto(taken.sp, taken.vr, 1, bp.id);
-    this.fliers.push({ sp: taken.sp, vr: taken.vr, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(bp.x, 1.0, bp.z), t: 0, dur: 0.9 + Math.hypot(x - bp.x, z - bp.z) * 0.03, arc: 3 + Math.hypot(x - bp.x, z - bp.z) * 0.12 });
+    this.flyFx({ sp: taken.sp, vr: taken.vr, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(bp.x, 1.0, bp.z), t: 0, dur: 0.9 + Math.hypot(x - bp.x, z - bp.z) * 0.03, arc: 3 + Math.hypot(x - bp.x, z - bp.z) * 0.12 });;
     this.fx.dust(x, y, z, 3, 0.6, 0.8);
     void ent;
   }
@@ -2505,6 +2601,8 @@ export class Game {
     const T = this.T, S = this.S;
     let plan = null, cost = 0;
     const yaw = this.player.yaw;
+    this._bEye = { x: eye.x, y: eye.y, z: eye.z }; this._bDir = { x: dir.x, y: dir.y, z: dir.z };   // where you aim, for a click that starts a route (beltplan.js clickLay)
+    BP.guard(this, tool); BP.dragTick(this, tool);   // (a button let go after a drag lays the cord, beltplan.js)
     if (tool.kind === 'cart' || tool.kind === 'supply') {
       this.plan = null; this.machines.setGhost(null); this.machines.showPreview(null, null); this.ui.setCross(false);
       this.ui.hint(tool.kind === 'cart' ? '<kbd>B</kbd> roll the cart out / park it · <kbd>Q</kbd> put away' : (tool.id === 'medkit' ? '<kbd>B</kbd> use a medkit · <kbd>Q</kbd> put away' : tool.id === 'doorkey' ? 'Door Key: automatic, keep it in your pack · <kbd>Q</kbd> put away' : tool.id === 'chargepack' ? 'Charge Pack: press <kbd>E</kbd> on a Haul Truck that ran out of battery · <kbd>Q</kbd> put away' : 'Air canister: automatic · <kbd>Q</kbd> put away'), 0.4);
@@ -2554,7 +2652,7 @@ export class Game {
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
     if (plan && plan.ok && this.keys.KeyB && (tool.kind === 'belt' || tool.kind === 'bulk' || tool.kind === 'rail' || tool.kind === 'road') && !BP.plannerOn(this, tool)) {
       const key = tool.kind === 'road' ? `${plan.ent.i0},${plan.ent.j},${plan.ent.k0}` : `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
-      if (key !== this.lastPaint) { this.lastPaint = key; this.placeCurrent(tool); }
+      if (key !== this.lastPaint) { this.lastPaint = key; if (!(tool.kind === 'belt' && this.bridgeFrom(tool, plan, true))) this.placeCurrent(tool); }
     }
     if (!this.keys.KeyB) this.lastPaint = '';
     if (plan) {
@@ -2562,7 +2660,7 @@ export class Game {
       else if (plan.hintText) this.ui.hint(plan.hintText, 0.4);   // a tool that explains itself (planner, lift, underground, upgrade in place)
       else if (this.strainOf(tool, plan).state === 'break') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>Too much weight for ${st.name}: ${st.pct}% load.</b> It will break the moment you set it (${Math.round(st.d)} m deep, rated ${isFinite(st.max) ? st.max + ' m' : 'any depth'}). ${st.next && FRAME_TYPES[st.next] ? 'Use ' + FRAME_TYPES[st.next].name + ' or better, or hold the roof up with more supports.' : 'Add more supports to share the load.'}`, 0.4); }
       else if (this.strainOf(tool, plan).state === 'creak') { const st = this.strainOf(tool, plan); this.ui.hint(`<b>${st.name} would carry ${st.pct}% load.</b> It holds, but it is creaking under the mountain. More supports nearby share the weight. <kbd>B</kbd> set down`, 0.4); }
-      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? ' (hold B to lay a line)' : ''}${tool.kind === 'frame' ? (plan.ent.turned ? ` · ${plan.ent.snap} · <kbd>◄</kbd> <kbd>►</kbd> turn (hold Shift for fine) · <kbd>▼</kbd> back to the grid` : plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4x4 cube (2.4 m), dig the section out first · place the next one on any side to snap · <kbd>◄</kbd> <kbd>►</kbd> turn it free of the grid (curves)`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' || (isEarth(tool.kind) && EARTH[tool.kind].dig) ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
+      else this.ui.hint(`<kbd>B</kbd> set down${tool.kind === 'belt' ? (tool.ramp ? ' (hold B to lay a line)' : ' (hold B to lay a line, <kbd>click</kbd> to aim a whole route or press and drag it out like a cord, <kbd>R</kbd> turns it)') : ''}${plan.run > 1 ? ` · lays ${plan.run} pieces to join the line` : ''}${plan.gold ? ' · <b>This end feeds the bin: stop here.</b>' : ''}${tool.kind === 'frame' ? (plan.ent.turned ? ` · ${plan.ent.snap} · <kbd>◄</kbd> <kbd>►</kbd> turn (hold Shift for fine) · <kbd>▼</kbd> back to the grid` : plan.ent.snap ? ` · snaps ${plan.ent.snap}` : ` · 4x4x4 cube (2.4 m), dig the section out first · place the next one on any side to snap · <kbd>◄</kbd> <kbd>►</kbd> turn it free of the grid (curves)`) : ''}${tool.ramp ? ' · <kbd>R</kbd> flips up/down' : ''}${tool.kind === 'borer' || (isEarth(tool.kind) && EARTH[tool.kind].dig) ? ' · digs the way you face' : ''} · <kbd>Q</kbd> stow`, 0.4);
     }
     this.ui.setCross(plan && plan.ok);
   }
@@ -2592,12 +2690,14 @@ export class Game {
     }
     if (kind === 'splitter') {
       const bt = this.logi.pick(eye, dir, 4.5);
+      if (bt && bt.type === 'belt' && bt.hose) return { plan: { ok: false, why: 'A hose has no splitters: it is one line from its mouth to where it ends', ent: { type: 'splitbelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: 0 } }, cost: 0 };   // (a hose is junction free)
       if (bt && bt.type === 'belt' && !bt.splitter && !bt.detector && !bt.merger) return { plan: { ok: true, ent: { type: 'splitbelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: 0 } }, cost: 0 };
       return { plan: this.logi.plan('belt', eye, dir, yaw, 0), cost: 0 };
     }
     if (kind === 'gate') {
       const bt = this.logi.pick(eye, dir, 4.5);
       let pl;
+      if (bt && bt.type === 'belt' && bt.hose) return { plan: { ok: false, why: 'A hose has no gates: it is one line from its mouth to where it ends', ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: 0 } }, cost: 0 };   // (a hose is junction free)
       if (bt && bt.type === 'belt' && !bt.detector && !bt.splitter && !bt.merger) pl = { ok: true, ent: { type: 'gatebelt', id: bt.id, i: bt.i, j: bt.j, k: bt.k, dir: bt.dir, rise: bt.rise || 0 } };
       else pl = this.logi.plan('belt', eye, dir, yaw, 0);
       // a gate has to scan before anything reaches a bin: keep it out of every bin's pull
@@ -2607,7 +2707,7 @@ export class Game {
       }
       return { plan: pl, cost: 0 };
     }
-    const plan = this.logi.plan(kind, eye, dir, yaw, rise);
+    const plan = this.logi.plan(kind, eye, dir, yaw, rise, !!tool.hose);
     if (plan.ok && plan.ent && kind === 'sorter' && this.gateInRange(cellX(plan.ent.i), cellZ(plan.ent.k), this.gateClearance())) { plan.ok = false; plan.why = `Too close to a detector gate: it would suck plush in before they are scanned. Keep sorters ${Math.ceil(this.gateClearance())} m from gates.`; }
     let cost = 0; const _unused = kind === 'belt' ? (rise ? 5 : 3) : kind === 'sorter' ? this.sorterCost() : kind === 'vault' ? 140 : kind === 'gen' ? this.genCost() : kind === 'charger' ? this.chargerCost() : kind === 'pole' ? 20 : kind === 'fan' ? 240 : this.mechCost();
     if (plan.ok && kind === 'mech' && this.logi.count('mech') >= T.mechMax) { plan.ok = false; plan.why = `Mech limit reached (${T.mechMax})`; }
@@ -2633,7 +2733,7 @@ export class Game {
   // the free Welcome Gate: set on the floor of the bay, well outside the bin's pull, so you can walk through it with a full bag
   ensureFreeGate() {
     const S = this.S, w = this.world;
-    if (this.isGuest()) return;
+    if (this.isGuest() || (this.net.open && this.net.role === 'guest')) return;   // (a guest loads the host's world with guestReady still false: it must never invent a gate the host does not have)
     if (S.entities.some((e) => e.free)) return;
     if (S.freeGate === 'gone') return;
     const r = this.gateClearance() + 0.8; // just outside the bin's pull, so it sits as close to the start as it can
@@ -2644,6 +2744,11 @@ export class Game {
       if (w.solid(i, 0, k) || w.solid(i, 1, k) || w.solid(i, 2, k) || w.solid(i + 1, 0, k) || w.solid(i - 1, 0, k)) continue;
       if (Math.hypot(x - bp.x, z - bp.z) < r) continue;
       spot = [i, k]; break;
+    }
+    // every listed spot can be inside a big bin pull (Bin Throughput grows it): then walk a ring outward from the bin until a clear floor spot turns up
+    for (let rad = r; !spot && rad < r + 14; rad += 1.2) for (let a = 0; a < 16 && !spot; a++) {
+      const x = bp.x + Math.cos((a / 16) * Math.PI * 2) * rad, z = bp.z + Math.abs(Math.sin((a / 16) * Math.PI * 2)) * rad + 0.5, i = toI(x), k = toK(z);
+      if (!w.solid(i, 0, k) && !w.solid(i, 1, k) && !w.solid(i, 2, k) && !w.solid(i + 1, 0, k) && !w.solid(i - 1, 0, k)) spot = [i, k];
     }
     if (!spot) return;
     const e = { id: this.nextId(), type: 'belt', i: spot[0], j: 0, k: spot[1], dir: 1, rise: 0, items: [], detector: true, free: true, fixed: true };
@@ -2663,12 +2768,12 @@ export class Game {
   feedGensFromThrows() {
     const sim = this.sim; if (!sim || !sim.n) return;
     for (const t of this.logi.tiles.values()) {
-      if (t.type !== 'gen' || t.q.length >= PWP.genHopper(this.T, t)) continue;
+      if (t.type !== 'gen' || FUEL.fuelRoom(this, t) <= 0) continue;
       const gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
       for (let i = sim.n - 1; i >= 0; i--) {
         if (sim.flag[i] !== 1) continue; const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 1.3) continue; if (sim.y[i] > gy + 2.2) continue;
         const sp = sim.sp[i], r = species[sp] ? species[sp].rarity : 9; if (r > FUEL_MAX_RARITY) continue;
-        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.power.markDirty(); this.fx.fluff(gx, gy + 1.0, gz, 1, 0.6, 0.2, 5); this.sound.tone('triangle', 500, 700, 0.08, 0.06); if (t.q.length >= PWP.genHopper(this.T, t)) break; }
+        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.power.markDirty(); this.fx.fluff(gx, gy + 1.0, gz, 1, 0.6, 0.2, 5); this.sound.at(gx, gy + 1.0, gz, 'work').tone('triangle', 500, 700, 0.08, 0.06); if (FUEL.fuelRoom(this, t) <= 0) break; }
       }
     }
   }
@@ -2677,12 +2782,12 @@ export class Game {
   feedChargersFromThrows() {
     const sim = this.sim; if (!sim || !sim.n) return;
     for (const t of this.logi.tiles.values()) {
-      if (t.type !== 'charger' || t.q.length >= CHARGER_HOPPER) continue;
+      if (t.type !== 'charger' || FUEL.fuelRoom(this, t) <= 0) continue;
       const gx = cellX(t.i), gz = cellZ(t.k), gy = t.j * C;
       for (let i = sim.n - 1; i >= 0; i--) {
         if (sim.flag[i] !== 1) continue; const dx = sim.x[i] - gx, dz = sim.z[i] - gz; if (dx * dx + dz * dz > 1.3) continue; if (sim.y[i] > gy + 2.2) continue;
         const sp = sim.sp[i], r = species[sp] ? species[sp].rarity : 9; if (r > CHARGER_MAX_RARITY) continue;
-        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.fx.sparkle(gx, gy + 0.9, gz, 4, 0.3, 0.9, 1); this.sound.tone('triangle', 600, 900, 0.08, 0.06); if (t.q.length >= CHARGER_HOPPER) break; }
+        if (this.logi.accept(t, { sp, vr: sim.vr[i] }, null)) { sim.remove(i); this.fx.sparkle(gx, gy + 0.9, gz, 4, 0.3, 0.9, 1); this.sound.at(gx, gy + 0.9, gz, 'work').tone('triangle', 600, 900, 0.08, 0.06); if (FUEL.fuelRoom(this, t) <= 0) break; }
       }
     }
   }
@@ -2691,11 +2796,12 @@ export class Game {
   chargerInfo(t) {
     const q = t.q || [], res = t.reserve || 0;
     const names = ['Common', 'Uncommon', 'Rare', 'Epic'];
-    const lines = [`Charge ${res.toFixed(2)} of ${CHARGER_CAP} (one full bot battery is 1.0)  ·  hopper ${q.length}/${CHARGER_HOPPER}`];
-    lines.push(`Each plush adds: ${names.map((n, r) => `${CHARGE_PER[r]} (${n})`).join(', ')}`);
-    lines.push('Bots recharge here at 0.5 battery per second. It needs no power.');
-    lines.push('Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable.');
-    return { title: 'CHARGING STATION' + (res > 0.02 ? ' · READY' : ' · EMPTY'), lines, live: res > 0.02 };
+    const lines = [`Charge ${res.toFixed(2)} of ${CHARGER_CAP} (one full bot battery is 1.0)  ·  hopper ${q.length}/${FUEL.fuelCap(this, t)}`];
+    lines.push(...FUEL.fuelLines(this, t));   // per plush (as a share of a bot battery), what the hopper holds and what a full one refills
+    const on = FUEL.chargerPowered(t);
+    lines.push(on ? 'Bots recharge here at 0.5 battery per second. It draws 1 kW from its cable.' : 'It charges bots only with power: it draws 1 kW through a cable from a live pole or generator. Until then bots skip it and it takes no call route.');
+    lines.push(`Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable. Your bots call it ${FUEL.fuelName(this, t)} and keep it topped up (crew panel, V).`);
+    return { title: 'CHARGING STATION' + (!on ? (this.cables.of(t.id).length ? ' · NO POWER' : ' · NOT WIRED') : res > 0.02 ? ' · READY' : ' · EMPTY'), lines, live: on && res > 0.02 };
   }
 
   // what a generator is doing, for the hover readout
@@ -2712,20 +2818,22 @@ export class Game {
     const net = this.power.nets.find((n) => n.nodes.includes(t)) || null;
     const lines = [];
     lines.push(lit && cur ? `Burning: ${cur.name} (${RARITY[cur.rarity].name}), ${fmt(left)} left of ${fmt(t.burnMax || left)}` : 'Not burning: out of fuel');
-    lines.push(`Output ${out < 1000 ? out.toFixed(1) + ' kW' : PWP.kwText(out)}${net ? `  ·  grid ${net.supply.toFixed(1)} of ${net.demand.toFixed(1)} kW wanted` : ''}`);
-    lines.push(`Burn rate: 1 plush per ${fmt(burnTime(0, out))} (Common), ${fmt(burnTime(1, out))} (Uncommon), ${fmt(burnTime(2, out))} (Rare), ${fmt(burnTime(3, out))} (Epic)`);
+    lines.push(`Output ${out < 1000 ? out.toFixed(1) + ' kW' : PWP.kwText(out)}`);
+    { const used = this.cables.of(t.id).length; if (used) { lines.push(`Cables ${used} of ${PWP.maxPorts(t, this)} sockets`); for (const l of GI.gridLines(this, t)) lines.push(l); } else lines.push(`NOT WIRED: it powers nothing until a Power Cable runs from it to a pole, a machine or another generator (${PWP.maxPorts(t, this)} sockets). Two generators wired together add their power.`); }
+    lines.push(FUEL.fuelLines(this, t)[0]);   // what one plush runs it, by rarity (Common 4 min 30 s ... at the base 8 kW)
     const mix = counts.map((c, r) => (c ? `${c} ${names[r]}` : '')).filter(Boolean).join(', ');
-    lines.push(`Hopper ${q.length}/${hop}${mix ? ': ' + mix : ' (empty)'}${total > 0 ? `  ·  runs ${fmt(total)}` : ''}`);
+    lines.push(`Hopper ${q.length}/${hop}${mix ? ': ' + mix : ' (empty)'}${total > 0 ? `  ·  runs ${FUEL.longTime(total)}` : ''}`);
+    lines.push(FUEL.fuelLines(this, t)[1]);   // how many plush it holds and how long a full hopper lasts
     if (kind.key !== 'std') lines.push(`${kind.name}: ${kind.mul < 1 ? 'a quarter of' : kind.mul + ' times'} the base ${(T.genOutput).toFixed(1)} kW, takes ${kind.ports} cables`);
     lines.push(t.mode === 'reserve'
       ? `RESERVE: ${lit ? 'burning now because it is needed' : q.length ? 'holding its fuel' : 'no fuel'}. It burns only when a battery on its grid is under 30% or the grid is overloaded. E with empty hands switches it to AUTO.`
       : 'AUTO: it burns whenever it has fuel. E with empty hands switches it to RESERVE (it saves plush while the batteries are full).');
-    lines.push('Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable to burn.');
+    lines.push(`Throw or hand it Common to Epic plush. Legendary and Mythic are too valuable to burn. Your bots call it ${FUEL.fuelName(this, t)} and keep it topped up (crew panel, V).`);
     return { title: kind.key === 'std' ? 'GENERATOR' : kind.name.toUpperCase(), lit, lines };
   }
 
   // gate scan beeps share one limiter so a busy belt or a crowd of bots never turns into a machine-gun of dings
-  gateDing(dur = 0.05, vol = 0.035) { if (this._dingNext > this.time) return; this._dingNext = this.time + 0.3; this.sound.tone('sine', 1250, 1250, dur, vol); }
+  gateDing(dur = 0.05, vol = 0.035, x, y, z) { if (this._dingNext > this.time) return; this._dingNext = this.time + 0.3; (Number.isFinite(x) ? this.sound.at(x, y, z, 'scan') : this.sound).tone('sine', 1250, 1250, dur, vol); }   // x, y, z: the gate that rang (heard from there); none: your own scan
 
   // the walk-through scan lives in detector.js so the detector arch wave never edits this file
   playerGateScan(dt) { DETECTOR.playerScan(this, dt); }
@@ -2736,6 +2844,29 @@ export class Game {
     const e = plan.ent;
     const gsc = tool.kind === 'gen' && PWP.GEN_BY_ITEM[tool.id] ? PWP.GEN_BY_ITEM[tool.id].scale : 1;   // the generator ladder: a bigger rung shows a bigger ghost
     const gold = !!(plan.ok && e.type === 'belt' && this.logi.wouldSink(e));   // the last piece of a line within suck range of a bin shows gold
+    plan.gold = gold;
+    if (tool.hose && e.type === 'belt') {   // a hose is aimed as the tube it will be (and the bend the last piece will take), not as a belt bed
+      const L = this.logi, from = L.feederDir(e), pt = e.turnPrev ? (L.byId.get(e.turnPrev.id) || L.look(e.turnPrev.i, e.turnPrev.j, e.turnPrev.k)) : null;
+      const run = this._forGuest ? null : this.bridgeRun(tool, plan, !!this.keys.KeyB); plan.run = run ? run.cells.length : 0;   // a piece a few cells past the end lays the cells between too: aim shows all of them, and no mouth
+      const hkey = `hose${plan.ok}${gold ? 'g' : ''}${e.dir}|${from}|${e.i},${e.j},${e.k}|${pt ? pt.id + ':' + e.turnPrev.dir : ''}|${run ? run.from.dir + ':' + run.cells.map((c) => `${c.i},${c.k},${c.dir}`).join(';') : ''}`;
+      if (this.machines.ghostKey !== hkey) {
+        const mat = new THREE.MeshBasicMaterial({ color: gold ? 0xffc928 : plan.ok ? 0x5dffa0 : 0xff5a4a, transparent: true, opacity: gold ? 0.65 : 0.5, depthWrite: false });
+        let list, mouth;
+        if (run) {
+          list = []; const c0 = run.cells[0], fr = run.from, pf = L.feederDir(fr);
+          if (fr.dir !== c0.step) list.push({ x: cellX(fr.i), z: cellZ(fr.k), y: fr.j * C, dir: c0.step, from: pf == null ? fr.dir : pf });   // the last piece turns toward the first new one
+          for (const c of run.cells) list.push({ x: cellX(c.i), z: cellZ(c.k), y: c.j * C, dir: c.dir, from: c.step });
+          mouth = false;
+        } else {
+          list = [{ x: cellX(e.i), z: cellZ(e.k), y: e.j * C, dir: e.dir, from: from == null ? e.dir : from }];
+          if (pt) { const pf = L.feederDir(pt); list.push({ x: cellX(pt.i), z: cellZ(pt.k), y: pt.j * C, dir: e.turnPrev.dir, from: pf == null ? e.turnPrev.dir : pf }); }
+          mouth = from == null && !pt;
+        }
+        this.machines.setGhost(hoseGhost(list, mat, mouth), hkey);
+      }
+      if (this.machines.ghost) this.machines.ghost.position.set(0, 0, 0);
+      return;
+    }
     const key = `${tool.kind}${plan.ok}${e.dir}${e.rise || 0}${gsc}${gold ? 'g' : ''}`;
     if (this.machines.ghostKey !== key) {
       const g = new THREE.Group(); g.scale.setScalar(gsc);
@@ -2743,7 +2874,7 @@ export class Game {
       const flat = tool.kind === 'belt' || tool.kind === 'gate' || tool.kind === 'splitter';
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.56, flat ? 0.08 : 0.55, 0.56), mat);
       box.position.y = flat ? 0.05 : 0.28;
-      if (e.rise) { box.rotation.x = -e.rise * Math.PI / 4; box.position.y += 0.3; box.scale.z = 1.4; }
+      if (e.rise) { box.rotation.x = -e.rise * Math.PI / 4; box.position.y += 0.3 * Math.sign(e.rise); box.scale.z = 1.4; }
       const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 4), mat);
       arrow.rotation.x = Math.PI / 2; arrow.position.set(0, flat ? 0.12 : 0.6, 0.18);
       if (tool.kind !== 'bulk' && tool.kind !== 'vault') g.add(arrow);
@@ -2756,14 +2887,48 @@ export class Game {
     if (gp) gp.position.set(cellX(e.i), tool.kind === 'bulk' ? cellY(e.j) - 0.3 : e.j * C, cellZ(e.k));
   }
 
+  // Hold B and sweep the mouse (or step diagonally): the cells between the piece you laid last and the one you aim at are laid too, one step at a time, so a curve is one
+  // connected line and not pieces with gaps, each a line of its own (and each hose with a mouth of its own). A hose a few cells past the last piece does the same on a
+  // single press. The last piece turns toward the first new one (the rail rule) and the run carries on the way it was going. Returns true when it laid the run.
+  bridgeFrom(tool, plan, held) {
+    const run = this.bridgeRun(tool, plan, held); if (!run) return false;
+    const { from, cells } = run;
+    const have = this.S.items[tool.id] || 0; if (have <= 0) return false;
+    this._bridging = true;
+    try {
+      for (let n = 0; n < cells.length && (this.S.items[tool.id] || 0) > 0; n++) {
+        const c = cells[n], ent = { type: 'belt', i: c.i, j: c.j, k: c.k, dir: c.dir, rise: 0 };
+        if (n === 0 && from.dir !== c.step) ent.turnPrev = { id: from.id, dir: c.step, i: from.i, j: from.j, k: from.k };   // (i, j, k: the host finds the piece by place when its id is not known here yet)
+        this.plan = { ok: true, ent }; this.placeCurrent(tool);
+      }
+    } finally { this._bridging = false; this.plan = null; }
+    return true;
+  }
+
+  // the run bridgeFrom would lay, without laying it: { from, cells } or null. The aim shows it too (showCellGhost), so a piece a few cells past the end is drawn as the line it will be.
+  // A guest has not heard from the host about the piece it laid a moment ago, so it goes on from where it remembers it put it.
+  bridgeRun(tool, plan, held) {
+    if (this._bridging || !plan || !plan.ok || !plan.ent || plan.ent.type !== 'belt' || plan.ent.rise || tool.ramp || tool.lift || !Number.isInteger(plan.ent.i)) return null;
+    const ll = this._lastLaid; if (!ll || !!ll.hose !== !!tool.hose || this.time - ll.t > (tool.hose ? 120 : 6)) return null;   // (a hose is one line from the mouth: two minutes, a belt only while you are still sweeping)
+    const L = this.logi, from = L.look(ll.i, ll.j, ll.k);   // (a guest's last piece may not have come back from the host yet: look() knows it)
+    if (!from || from.type !== 'belt' || from.lift || from.ug || from.rise || from.detector || from.splitter || from.merger || !!from.hose !== !!tool.hose || L.nextOf(from)) return null;
+    const e = plan.ent, cells = L.bridgeCells(from, e, held ? 10 : 3);
+    if (!cells || ((from.dir + 2) & 3) === cells[0].step) return null;
+    const lastC = cells[cells.length - 1], ahead = L.tiles.get(idx(e.i + DX[e.dir], e.j, e.k + DZ[e.dir]));
+    if (ahead && e.dir !== ((lastC.step + 2) & 3)) lastC.dir = e.dir;   // the aimed piece hands over to something that stands there: face it
+    return { from, cells };
+  }
+
   placeCurrent(tool) {
     const S = this.S, plan = this.plan;
     const cost = 0;
     if (BP.handle(this, tool)) return;   // line planner on: this click sets the start or lays the line (beltplan.js)
     if (!plan || !plan.ok) { this.sound.error(); if (plan && plan.why) this.ui.hint(plan.why, 2); return; }
     if (!(S.items[tool.id] > 0)) { this.sound.error(); return; }
+    if (tool.hose && !this._bridging && !this._forGuest && this.bridgeFrom(tool, plan, false)) return;   // a hose a few cells past the last piece joins it: a gap would be a second open mouth
     this.plan = null; // one plan places once: a second click in the same frame must wait for the next aim update, or it would stack a duplicate
-    if (this.isGuest()) { this.cmd('place', { tool: { id: tool.id, kind: tool.kind, fk: tool.fk, ramp: tool.ramp, hose: tool.hose, p: tool.p }, ent: plan.ent }); this.sound.place(); return; }
+    if (tool.kind === 'belt' && plan.ent && !this._forGuest && Number.isInteger(plan.ent.i)) this._lastLaid = { i: plan.ent.i, j: plan.ent.j, k: plan.ent.k, hose: !!tool.hose, t: this.time };   // where the line goes on from (joinStart, bridgeFrom): only while you are still building it
+    if (this.isGuest()) { this.cmd('place', { tool: { id: tool.id, kind: tool.kind, fk: tool.fk, ramp: tool.ramp, hose: tool.hose, p: tool.p }, ent: plan.ent }); if (tool.kind === 'belt' && !tool.ramp && plan.ent && plan.ent.type === 'belt') this.logi.standIn(plan.ent, tool.hose); this.sound.place(); return; }   // (the piece stands in for itself while the host answers: the next aim plans against it)
     S.items[tool.id]--;
     if (S.items[tool.id] <= 0) delete S.items[tool.id];
     const left = S.items[tool.id] || 0;
@@ -2775,12 +2940,12 @@ export class Game {
     if (tool.kind === 'frame' || tool.kind === 'strut' || tool.kind === 'jack') {
       const st = this.strainOf(tool, plan);
       if (st.state === 'break') { this.breakSupport(st, e); this.rebuildTools(); return; }
-      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: ${st.pct}% load. It holds, but the next one nearby should share it.`; this.sound.creak(0.25); if (this._forGuest) this.netSend({ t: 'sstrain', note: this._strainNote }); }
+      if (st.state === 'creak') { this._strainNote = `${st.name} set. It is creaking under the pressure of the mountain: ${st.pct}% load. It holds, but the next one nearby should share it.`; WS.actSound(this, e, 'creak').creak(0.25); if (this._forGuest) this.netSend({ t: 'sstrain', note: this._strainNote, x: +(e.cx ?? e.x ?? 0).toFixed(1), y: +((e.y0 ?? e.y ?? 0) + 1).toFixed(1), z: +(e.cz ?? e.z ?? 0).toFixed(1) }); }
     }
     if (tool.kind === 'bulk') {
       this.world.setCell(e.i, e.j, e.k, BULK, (Math.random() * 127) | 0);
       this.world.stabQueue.push({ i: e.i, j: e.j, k: e.k });
-      this.sound.place(); this.S.stats.bulk = (this.S.stats.bulk || 0) + 1;
+      WS.actSound(this, e).place(); this.S.stats.bulk = (this.S.stats.bulk || 0) + 1;
       this.rebuildTools();
       return;
     }
@@ -2789,7 +2954,7 @@ export class Game {
       if (tile && !tile.splitter && !tile.detector && !tile.merger) {
         tile.splitter = true; this.logi.buildSplitter(tile);
         this.netSend({ t: 'ent-', id: tile.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(tile) });
-        this.sound.place(); this.S.stats.splitters = (this.S.stats.splitters || 0) + 1; this.rebuildTools();
+        WS.actSound(this, e).place(); this.S.stats.splitters = (this.S.stats.splitters || 0) + 1; this.rebuildTools();
       }
       return;
     }
@@ -2798,7 +2963,7 @@ export class Game {
       if (tile && !tile.detector && !tile.merger && !tile.splitter) {
         tile.detector = true; this.logi.buildGate(tile);
         this.netSend({ t: 'ent-', id: tile.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(tile) });
-        this.sound.place(); this.S.stats.gates = (this.S.stats.gates || 0) + 1; this.rebuildTools();
+        WS.actSound(this, e).place(); this.S.stats.gates = (this.S.stats.gates || 0) + 1; this.rebuildTools();
       }
       return;
     }
@@ -2807,15 +2972,17 @@ export class Game {
       if (tool.hose) ent.hose = true;
       if (tool.kind === 'gen') { const gk = PWP.GEN_BY_ITEM[tool.id]; if (gk && gk.key !== 'std') ent.gk = gk.key; }   // the generator ladder: the host reads the rung from the item id, never from what a guest sent
       BP.stamp(this, tool, ent);   // a Mk2 to Mk6 belt item makes a belt of that mark
-      if (e.turnPrev && tool.kind === 'belt') { const pt = this.logi.byId.get(e.turnPrev.id); if (pt && pt.type === 'belt' && !this.logi.nextOf(pt)) { pt.dir = e.turnPrev.dir; this.logi.dirty = true; } }
+      if (e.turnPrev && tool.kind === 'belt') { const pt = this.logi.turnPrevOk(e.turnPrev, e); if (pt) { pt.dir = e.turnPrev.dir; this.logi.dirty = true; this.netSend({ t: 'ent-', id: pt.id }); this.netSend({ t: 'ent+', ent: this.stripEnt(pt) }); } }   // (the guest is told the end turned)
       if (tool.kind === 'splitter') { ent.splitter = true; S.stats.splitters = (S.stats.splitters || 0) + 1; }
       if (tool.kind === 'gate') { ent.detector = true; S.stats.gates = (S.stats.gates || 0) + 1; }
       S.entities.push(ent);
       this.addEntity(ent);
-      this.sound.place();
+      WS.actSound(this, e).place();
       if (['sorter', 'mech', 'gen', 'charger', 'fan'].includes(tool.kind)) this.rebuildTools();
       this.power.markDirty();
-      if (!this.hasGen() && ['belt', 'sorter', 'mech'].includes(tool.kind) && !this._pwHint) { this._pwHint = true; this.ui.hint('Machines need power. Build a <b>Generator</b>, feed it commons, and link it with <b>Poles</b>.', 8); }
+      if (tool.kind === 'gen' && !S.stats.hintGenWire) { S.stats.hintGenWire = 1; this.ui.hint('A generator powers nothing until it is wired. Craft a <b>Power Cable</b>, click the generator, then click a <b>Power Pole</b> or a machine. Wire two generators together and their power adds up.', 10); }   // (once per world)
+      else if (!this.hasGen() && ['belt', 'sorter', 'mech'].includes(tool.kind) && !this._pwHint) { this._pwHint = true; this.ui.hint('Machines need power. Build a <b>Generator</b>, feed it plush, run a <b>Power Cable</b> to a <b>Pole</b>, then a cable from the pole to the machine.', 8); }
+      else if (['sorter', 'mech', 'fan', 'belt'].includes(tool.kind) && !S.stats.hintMachWire && this.hasGen()) { S.stats.hintMachWire = 1; this.ui.hint('Every machine needs a cable: take the <b>Power Cable</b>, click a powered pole or generator, then click this machine. (On a belt line one cable on any tile powers the whole line.)', 9); }
       S.stats.built = (S.stats.built || 0) + 1;
       this.rebuildTools();
       return;
@@ -2826,8 +2993,8 @@ export class Game {
     }
     else if (tool.kind === 'mfan') {
       ent = { id, type: 'fan', mounted: true, frameId: e.frameId, px: e.px, py: e.py, pz: e.pz, fx: e.fx, fz: e.fz, fyaw: e.fyaw, dir: 0, i: e.i, j: e.j, k: e.k };
-      S.entities.push(ent); this.addEntity(ent); this.power.markDirty(); this.sound.place(); this.rebuildTools(); S.stats.built = (S.stats.built || 0) + 1; S.stats.mfans = (S.stats.mfans || 0) + 1;
-      this.ui.hint('Support fan hung. It blows the way you were facing and needs power: link it with a pole or generator.', 5);
+      S.entities.push(ent); this.addEntity(ent); this.power.markDirty(); WS.actSound(this, ent).place(); this.rebuildTools(); S.stats.built = (S.stats.built || 0) + 1; S.stats.mfans = (S.stats.mfans || 0) + 1;
+      this.ui.hint('Support fan hung. It blows the way you were facing and needs power: run a Power Cable to it from a powered pole or generator.', 5);
       return;
     }
     else if (tool.kind === 'lantern') { ent = { id, type: 'lantern', x: e.x, y: e.y, z: e.z }; S.stats.lanterns++; }
@@ -2837,8 +3004,8 @@ export class Game {
     else if (tool.kind === 'flare') { ent = { id, type: 'flare', x: e.x, y: e.y, z: e.z, born: S.stats.playSecs }; }
     else if (tool.kind === 'strut') { ent = { id, type: 'strut', x: e.x, y: e.y, z: e.z }; S.stats.props++; }
     else if (tool.kind === 'jack') { ent = { id, type: 'strut', jack: true, x: e.x, y: e.y, z: e.z }; S.stats.props++; }
-    else if (tool.kind === 'charge') { ent = { id, type: 'charge', x: e.x, y: e.y, z: e.z, fuse: 6, tier: this.T.charges }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 900, 900, 0.05, 0.08); }
-    else if (tool.kind === 'dynamite') { ent = { id, type: 'charge', dyn: true, x: e.x, y: e.y, z: e.z, fuse: 4, tier: 0 }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); this.sound.tone('square', 1100, 1100, 0.05, 0.08); }
+    else if (tool.kind === 'charge') { ent = { id, type: 'charge', x: e.x, y: e.y, z: e.z, fuse: 6, tier: this.T.charges }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); WS.actSound(this, e, 'fuse').tone('square', 900, 900, 0.05, 0.08); }
+    else if (tool.kind === 'dynamite') { ent = { id, type: 'charge', dyn: true, x: e.x, y: e.y, z: e.z, fuse: 4, tier: 0 }; this.ui.hint('Fuse lit. <b>Run.</b>', 3); WS.actSound(this, e, 'fuse').tone('square', 1100, 1100, 0.05, 0.08); }
     else if (tool.kind === 'beacon') { ent = { id, type: 'beacon', x: e.x, y: e.y, z: e.z, i: e.i, j: e.j, k: e.k, num: BINS.nextNum(this) }; this.onBeaconPlaced(ent); }
     else if (tool.kind === 'claw') { ent = { id, type: 'claw', x: e.x, y: e.y, z: e.z, ry: Math.random() * 6.28 }; S.stats.rigs++; this.rebuildTools(); }
     else if (tool.kind === 'borer') { ent = { id, type: 'borer', i: e.i, j: e.j, k: e.k, dx: e.dx, dz: e.dz, w: e.w, h: e.h, x: e.x, y: e.y, z: e.z }; S.stats.borers++; this.rebuildTools(); }
@@ -2848,7 +3015,7 @@ export class Game {
     this.rebuildTools();
     void left;
     this.machines.add(ent);
-    this.sound.place();
+    WS.actSound(this, ent).place();
     this.shake = Math.max(this.shake, 0.05);
     this.fx.dust(e.cx ?? e.x, (e.y0 ?? e.y) + 0.3, e.cz ?? e.z, 8, 0.7, 0.8);
     if (tool.kind === 'frame') {
@@ -2905,7 +3072,7 @@ export class Game {
   doDecon(ref) {
     if (ref.group && ref.kind === 'mach' && BUILD.removeGroup(this, ref)) return;   // the build shell's zoop undo: every piece with the same group id
     if (ref.kind === 'cart') { this.stowCart(); return; }
-    if (ref.kind === 'cable') { if (this.cables.remove(ref.id, true)) this.sound.thump(0.12, 160); return; }
+    if (ref.kind === 'cable') { if (this._actor === 'g' && !this.cables.guestMayRemove(ref.id)) return; if (this.cables.remove(ref.id, true)) WS.actSound(this, null).thump(0.12, 160); return; }   // (a friend takes a cable down only from beside it)
     if (ref.kind === 'tile') {
       const tile = this.logi.byId.get(ref.id);
       if (!tile) return;
@@ -2920,7 +3087,7 @@ export class Game {
       EXT.removed(this, tile);
       this.giveItem(EXT.itemOf(tile) || (tile.type === 'belt' ? (tile.detector ? 'gate' : tile.splitter ? 'splitter' : tile.rise ? 'ramp' : tile.hose ? 'hose' : 'belt') : tile.mounted ? 'mfan' : tile.type));
       this.ui.setCarry(this.S.carry, this.T.carry);
-      this.sound.thump(0.15, 140);
+      WS.actSound(this, { x: cellX(tile.i), y: tile.j * C + 0.5, z: cellZ(tile.k) }).thump(0.15, 140);
       if (['sorter', 'mech', 'gen', 'charger', 'fan'].includes(tile.type)) this.rebuildTools();
       this.power.markDirty();
       return;
@@ -2941,7 +3108,7 @@ export class Game {
     if (e.type === 'beacon') BINS.onBeaconGone(this, e.id);   // everything assigned to it goes back to Auto, and says so
     this.world.supports = this.world.supports.filter((s) => s.id !== e.id && s.id !== 'shield' + e.id);
     if (e.type === 'frame') this.dropMountedFans(e.id, true);
-    this.sound.thump(0.15, 120);
+    WS.actSound(this, e).thump(0.15, 120);
     if (e.type === 'claw' || e.type === 'borer' || isEarth(e.type)) this.rebuildTools();
     if (isEarth(e.type)) { spillEarth(this, e, e.px ?? e.x, e.y ?? 0, e.pz ?? e.z); this.ui.setCarry(this.S.carry, this.T.carry); this.power.markDirty(); }
     // taking a support away puts the roof it was holding back under the tunnel rule
@@ -2974,7 +3141,7 @@ export class Game {
 
   breakSupport(st, e) {
     const x = e.cx ?? e.x, z = e.cz ?? e.z, y = (e.y0 ?? e.y ?? 0) + 1.0;
-    this.fx.dust(x, y, z, 26, 1.6, 1.6); this.sound.thump(0.4, 90); this.sound.creak(0.35); this.shake = Math.max(this.shake, 0.3);
+    this.fx.dust(x, y, z, 26, 1.6, 1.6); { const sv = this.sound.at(x, y, z, 'support'); sv.thump(0.4, 90); sv.creak(0.35); } this.shake = Math.max(this.shake, 0.3);
     this.S.stats.brokenSupports = (this.S.stats.brokenSupports || 0) + 1;
     this.ui.hint(`<b>The ${st.name} cracks and gives way.</b> It would have carried ${st.pct}% of what it can bear, at ${Math.round(st.d)} m deep. It is gone. ${st.next ? 'You need ' + (FRAME_TYPES[st.next] ? FRAME_TYPES[st.next].name : st.next) + ' or better down here, or more supports to share the weight.' : ''}`, 6);
     // a support the guest tried to set breaks on the guest's screen too, with the same numbers
@@ -2984,7 +3151,7 @@ export class Game {
   // a fan hangs from its frame: when the frame goes, the fan goes with it (you get it back when you took the frame down yourself)
   dropMountedFans(frameId, give) {
     for (const t of [...this.logi.tiles.values()]) if (t.type === 'fan' && t.mounted && t.frameId === frameId) {
-      this.logi.remove(t); this.S.entities = this.S.entities.filter((x) => x.id !== t.id); this.netSend({ t: 'ent-', id: t.id }); if (give) this.giveItem('mfan'); this.power.markDirty();
+      this.logi.remove(t); this.S.entities = this.S.entities.filter((x) => x.id !== t.id); this.netSend({ t: 'ent-', id: t.id }); this.cables.detach(t.id, !!give); if (give) this.giveItem('mfan'); this.power.markDirty();   // (its cable comes back with it when you took the frame down)
     }
   }
 
@@ -3038,19 +3205,19 @@ export class Game {
     const pd = Math.hypot(x - this.player.pos.x, z - this.player.pos.z);
     if (sec !== undefined) {
       if (pd < 40) {
-        this.sound.creak(Math.min(0.5, 0.25 + (5 - sec) * 0.05)); this.fx.dust(x, y ?? this.player.pos.y + 2, z, 5, 0.7, 0.7); this.dust.add(x, y ?? this.player.pos.y + 1.5, z, 0.09); this.shake = Math.max(this.shake, 0.03);
+        this.sound.at(x, y ?? this.player.pos.y + 2, z, 'creak').creak(Math.min(0.5, 0.25 + (5 - sec) * 0.05)); this.fx.dust(x, y ?? this.player.pos.y + 2, z, 5, 0.7, 0.7); this.dust.add(x, y ?? this.player.pos.y + 1.5, z, 0.09); this.shake = Math.max(this.shake, 0.03);
         if (pd < 30) this.ui.hint(`<b>ROOF FAILING: the ${name} is at ${Math.round(ratio * 100)}% and about to give way (${Math.max(1, Math.ceil(sec))} s).</b> Get clear, or prop it up with another support now.`, 1.2);
       }
       return;
     }
-    if (pd < 30) { this.sound.creak(0.3); this.ui.hint(`<b>A ${name} is carrying ${Math.round(ratio * 100)}% of its limit and creaking.</b> Put another support next to it to share the weight.`, 6); }
+    if (pd < 30) { this.sound.at(x, y ?? this.player.pos.y + 1.5, z, 'creak').creak(0.3); this.ui.hint(`<b>A ${name} is carrying ${Math.round(ratio * 100)}% of its limit and creaking.</b> Put another support next to it to share the weight.`, 6); }
   }
 
   // what the buckling of a support looks and sounds like, for whoever is near it (the host runs it and tells the guest)
   supportFailFx(x, y, z, name, ratio) {
     const pd = Math.hypot(x - this.player.pos.x, z - this.player.pos.z);
     this.fx.dust(x, y, z, 22, 1.4, 1.4); this.dust.add(x, y + 0.6, z, 0.9);   // a buckling support throws a cloud: it hangs in the tunnel and goes into your lungs unless a fan clears it
-    if (pd < 40) { this.sound.thump(0.35, 85); this.sound.creak(0.35); this.shake = Math.max(this.shake, Math.max(0.05, 0.4 - pd * 0.01)); }
+    if (pd < 40) { const sv = this.sound.at(x, y, z, 'support'); sv.thump(0.35, 85); sv.creak(0.35); this.shake = Math.max(this.shake, Math.max(0.05, 0.4 - pd * 0.01)); }
     if (pd < 25) this.ui.hint(`<b>${name} buckles under the weight of the mountain!</b> (${Math.round(ratio * 100)}% load). Its share lands on the supports around it.`, 6);
   }
 
@@ -3110,6 +3277,26 @@ export class Game {
     return j >= top ? 0 : supportDepth(p.x, p.z);
   }
 
+  // The Plush Vacuum dial (S.vacSet, per player, saved with the shift): the share of the suction you own that the vacuum draws, 0 to 100 percent in tens, 30 until you turn it. The rate is
+  // T.vacRate (plush a second at the top of what you own) times that share, never under 1 a second unless it is 0; 0 switches the vacuum off (a click grabs like plain hands).
+  vacPct() {
+    if (!((this.T && this.T.vacRate) > 0)) return 0;
+    const s = this.S.vacSet; if (typeof s !== 'number' || !Number.isFinite(s)) return VAC_DEFAULT_PCT;
+    return Math.max(0, Math.min(100, Math.round(s / 10) * 10));
+  }
+  vacRateAt(pct) { const max = (this.T && this.T.vacRate) || 0; return !max || pct <= 0 ? 0 : Math.min(max, Math.max(1, max * pct / 100)); }
+  vacNow() { return this.vacRateAt(this.vacPct()); }
+  adjustVac(dir) {
+    const max = (this.T && this.T.vacRate) || 0;
+    if (!max) { this.ui.hint('The Plush Vacuum is not unlocked yet. <kbd>Alt</kbd>+<kbd>-</kbd> and <kbd>Alt</kbd>+<kbd>=</kbd> set how hard it pulls, 10 percent at a time.', 2.5); return false; }
+    const cur = this.vacPct(); let next = cur;
+    do next += dir > 0 ? 10 : -10; while (next > 0 && next < 100 && this.vacRateAt(next) === this.vacRateAt(cur));   // (a small vacuum has fewer than ten different rates: every press changes the suction)
+    next = Math.max(0, Math.min(100, next));
+    this.S.vacSet = next; const rate = this.vacRateAt(next); this.ui.setVacuum(rate, max, next); this.sound.tone('triangle', 400 + next * 3, 420 + next * 3, 0.05, 0.05);
+    this.ui.hint(next === 0 ? 'Vacuum off: a click grabs like plain hands. <kbd>Alt</kbd>+<kbd>=</kbd> turns it up.' : `Vacuum ${next} percent: ${vacShow(rate)} of ${max} plush a second. <kbd>Alt</kbd>+<kbd>=</kbd> pulls harder, <kbd>Alt</kbd>+<kbd>-</kbd> gentler (gentler keeps a tunnel roof up).`, 2.4);
+    return true;
+  }
+
   // how many neighbours each grab scoops: the most Scoop Hands allow, turned down (or up) in steps of 3 with - and = so a tunnel does not come down on you
   scoopNow() {
     const max = (this.T && this.T.scoop) || 0; if (!max) return 0;
@@ -3155,11 +3342,11 @@ export class Game {
   }
 
   // ======================= abandoned gear =======================
-  openRemains(i, j, k, forGuest) {
+  // `bot`: a Scholar bot that lifted the remains out earlier and has now brought the note home (the cell is already empty; nothing is shown, the note lands in the journal)
+  openRemains(i, j, k, forGuest, bot) {
     if (this.isGuest()) { this.cmd('open', { k: 'remains', i, j, kk: k }); return true; }
     const w = this.world, S = this.S;
-    w.setCell(i, j, k, 0, 0);
-    w.stabQueue.push({ i, j, k });
+    if (!bot) { w.setCell(i, j, k, 0, 0); w.stabQueue.push({ i, j, k }); }
     const dist = Math.hypot(cellX(i), cellZ(k));
     const worker = makeWorker(h32(i, j, k, S.seed), dist);
     const text = noteFor(worker);
@@ -3171,18 +3358,22 @@ export class Game {
       const c = this.makeClue(lvl);
       S.clues.push(c);
       rewardText += ' ' + c;
+      NB.paperworkAdded(this, c);
     } else if (rw.kind === 'blueprint') {
       const pool = UPGRADES.filter((u) => ['mine', 'machine', 'hands', 'sort'].includes(u.cat) && (S.up[u.id] || 0) > 0 && (S.up[u.id] || 0) < u.max);
       if (pool.length) { const u = pool[(worker.rng() * pool.length) | 0]; S.up[u.id]++; rewardText += ` (${u.name} +1)`; }
       else { const cash = Math.round(2000 * Math.pow(2.6, worker.tier)); S.money += cash; this.ui.setMoney(S.money); rewardText = `The blueprint is for things you already own. The crew's savings: ◈ ${fmt(cash)}.`; }
     } else applyBoost(S.boosts, rw);
     this.refreshTuning();
-    const entry = { name: worker.name, role: worker.role.name, dist, text, reward: rewardText };
-    S.notes.push(entry);
+    const doc = NB.remainsDoc(this, i, j, k, worker);
+    const entry = { id: `wk:${i}.${j}.${k}`, name: worker.name, role: worker.role.name, dist, text, reward: rewardText, docs: doc ? [doc] : [], worker: true };
     S.stats.remains = (S.stats.remains || 0) + 1;
     this.sound.ach();
     this.fx.sparkle(cellX(i), cellY(j), cellZ(k), 16, 0.7, 0.8, 1);
-    if (forGuest) return entry;
+    if (forGuest) { for (const d of entry.docs) if (d.clue) NB.heard(this, d, this.remote && this.remote.name); return entry; }   // the friend's journal gets it (their copy comes back as a note message); the host hears the clue
+    NB.receive(this, entry);   // my own journal: the worker note and the paper, and the partner hears any clue
+    if (bot) { this.ui.toast({ icon: '🎓', title: `${escHtml(bot.name)} brought a note home`, text: escHtml(`${worker.name}: ${rewardText}`), ms: 6000 }); return entry; }
+    entry.sum = NB.sumLine(this);
     this.ui.showNote(entry);
     this.openModal('note');
     return true;
@@ -3208,27 +3399,13 @@ export class Game {
       const txt = this.makeClue(S.clueLevel);
       S.clues.push(txt);
       this.ui.toast({ icon: '📎', title: 'Old paperwork found', text: txt, ms: 9000 });
+      NB.paperworkAdded(this, txt);
     }
+    { const doc = NB.beaconDoc(this, ent); if (doc) NB.readDoc(this, doc, 'A coded relay message'); }   // a set of depots far apart picks up a relay message, kept in the journal
     this.ui.hint('Depot online. Press <kbd>E</kbd> on it for fast travel and the terminal. It also sets your recall point.', 6);
   }
 
-  makeClue(level) {
-    const n = this.world.needle;
-    const x = cellX(n.i), z = cellZ(n.k);
-    const bearing = ((Math.atan2(x, -z) * 180 / Math.PI) % 360 + 360) % 360;
-    const dist = Math.hypot(x, z);
-    const rnd = mulberry32(this.S.seed ^ (level * 7919));
-    const half = [70, 35, 15, 6][level - 1];
-    const off = (rnd() - 0.5) * half * 0.8;
-    const wrap = (a) => String(Math.round(((a % 360) + 360) % 360)).padStart(3, '0');
-    const lo = wrap(bearing + off - half), hi = wrap(bearing + off + half);
-    const band = [0, 500, 200, 70][level - 1];
-    const dm = Math.round((dist + (rnd() - 0.5) * band * 0.6) / 10) * 10;
-    if (level === 1) return `Row ledger: the prize lot was shelved between bearing ${lo}° and ${hi}° from Bay 07.`;
-    if (level === 2) return `Forklift log: a gold crate went out along bearing ${lo}° to ${hi}°, roughly ${(dm - band / 2).toFixed(0)} to ${(dm + band / 2).toFixed(0)} m.`;
-    if (level === 3) return `Shift memo: aisle sweep found the gold crate wedged ${(dm - band / 2).toFixed(0)}-${(dm + band / 2).toFixed(0)} m out, bearing ${lo}° to ${hi}°.`;
-    return `Last manifest: the One sits near E ${(x).toFixed(0)}, S ${(z).toFixed(0)} (give or take ${band} m).`;
-  }
+  makeClue(level) { return NOTES.paperwork(this.S.seed, this.world.needle, level).text; }   // the old paperwork (src/notes.js: level 4 names a 200 m survey square now, never the exact spot)
 
   renderTravel() {
     const box = document.getElementById('travelList');
@@ -3268,7 +3445,7 @@ export class Game {
   // ======================= blasting =======================
   detonate(ent) {
     { const R0 = ent.R ?? (ent.dyn ? 2.2 : [0, 3, 4, 5][ent.tier || 1]); this.netSend({ t: 'boom', x: ent.x, y: ent.y, z: ent.z, R: R0 }); }
-    if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
+    if (this.isGuest()) { this.fx.burst(ent.x, ent.y + 0.6, ent.z, 50, 1, 0.6, 0.2, 6, 0.14, 1.2); this.fx.dust(ent.x, ent.y + 0.6, ent.z, 24, 2.0, 2.5); this.sound.at(ent.x, ent.y, ent.z, 'boom').rumble(1.2); const pd = Math.hypot(ent.x - this.player.pos.x, ent.z - this.player.pos.z); if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.4, 22 / (pd + 4)) * this.T.shakeMul); return; }
     const w = this.world, S = this.S;
     const tier = ent.tier || 1;
     const R = ent.R ?? (ent.dyn ? 2.2 : [0, 3, 4, 5][tier]);
@@ -3288,7 +3465,7 @@ export class Game {
         this.sim.spawn(it.sp, it.vr, cellX(i), cellY(j), cellZ(k), di / l * 6, dj / l * 5 + 2, dk / l * 6, 2);
         n++;
       } else {
-        this.registerDex(it.sp, true); this.sellAuto(it.sp, it.vr, 0.5);
+        this.registerDex(it.sp, true); this.sellAuto(it.sp, it.vr, 0.5, undefined, { x: cellX(i), y: cellY(j), z: cellZ(k) });
       }
     }
     this.fx.burst(ent.x, ent.y + 0.6, ent.z, 70, 1, 0.6, 0.2, 6, 0.14, 1.4);
@@ -3306,7 +3483,7 @@ export class Game {
   // The host runs it for itself; a guest runs it from the 'boom' message, so both players suffer the same blast.
   blastOnPlayer(x, y, z, R, fromNet) {
     const pd = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
-    if (!fromNet) this.sound.rumble(1.6);
+    if (!fromNet) this.sound.at(x, y, z, 'boom').rumble(1.6);
     if (pd < 40) this.shake = Math.max(this.shake, Math.min(1.6, 24 / (pd + 4)) * this.T.shakeMul);
     if (pd < R * 0.6 + 2.2) {
       const dx = this.player.pos.x - x, dz = this.player.pos.z - z, l = Math.hypot(dx, dz) || 1;
@@ -3324,7 +3501,7 @@ export class Game {
     if (pd < 14) { this.hurtPlayer(70 * (1 - pd / 14), 'a Razzo went off'); this.dust.lung = Math.min(1.1, this.dust.lung + 0.5); }
     this.shake = Math.max(this.shake, 1.4);
     if (pd < 60) this.ui.hint(marked > 20 ? '<b>The roof is coming down!</b> Get clear.' : '<b>BOOM.</b>', 4);
-    this.sound.rumble(2.2);
+    this.sound.at(x, y, z, 'boom').rumble(2.2);
   }
 
   // ======================= volatile plush =======================
@@ -3375,7 +3552,7 @@ export class Game {
       } else if (idx >= 0) { px = sim.x[idx]; py = sim.y[idx]; pz = sim.z[idx]; f.lx = px; f.ly = py; f.lz = pz; }
       f.t -= dt; f.tick = (f.tick || 0) - dt;
       const held = f.bid === undefined && !f.rest;
-      if (f.tick <= 0) { f.tick = Math.max(0.08, f.t * 0.18); this.sound.tone('square', 1100, 1100, 0.025, 0.06); if (held) this.heldPop = 0.4; }
+      if (f.tick <= 0) { f.tick = Math.max(0.08, f.t * 0.18); (held ? this.sound : this.sound.at(px, py, pz, 'fuse')).tone('square', 1100, 1100, 0.025, 0.06); if (held) this.heldPop = 0.4; }
       if (!held && Math.random() < dt * 14) this.fx.dust(px, py + 0.2, pz, 1, 0.15, 0.2);
       if (held || Math.hypot(px - this.player.pos.x, pz - this.player.pos.z) < 40) { if (f.t < minT) { minT = f.t; this._fuseTxt = `FUSE ${Math.max(0, f.t).toFixed(1)}`; } }   // updateHud shows it (it used to be cleared again every frame)
       if (f.t <= 0) {
@@ -3414,7 +3591,7 @@ export class Game {
     this.fx.burst(x, y, z, 50, 1, 0.6, 0.2, 5, 0.12, 1.2);
     this.fx.dust(x, y, z, 24, 1.6, 2.5);
     this.dust.add(x, y, z, 0.5);
-    this.sound.rumble(1.2); this.shake = Math.max(this.shake, 1.0 * this.T.shakeMul);
+    this.sound.at(x, y, z, 'boom').rumble(1.2); this.shake = Math.max(this.shake, 1.0 * this.T.shakeMul);
     this.ui.hurt(0.5);
     const ci = toI(x), cj = toJ(y), ck = toK(z);
     for (let dk = -5; dk <= 5; dk++) for (let dj = -4; dj <= 4; dj++) for (let di = -5; di <= 5; di++) {
@@ -3564,8 +3741,15 @@ export class Game {
   // feel a slide nearby: rumble, shake, dust. The first one teaches you why not to climb.
   // every topple calls this: the host feels it if close, and a guest standing near the slide is told so it can feel it too
   slideEvent(x, z, pd) {
+    this.slideSound(x, z);
     if (pd < 22) this.slideFeel(pd);
     if (this.net.open && this.net.role === 'host' && this.slide.recent >= 3 && !(this._slideNet > this.time)) { this._slideNet = this.time + 0.45; this.netSend({ t: 'slide', x: +x.toFixed(1), z: +z.toFixed(1), r: this.slide.recent }); }
+  }
+
+  // the rumble of a real slide (several topples at once), from where it is and as far as a slide carries
+  slideSound(x, z, recent = this.slide.recent) {
+    if (recent < 3 || !Number.isFinite(x + z)) return;
+    if (this.slideSnd === undefined || performance.now() - this.slideSnd > 450) { this.slideSnd = performance.now(); const sv = this.sound.at(x, this.player.pos.y + 1, z, 'slide'); sv.rumble(0.75); sv.soft(0.1); }
   }
 
   slideFeel(pd, recent = this.slide.recent) {
@@ -3574,7 +3758,6 @@ export class Game {
     // only a real slide (several topples at once) shakes the screen; a stray plush rolling does not
     if (recent < 3) return;
     this.shake = Math.max(this.shake, Math.min(0.8, 0.05 * recent * near) * this.T.shakeMul);
-    if (this.slideSnd === undefined || performance.now() - this.slideSnd > 450) { this.slideSnd = performance.now(); this.sound.rumble(0.25 + 0.5 * near); this.sound.soft(0.1); }
     if (pd < 12 && !this._slideHint) { this._slideHint = true; this.ui.hint('A slide! The pile is not stable under you or on a steep face. Stay low, brace with frames, or stay off it.', 6); }
   }
 
@@ -3602,24 +3785,23 @@ export class Game {
   climbRisk(dt) {
     const p = this.player, fc = p.footCell;
     if (this.dead || this.blacking || !fc || p.pos.y < 8 || !p.onGround) { this._climbT = 0; return; }
+    if (this.avalanche && (this.avalanche.cur || this.avalanche.rideT > 0 || this.softslide.resting())) { this._climbT = 0; return; }   // a slide is carrying you (or just ended, or is burying you): the footing is already gone
     if (this.ropedIn(p.pos)) { this._climbT = 0; if (!this._ropeHint) { this._ropeHint = true; this.ui.hint('Roped in: the slope holds here.', 3); } return; }
     const climb = this.T.climb || 0, h = p.pos.y;
     this._climbT = (this._climbT || 0) + dt; if (this._climbT < 1.5) return; this._climbT = 0;
     const odds = Math.min(0.6, (h - 6) / 45) * (1 - 0.25 * climb) * (1 + this.S.carry.length * 0.03);
-    if (!this._climbHint) { this._climbHint = true; this.ui.hint('<b>Loose footing up here.</b> The pile shifts under your boots the higher you climb. Climbing Gear in the terminal helps. Better yet: dig, do not climb.', 7); }
+    if (!this._climbHint) { this._climbHint = true; this.ui.hint('<b>Loose footing up here.</b> The pile can flow out from under your boots and carry you downhill, and the higher you climb the more of it comes. It may bury you: legs, waist, chest or all of you, by how much lands on you. Climbing Gear in the terminal helps. Better yet: dig, do not climb.', 8); }
     const r = Math.random();
+    if (this.avalanche) this.avalanche.advise(p.pos, this.S.carry.length);   // above 19 m: why it is safe (gear, rope) or why it is not
     if (r > odds) { if (r > 0.75) { this.sound.thump(0.12, 70); this.shake = Math.max(this.shake, 0.08); } return; }
-    // the face gives way: find the steepest way down
-    const w = this.world; let best = [0, 0], low = w.topAt(fc.i, fc.k);
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const t = w.topAt(fc.i + a, fc.k + b); if (t < low) { low = t; best = [a, b]; } }
+    // high up, with the wrong gear, the whole sheet lets go: a real avalanche carries you down (avalanche.js). Anything else is the small patch below.
+    if (this.avalanche && this.avalanche.onClimbHit(p.pos, fc, this.S.carry.length)) { this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1; return; }
+    // the footing gives way: the plush under and around your boots flow downhill as a small sheet and carry you with it (softslide.js). It never hurts by itself.
+    if (this.softslide.onClimbHit(p.pos, this.S.carry.length)) { this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1; return; }
+    // nothing can flow here (a flat bench, everything held by frames or ropes): the footing only shifts a little
     if (this.isGuest()) this.cmd('patch', { i: fc.i, k: fc.k, e: +(2.6 + h * 0.03).toFixed(3) }); else this.slide.triggerPatch(fc.i, fc.k, 2.6 + h * 0.03, 3);
-    p.vel.x += best[0] * (4 + h * 0.15); p.vel.z += best[1] * (4 + h * 0.15); p.vel.y += 2.2; p.onGround = false;
-    const lose = Math.min(this.S.carry.length, Math.ceil(this.S.carry.length / 2));
-    for (let n = 0; n < lose; n++) { const it = this.S.carry.pop(); this.sim.spawn(it.sp, it.vr, p.pos.x, p.pos.y + 1.2, p.pos.z, best[0] * 2 + (Math.random() - 0.5), 2, best[1] * 2 + (Math.random() - 0.5), 0); }
-    if (lose) this.ui.setCarry(this.S.carry, this.T.carry);
-    this.hurtPlayer((4 + h * 0.5) * (1 - 0.2 * climb), 'the pile gave way');
-    this.sound.thump(0.4, 80); this.shake = Math.max(this.shake, 0.4);
-    this.ui.hint(`<b>The pile gives way under you!</b>${lose ? ' You drop ' + lose + ' plush.' : ''} Stay low, or get Climbing Gear.`, 4);
+    this.sound.thump(0.3, 80); this.shake = Math.max(this.shake, 0.25);
+    this.ui.hint('<b>The pile shifts under you.</b> Stay low, or get Climbing Gear.', 3);
     this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1;
   }
 
@@ -3664,7 +3846,7 @@ export class Game {
   onCreak(x, y, z, n, thin) {
     if (!this.isGuest() && Math.random() < 0.18) this.shedOffSlope(x, z, 1);
     const d = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
-    if (d < 40) this.sound.creak(Math.max(0.05, 0.28 - d * 0.006));
+    if (d < 40) this.sound.at(x, y, z, 'creak').creak(Math.max(0.05, 0.28 - d * 0.006));
     this.S.stats.creaks++; this.dust.add(x, y, z, 0.05);   // every creak shakes a little dust loose
     if (thin && d < 30 && !(this._thinHint > this.time)) { this._thinHint = this.time + 90; this.ui.hint('<b>This room is too wide for the plush over it.</b> A thin cap cannot span a wide room: it comes down in pieces. Back away, put <kbd>Frames</kbd> under it, or leave more cover.', 7); return; }
     if (d < 10 && !this._creakHint) { this._creakHint = true; this.ui.hint('The roof is creaking! Back away, or place a <kbd>Frame</kbd> to hold it.', 5); }
@@ -3690,7 +3872,7 @@ export class Game {
     if (isl.n < 1) return;
     const c = isl.cells, q = (Math.random() * Math.min(isl.n, 200)) | 0, x = cellX(c[q * 3]), y = cellY(c[q * 3 + 1]), z = cellZ(c[q * 3 + 2]);
     const d = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
-    if (d < 40) this.sound.creak(Math.max(0.06, 0.3 - d * 0.006));
+    if (d < 40) this.sound.at(x, y, z, 'creak').creak(Math.max(0.06, 0.3 - d * 0.006));
     this.fx.dust(x, y - 0.2, z, 3, 0.4, 0.5);
     if (d < 12) this.shake = Math.max(this.shake, 0.06 * (this.T.shakeMul || 1));
   }
@@ -3720,7 +3902,7 @@ export class Game {
     const dx = Math.max(cellX(isl.i0) - p.x, 0, p.x - cellX(isl.i1)), dz = Math.max(cellZ(isl.k0) - p.z, 0, p.z - cellZ(isl.k1)), d = Math.hypot(dx, dz);   // to the nearest edge of the slab: under any part of it counts
     this.S.stats.collapses++; this.S.stats.islandFalls = (this.S.stats.islandFalls || 0) + 1;
     this.collapseT = Math.min(this.collapseT, 1.2);
-    this.sound.rumble(d < 12 ? 1.5 : d < 30 ? 0.8 : 0.3);
+    this.sound.at(Math.min(Math.max(p.x, cellX(isl.i0)), cellX(isl.i1)), isl.y, Math.min(Math.max(p.z, cellZ(isl.k0)), cellZ(isl.k1)), 'collapse').rumble(d < 12 ? 1.5 : d < 30 ? 0.8 : 0.3);   // from the nearest edge of the slab
     if (d < 20) this.shake = Math.max(this.shake, Math.min(1.4, 16 / (d + 5)));
     this.netSend({ t: 'boom', x: +isl.x.toFixed(1), y: +isl.y.toFixed(1), z: +isl.z.toFixed(1) });
     const step = Math.max(1, Math.floor(isl.n / 12));
@@ -3743,7 +3925,7 @@ export class Game {
       this.afters = this.afters || [];
       this.afters.push({ i, j, k, t: 3 + Math.random() * 5, n: 1 + ((Math.random() * 2) | 0) });
       this.collapseT = 0;
-      this.sound.rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
+      this.sound.at(x, y, z, 'collapse').rumble(d < 12 ? 1.2 : d < 30 ? 0.6 : 0.25);
       this.netSend({ t: 'boom', x: +x.toFixed(1), y: +y.toFixed(1), z: +z.toFixed(1) });
       if (d < 18) this.shake = Math.max(this.shake, Math.min(1.2, 14 / (d + 6)));
     }
@@ -3769,7 +3951,8 @@ export class Game {
         }
         if (n > 4) {
           this.fx.dust(x, y + 0.5, z, 14, 1.4, 1.6);
-          if (d < 25) { this.shake = Math.max(this.shake, Math.min(1.4, 18 / (d + 5))); this.sound.rumble(d < 14 ? 1.5 : 0.8); }
+          this.sound.at(x, y, z, 'collapse').rumble(d < 14 ? 1.5 : 0.8);
+          if (d < 25) this.shake = Math.max(this.shake, Math.min(1.4, 18 / (d + 5)));
           if (d < 14 && !this._caveHint) { this._caveHint = true; this.ui.hint('Cave-in! Dig your way through the rubble, or wall it off with Bulkheads and go around.', 6); }
         }
       }
@@ -3782,7 +3965,7 @@ export class Game {
     if (this.impactCd > 0) return;
     this.impactCd = 0.05;
     const d = Math.hypot(x - this.player.pos.x, y - this.player.pos.y, z - this.player.pos.z);
-    if (d < 18 && v > 5) { this.sound.debris(Math.min(0.2, v * 0.015) * (1 - d / 22)); if (Math.random() < 0.5) this.fx.dust(x, y, z, 3, 0.7, 0.7); }
+    if (d < 18 && v > 5) { this.sound.at(x, y, z, 'fall').debris(Math.min(0.2, v * 0.015) * (1 - d / 22)); if (Math.random() < 0.5) this.fx.dust(x, y, z, 3, 0.7, 0.7); }
   }
   onPlayerHit(v, remote) {
     // plush that hit the other player's body: tell them, they are the one who gets hurt
@@ -3806,6 +3989,7 @@ export class Game {
 
   hurtPlayer(n, why) {
     if (this.mode !== 'play' || this.dead) return;
+    if (this.avalanche) { const m = this.avalanche.shield(n, why); if (m < n && m <= 0) return; n = m; }   // riding a slide: a slide alone never kills (avalanche.js)
     n *= 1 - Math.min(0.6, this.T.dmgCut || 0);
     this.hp = Math.max(0, this.hp - n);
     this.hurtT = 0;
@@ -3918,6 +4102,7 @@ export class Game {
     if (buried && !this.lastBuried) S.stats.buried++;
     this.lastBuried = buried;
     // trapped: a pulsing countdown to dig out before the air runs out
+    this.softslide.update(dt);   // how deep a soft slide has you (reads the cells round you, sets p.buried for the trapped system below)
     this.updateTrapped(dt);
     this.updateVitals(dt);
     this.depthCheck(dt); this.climbRisk(dt); this.updateLoads(dt);
@@ -3946,7 +4131,7 @@ export class Game {
       const parts = []; if (depth > 0.3) parts.push(`BURIED ${depth.toFixed(1)} m`); else if (p.pos.y > 6) parts.push(`ALTITUDE ${p.pos.y.toFixed(0)} m`);
       if (out > 30) parts.push(`${out >= 1000 ? (out / 1000).toFixed(2) + ' km' : Math.round(out) + ' m'} FROM BAY`); if (out > 300) parts.push(`EXIT ${left >= 1000 ? (left / 1000).toFixed(2) + ' km' : Math.round(left) + ' m'}`);
       this.ui.setDepth(parts.join('  ·  '), { depth, alt: p.pos.y, out, left });
-      this.ui.setScoop(this.scoopNow(), T.scoop || 0);
+      this.ui.setScoop(this.scoopNow(), T.scoop || 0); this.ui.setVacuum(this.vacNow(), T.vacRate || 0, this.vacPct());
       { let bk = null; for (const k of T.frames) if (!bk || FRAME_TYPES[k].maxDepth > FRAME_TYPES[bk].maxDepth) bk = k; this.ui.setTunnel(this.coverDepth(), bk ? FRAME_TYPES[bk].maxDepth : 150, bk ? FRAME_TYPES[bk].name.replace(/ (Frame|Lining|Arches?)$/, '') : 'no frames'); } }
     { const ct = this.stowed ? null : this.curTool(); const inf = ct && ct.kind !== 'hammer' && ct.kind !== 'cable' ? (this._xInfo && this._xInfo.t > this.time ? this._xInfo : null) : infoFor(this, findInfoRef(this)); if (inf) this.ui.setTileInfo(true, inf.title, inf.lines.filter(Boolean), inf.lit); else this.ui.setTileInfo(false); }
     {
@@ -3982,6 +4167,8 @@ export class Game {
           if (lc.d < 14 && !(this._locNext > this.time)) { this._locNext = this.time + 0.6 + lc.d * 0.12; this.sound.tone('sine', 880, 880, 0.15, 0.06); } // a slow ping that speeds up as you close in
         }
       }
+      for (const m of CARE.markers(this, p.pos)) markers.push(m);   // care package crates on the floor
+      for (const m of NB.markers(this, p.pos)) markers.push(m);   // what a bot or machine flagged beside itself (remains: NOTE, a supply cache: CACHE)
       const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
       const readout = `HDG ${String(Math.round(heading)).padStart(3, '0')}° ${names[Math.round(heading / 45) % 8]}   E ${p.pos.x.toFixed(0)}  S ${p.pos.z.toFixed(0)}${T.exitMarker ? `   EXIT ${Math.hypot(ex, ez).toFixed(0)} m` : ''}`;
       this.ui.setCompass(true, heading, markers, readout);

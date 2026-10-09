@@ -1,4 +1,6 @@
 // Procedural audio. Everything is synthesized; no asset files.
+// World sounds are played through sound.at(x, y, z, class), see spatial.js (distance falloff, pan, muffling, voice limits).
+import { installSpatial } from './spatial.js';
 export class Sound {
   constructor() {
     this.ctx = null;
@@ -145,7 +147,7 @@ export class Sound {
   exitSfx() { this.found(); this.noise(2.5, 200, 3000, 0.3, 'bandpass', 0, 0.6); }
   ping() { this.tone('sine', 1500, 1500, 0.7, 0.07); this.tone('sine', 2250, 2250, 0.5, 0.03, 0.01); }
 
-  // detector arch cues (wave 7a). vol arrives already scaled by the arch setting and the distance, and they stay soft on purpose.
+  // detector arch cues (wave 7a). vol arrives already scaled by the arch setting (the distance is the positional sound's, see detector.js react), and they stay soft on purpose.
   archTick(vol = 0.1) { this.tone('sine', 700, 700, 0.03, vol * 0.3); }   // an empty bag walking through: barely there
   archNotFound(vol = 0.1, big = false) {   // negative buzz: two short square pulses, a low saw, a band of noise; the giant adds a low thunk
     this.tone('square', 150, 110, 0.08, vol * 0.8);
@@ -173,3 +175,4 @@ export class Sound {
     }
   }
 }
+installSpatial(Sound);

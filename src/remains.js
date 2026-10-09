@@ -43,6 +43,17 @@ export function workingsNear(seed, ci, ck, reach = 130) {
   return res;
 }
 
+// the working whose barricaded mouth holds this cell (the first stretch of the tunnel, two cells wide and three high), or null
+export function workingAtMouth(seed, i, j, k) {
+  if (j < 0 || j > 2) return null;
+  for (const w of workingsNear(seed, i, k, 6)) {
+    if (!w.barricade) continue;
+    const px = DZ[w.dir] !== 0 ? 1 : 0, pz = DX[w.dir] !== 0 ? 1 : 0;
+    for (let l = 0; l < 2; l++) if (w.i0 + px * l === i && w.k0 + pz * l === k) return w;
+  }
+  return null;
+}
+
 export function workingPlugged(w, t) {
   for (const [a, b] of w.plugs) if (t >= a && t <= b) return true;
   return false;

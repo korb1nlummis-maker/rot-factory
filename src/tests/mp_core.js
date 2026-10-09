@@ -54,11 +54,11 @@ export default async function (ctx) {
     role('host'); cap(); const calls = []; const o = g.slide.trigger.bind(g.slide); g.slide.trigger = (a, b, cc, e) => { calls.push([a, b, cc, e]); }; w().setCell(c.d.i, c.d.j, c.d.k, 4, 0); g.netCmd(c.c, c.d); g.slide.trigger = o; w().setCell(c.d.i, c.d.j, c.d.k, 0, 0);
     return (calls.length === 1 && calls[0][3] > 0.3) || 'host slide calls ' + JSON.stringify(calls);
   });
-  await bareTest('mp.climb.guest-suffers-the-shove-and-damage-and-the-host-starts-the-patch-slide', async () => {
-    fresh({}); const { i, k } = spot(); p().pos.set(cellX(i), 30, cellZ(k)); p().onGround = true; p().footCell = { i, j: 50, k }; g.hp = 100; role('guest'); cap();
+  await bareTest('mp.climb.guest-asks-the-host-for-a-soft-slide-nothing-hits-it', async () => {
+    fresh({}); const { i, k } = spot(); p().pos.set(cellX(i), 14, cellZ(k)); p().onGround = true; p().footCell = { i, j: 50, k }; g.hp = 100; role('guest'); cap();
     const r0 = Math.random; Math.random = () => 0; g._climbT = 5; g.climbRisk(0.1); Math.random = r0;
-    const c = sent.find((m) => m.t === 'cmd' && m.c === 'patch');
-    return (c && g.hp < 100 && (Math.abs(p().vel.x) + Math.abs(p().vel.z)) > 1) || `patch cmd ${!!c} hp ${g.hp}`;
+    const c = sent.find((m) => m.t === 'cmd' && (m.c === 'sslide' || m.c === 'patch'));   // (a slope the sheet can flow on asks for a soft slide; a flat bench only shifts)
+    return (c && g.hp === 100 && !g.avalanche.cur) || `cmd ${c && c.c} hp ${g.hp}`;
   });
   await bareTest('mp.hit.plush-hitting-the-guest-hurts-the-guest-not-the-host', async () => {
     fresh({}); g.hp = 100; g.dmgCd = 0; role('host'); cap(); g.onPlayerHit(9, true); const h = ofType('hit')[0]; if (!h || g.hp !== 100) return `hit ${JSON.stringify(h)} host hp ${g.hp}`;

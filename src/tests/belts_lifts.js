@@ -157,9 +157,10 @@ export default async function (ctx) {
 
   await T('belts.lift-draws-power-per-cell-of-height', async () => {
     B.setup(UP_ALL); const { i, k } = at();
-    g.placeEntity('pole', { i: i + 2, j: 0, k: k + 2, dir: 0 }, { quiet: true, rebuild: false });
-    g.placeEntity('belt', { i, j: 0, k, dir: 0, rise: 0, lift: { h: 10 }, tier: 2, items: [] }, { quiet: true, rebuild: false });
-    g.placeEntity('belt', { i: i - 1, j: 0, k: k - 3, dir: 0, rise: 0, lift: { h: -4 }, items: [] }, { quiet: true, rebuild: false });   // a down lift needs the floor under its bottom: not checked here
+    const pole = g.placeEntity('pole', { i: i + 2, j: 0, k: k + 2, dir: 0 }, { quiet: true, rebuild: false });
+    const l1 = g.placeEntity('belt', { i, j: 0, k, dir: 0, rise: 0, lift: { h: 10 }, tier: 2, items: [] }, { quiet: true, rebuild: false });
+    const l2 = g.placeEntity('belt', { i: i - 1, j: 0, k: k - 3, dir: 0, rise: 0, lift: { h: -4 }, items: [] }, { quiet: true, rebuild: false });   // a down lift needs the floor under its bottom: not checked here
+    g.S.items.cable = 4; for (const l of [l1, l2]) { const r = g.cables.connect(pole.id, l.id); if (!r.ok) return 'wiring a lift: ' + r.why; }   // each lift is its own line: one cable each
     g.power.recompute(); const net = g.power.nets.find((n) => n.nodes.some((x) => x.type === 'pole'));
     const want = TIER_KW[2] * 10 + TIER_KW[0] * 4; return (net && near(net.demand, want, 1e-6)) || `grid demand ${net && net.demand}, wanted ${want}`;
   });

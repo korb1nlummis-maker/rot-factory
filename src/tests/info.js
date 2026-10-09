@@ -32,7 +32,7 @@ export default async function (ctx) {
     fresh({ ...ALL_UP, cart: 5 }); g.craftItem('cart:1', 1); const info = infoFor(g, { kind: 'cart' }); return info === null || (/CARRYING|Carrying/.test(info.lines.join(' ')) || 'cart readout ' + JSON.stringify(info));
   });
   await T('info.readout-hides-when-aiming-at-nothing-and-while-placing', async () => {
-    fresh(ALL_UP); K.equip('hammer'); p().pos.set(0, 0, -1.4); p().yaw = Math.PI; p().pitch = 0; g.hudT = 0; adv(0.15); const away = document.getElementById('tileInfo').classList.contains('hidden');
+    fresh(ALL_UP); K.equip('hammer'); p().pos.set(0, 0, -1.4); p().yaw = Math.PI; p().pitch = 1.3; g.hudT = 0; adv(0.15); const away = document.getElementById('tileInfo').classList.contains('hidden');
     const r = await K.put('gen', { x: -9, z: -1.2, dir: 0 }); if (!r.ok) return r.why; K.equip('hammer'); aimAt(cellX(r.ent.i), 0.5, cellZ(r.ent.k), 1.6); g.hudT = 0; adv(0.15); const shown = !document.getElementById('tileInfo').classList.contains('hidden');
     K.equip('belt'); g.hudT = 0; adv(0.15); const placing = document.getElementById('tileInfo').classList.contains('hidden');
     return (away && shown && placing) || `hidden when looking away ${away}, shown at the generator ${shown}, hidden while a build tool is out ${placing}`;

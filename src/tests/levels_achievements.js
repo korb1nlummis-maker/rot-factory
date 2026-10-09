@@ -20,7 +20,7 @@ export default async function (ctx) {
     }
     if (OLD < 100 || NEW.length < 150) bad.push(`${OLD} original and ${NEW.length} added`);
     const names = new Map(); for (const a of NEW) { if (names.has(a.name)) bad.push(`name "${a.name}" used by ${names.get(a.name)} and ${a.id}`); names.set(a.name, a.id); }
-    fresh({}); S().ach = {}; g.ui.renderAch(); const total = document.getElementById('achTotal').textContent, cards = document.querySelectorAll('#achGrid .ac').length;
+    fresh({}); S().ach = {}; g.ui.renderAch(); const total = document.getElementById('achTotal').textContent, cards = document.querySelectorAll('#achGrid .ac:not([data-care])').length;
     if (+total !== ACHIEVEMENTS.length || cards !== ACHIEVEMENTS.length) bad.push(`screen shows ${cards} cards and says ${total}, the catalog has ${ACHIEVEMENTS.length}`);
     return bad.length === 0 || bad.slice(0, 6).join('; ');
   });

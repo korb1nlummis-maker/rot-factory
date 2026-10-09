@@ -353,9 +353,10 @@ export default async function (ctx) {
     fresh(UP); const bad = []; K.clearBay();
     const gen = await K.put('gen', { x: -9, z: -1.2, dir: 0 }), pole = await K.put('pole', { x: -9, z: 1.2, dir: 0 }); if (!gen.ok || !pole.ok) return 'rig: ' + (gen.why || pole.why);
     K.feedGen(K.tileOf(gen.ent), 12);
-    const e = mk(1, -9, 3.6); g.power.markDirty(); g.power.update(0.1); adv(1.0, 0.05);
+    const e = mk(1, -9, 3.6); if (D.archState(e).powered) bad.push('lit beside a live pole with no cable'); S().items.cable = 4; { const gt = K.tileOf(gen.ent), pt = K.tileOf(pole.ent), a = g.cables.connect(gt.id, pt.id), b = g.cables.connect(pt.id, e.id); if (!a.ok || !b.ok) return 'wiring: ' + (a.why || b.why); }
+    g.power.markDirty(); g.power.update(0.1); adv(1.0, 0.05);
     const lamps = () => g.machines.items.get(e.id).arch.lamps.map((m) => m.color.getHex());
-    if (!D.archState(e).powered) return 'not powered next to a pole: nets ' + g.power.nets.length;
+    if (!D.archState(e).powered) return 'not powered through its cable: nets ' + g.power.nets.length;
     if (lamps().some((c) => c !== 0x2e8c4a)) bad.push('idle lamps ' + lamps());
     carry(common); walk(e); D.archState(e).flash = 0.95 - 0.05; adv(0.01, 0.01); const red = lamps(); if (!red.some((c) => c === 0xff3322)) bad.push('no red pulse: ' + red);
     g.setCfg(e, { mode: 'species', target: common }); walk(e); adv(0.01, 0.01); const grn = lamps(); if (!grn.some((c) => c === 0x45ff7a || c === 0xffd24a)) bad.push('no green and gold: ' + grn);

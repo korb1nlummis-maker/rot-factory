@@ -37,6 +37,13 @@ float vnoise(vec3 p){
 `;
 
 export const noiseGLSL = noise;
+// the plush shader's placed lights (uPt): a soft inverse-square that is faded to nothing at the light's radius. pointAtten is the JS twin of the GLSL line in plushFrag, for the tests and the tools.
+export const PT_FALLOFF = 0.14;
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export const pointAtten = (d, r) => (d >= r ? 0 : 1 / (1 + d * d * PT_FALLOFF) * sstep(r, r * 0.3, d));
+// a lamp's share of light on a surface is eased off near its peak, so the floor right under a lantern is a warm pool and not a white blob (x / (1 + 0.7 x): 0.2 stays 0.175, 1.0 becomes 0.59). The GLSL line is the same.
+export const PT_SHOULDER = 0.7;
+export const pointLight = (d, r, n = 1) => { const x = pointAtten(d, r) * n; return x / (1 + PT_SHOULDER * x); };
 // Patterned species (stripes, spots, two-tone): the second color is made from the first (channels rotated, then pushed light or dark so there is always contrast), and the
 // parts that are not body (eyes, dark tips: vertex color well below white) keep their own color. p is the object space position, vc the vertex color.
 export const patternGLSL = /* glsl */ `
@@ -131,9 +138,10 @@ void main(){
     vec3 pv = uPt[i].xyz - vWP; float pd = length(pv);
     float pr = uPt[i].w;
     if (pd < pr) {
-      float pa = 1.0 / (1.0 + pd * pd * 0.5) * smoothstep(pr, pr * 0.3, pd);
+      float pa = 1.0 / (1.0 + pd * pd * ${PT_FALLOFF.toFixed(3)}) * smoothstep(pr, pr * 0.3, pd);
       float pn = clamp((dot(N, pv / pd) + 0.4) / 1.4, 0.0, 1.0);
-      L += uPtCol[i] * pa * pn;
+      float px = pa * pn;
+      L += uPtCol[i] * (px / (1.0 + ${PT_SHOULDER.toFixed(2)} * px));
     }
   }
 

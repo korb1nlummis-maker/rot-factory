@@ -56,13 +56,13 @@ export function volumeFor(g, ent) {
 
 // ---------------------------------------------------------------- the reaction every screen shows for one load: kind 'clear' | 'alarm' | 'fail'
 export function react(g, ent, kind, info = {}) {
-  const s = st(ent), snd = g.sound, vol = volumeFor(g, ent);
+  const s = st(ent), vol = volumeFor(g, ent), lvl = 0.1 * (ent.volume ?? 0.7) * 1.5, snd = g.sound.at(ent.cx, ent.y0 + 1.5, ent.cz, 'arch');   // vol decides whether anyone is near enough; the level itself fades with distance in the positional sound
   s.flash = kind === 'alarm' ? 2.0 : kind === 'clear' ? 0.9 : 0.5; s.kind = kind;
   s.last = { t: g.time, kind, n: info.n || 0 };
   if (vol > 0.002 && snd) {
-    if (kind === 'clear') { if (!ent.quiet && snd.archTick) snd.archTick(vol * 1.6); }
-    else if (kind === 'alarm') { if (snd.archFound) snd.archFound(vol); if (snd.archNotFound) snd.archNotFound(vol * 0.8, true); }
-    else if (snd.archNotFound && !ent.quiet) snd.archNotFound(vol * 0.6, true);
+    if (kind === 'clear') { if (!ent.quiet && snd.archTick) snd.archTick(lvl * 1.6); }
+    else if (kind === 'alarm') { if (snd.archFound) snd.archFound(lvl); if (snd.archNotFound) snd.archNotFound(lvl * 0.8, true); }
+    else if (snd.archNotFound && !ent.quiet) snd.archNotFound(lvl * 0.6, true);
   }
   if (g.fx && vol > 0.002) {
     const top = ent.y0 + ent.h;
@@ -250,7 +250,7 @@ export function recipes(g) {
   out.push({
     id: 'vscan', kind: 'vscan', icon: '🛃', name: SIZE.name, short: SIZE.short, price: Math.round(scanCost(count) / K_BENCH), batch: [1],
     desc: 'A big steel arch set into the floor, 7.2 m wide and 6 m tall: every Haul Truck load drives through it on the way to the bin. A load that holds The One is dumped on the ground at the arch and the alarm sounds. Without one on its route a truck refuses to leave with The One aboard.',
-    use: 'Set it across the truck road with B (it faces the way you look, trucks drive through it), near a pole or generator: it draws 14 kW. Trucks route through the nearest powered scanner by themselves. E on it takes The One out when it holds one.',
+    use: 'Set it across the truck road with B (it faces the way you look, trucks drive through it), then run a Power Cable to it from a live pole or generator (it draws 14 kW). Trucks route through the nearest powered scanner by themselves. E on it takes The One out when it holds one.',
     statusFn: () => `${count} placed. 14 kW. Each one you run makes the next 35% dearer.`,
   });
   return out;
@@ -260,8 +260,8 @@ export function recipes(g) {
 export function info(g, ent) {
   const s = st(ent), on = powered(g, ent), lines = [];
   if (ent.alarm) lines.push('ALARM: The One was pulled out of a truck load here. The load is on the ground and every truck routed through is held. Press E to take it.');
-  else lines.push(on ? 'All clear. Every Haul Truck load drives through it on the way to the bin.' : 'No power: link it to a pole or a generator. Trucks skip it, and a truck with The One aboard will not leave.');
-  lines.push(on ? `Powered (${SIZE.kw} kW).` : `Needs ${SIZE.kw} kW from a pole or a generator.`);
+  else lines.push(on ? 'All clear. Every Haul Truck load drives through it on the way to the bin.' : 'No power: run a Power Cable to it from a live pole or generator. Trucks skip it, and a truck with The One aboard will not leave.');
+  lines.push(on ? `Powered (${SIZE.kw} kW).` : `Needs ${SIZE.kw} kW through its own cable from a live pole or generator.`);
   lines.push(`${ent.loads || 0} loads scanned in total.`);
   if (s.last) { const ago = Math.max(0, Math.round(g.time - s.last.t)); lines.push(s.last.kind === 'alarm' ? `Last load ${ago} s ago: THE ONE found, load dumped (${s.last.n} plush)` : `Last load ${ago} s ago: clear (${s.last.n} plush)`); }
   else lines.push('No load scanned yet.');
@@ -279,7 +279,7 @@ export function use(g, ent) {
     if (g.isGuest()) { g.cmd('vscan', { id: ent.id }); g.sound.place(); return true; }
     take(g, ent); return true;
   }
-  g.ui.hint(powered(g, ent) ? `Vehicle Scanner: all clear. ${ent.loads || 0} loads scanned so far.` : 'Vehicle Scanner: no power. A pole or a generator in reach turns it on.', 2.5);
+  g.ui.hint(powered(g, ent) ? `Vehicle Scanner: all clear. ${ent.loads || 0} loads scanned so far.` : 'Vehicle Scanner: no power. A cable from a live pole or generator turns it on.', 2.5);
   return true;
 }
 
@@ -400,7 +400,7 @@ function visuals(g, dt, host) {
       s.beepT -= dt;
       if (s.beepT <= 0) {
         s.beepT = 0.55; const p = g.player.pos, d = Math.hypot(e.cx - p.x, e.cz - p.z);
-        if (d < 80 && g.sound && g.mode === 'play') { const v = 0.1 * (e.volume ?? 0.7) * (1 - d / 80); g.sound.tone('square', 880, 880, 0.18, v); g.sound.tone('square', 660, 660, 0.18, v, 0.2); }
+        if (d < 80 && g.sound && g.mode === 'play') { const v = 0.1 * (e.volume ?? 0.7), sv = g.sound.at(e.cx, e.y0 + 2, e.cz, 'alarm'); sv.tone('square', 880, 880, 0.18, v); sv.tone('square', 660, 660, 0.18, v, 0.2); }   // from the arch: the fade is the positional sound's
       }
     }
   }

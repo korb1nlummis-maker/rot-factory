@@ -50,7 +50,7 @@ export default async function (ctx) {
     const comp = () => R.sync(g).comps[0];
     if (Math.abs(comp().speed - 8) > 0.01) bad.push('full power line speed ' + comp().speed);
     // 8 kW of generator, 6 kW of stations: add 5 fans (10 kW) -> 16 kW of demand, satisfaction 0.5
-    const fans = []; for (let n = 0; n < 5; n++) fans.push(K.fan(cellX(s.iBase) + 0.6 * n - 1, cellZ(s.k) + 1.8)); g.power.markDirty(); adv(1);
+    const fans = []; for (let n = 0; n < 5; n++) fans.push(K.fan(cellX(s.iBase) + 0.6 * n - 1, cellZ(s.k) + 1.8)); for (const f of fans) K.wire(X.getRig().pole, f); g.power.markDirty(); adv(1);
     const net = netOf(s.base), sat = net.sat; if (!(sat > 0.2 && sat < 0.95)) return 'the test grid is not browned out: sat ' + sat + ' demand ' + net.demand;
     if (Math.abs((s.base.pw || 0) - sat) > 0.01) bad.push(`station pw ${s.base.pw} vs sat ${sat}`);
     const want = Math.max(R.HAND_SPEED, 8 * sat); if (Math.abs(comp().speed - want) > 0.05) bad.push(`brownout line speed ${comp().speed} expected ${want}`);
@@ -65,7 +65,7 @@ export default async function (ctx) {
   await guard('gaps.power.a-cable-wires-a-rail-station-far-from-any-pole', async () => {
     X.setup(); const bad = [];
     const k = X.ck(-2.2), iA = X.ci(-26), iB = X.ci(-12); X.line(iA, iB, 0, k);
-    K.small(); const gen = K.gen(-6, cellZ(k) + 3.6), pole = K.pole(-5, cellZ(k) + 3.6); g.power.markDirty(); adv(0.5);
+    const gen = K.gen(-6, cellZ(k) + 3.6), pole = K.pole(-5, cellZ(k) + 3.6); K.wire(gen, pole); g.power.markDirty(); adv(0.5);
     const stn = X.station(iB, 0, k, 'face'); adv(1);
     if ((stn.pw || 0) > 0.05) return 'test setup: the station is already powered without a cable';
     if (Math.abs(R.sync(g).comps[0].speed - R.HAND_SPEED) > 1e-6) bad.push('line should crank by hand: ' + R.sync(g).comps[0].speed);
@@ -73,8 +73,8 @@ export default async function (ctx) {
     if (!((stn.pw || 0) > 0.95)) bad.push('station pw after the cable ' + stn.pw);
     if (netOf(stn) !== netOf(gen)) bad.push('the station is not on the generator grid');
     if (Math.abs(R.sync(g).comps[0].speed - 8) > 0.01) bad.push('line speed after the cable ' + R.sync(g).comps[0].speed);
-    const info = infoFor(g, { kind: 'mach', id: stn.id }); if (!info.lines.some((l) => /Powered by cable from Power Pole/.test(l))) bad.push('hover readout: ' + info.lines.join(' | '));
-    const r2 = g.cables.connect(gen.id, stn.id); if (r2.ok || !/no free cable port/.test(r2.why || '')) bad.push('a second cable on a station port: ' + JSON.stringify(r2.ok ? 'ok' : r2.why));
+    const info = infoFor(g, { kind: 'mach', id: stn.id }); if (!info.lines.some((l) => /Powered \d+%: Cable from Power Pole/.test(l))) bad.push('hover readout: ' + info.lines.join(' | '));
+    const r2 = g.cables.connect(gen.id, stn.id); if (r2.ok || !/no free cable socket/.test(r2.why || '')) bad.push('a second cable on a station port: ' + JSON.stringify(r2.ok ? 'ok' : r2.why));
     // cut the cable: the line cranks again
     g.cables.remove(g.cables.list()[0].id, true); adv(1); if ((stn.pw || 0) > 0.05) bad.push('still powered after the cable was removed');
     return bad.length === 0 || bad.join(' || ');
@@ -92,11 +92,10 @@ export default async function (ctx) {
     const SH = makeShell(ctx), B = SH.B; SH.setup(); const bad = [];
     try {
       const i = toI(-14), k = toK(2); g._bz = { n: 1, w: 1 };
-      K.small();
       const r = await SH.put('levelpad', i, k, { back: 2.2 }); if (!r.ok) return r.why; const E = r.made[0];
       E.on = false; adv(0.2);
       // a grid far from the pad: only a cable reaches it
-      const gen = K.gen(cellX(i) + 9, cellZ(k) + 6), pole = K.pole(cellX(i) + 10, cellZ(k) + 6); g.power.markDirty(); adv(0.5);
+      const gen = K.gen(cellX(i) + 9, cellZ(k) + 6), pole = K.pole(cellX(i) + 10, cellZ(k) + 6); K.wire(gen, pole); g.power.markDirty(); adv(0.5);
       if (netOf(E)) bad.push('the pad is on a grid it has no link to');
       S().items.cable = 2; const c = g.cables.connect(pole.id, E.id); if (!c.ok) return 'the cable tool refused the Leveling Pad: ' + c.why;
       adv(0.5); const n = netOf(gen); if (netOf(E) !== n) return 'a cable did not join the pad to the grid';
@@ -104,7 +103,7 @@ export default async function (ctx) {
       if (B.levelPower(g, E) !== E.pw) bad.push('levelPower does not read the solver');
       // 8 kW of generator against 15 kW: a brownout, the pad's pw is the grid's satisfaction
       if (!(E.pw > 0.3 && E.pw < 0.9)) bad.push('pad pw in a brownout ' + E.pw);
-      const info = infoFor(g, { kind: 'mach', id: E.id }); if (!info.lines.some((l) => /Powered by cable from Power Pole/.test(l))) bad.push('hover: ' + info.lines.join(' | '));
+      const info = infoFor(g, { kind: 'mach', id: E.id }); if (!info.lines.some((l) => /Powered \d+%: Cable from Power Pole/.test(l))) bad.push('hover: ' + info.lines.join(' | '));
     } finally { for (const t of [...L().tiles.values()]) if (!t.free && (t.type === 'gen' || t.type === 'pole')) { L().remove(t); S().entities = S().entities.filter((x) => x.id !== t.id); } SH.clean(); }
     return bad.length === 0 || bad.join(' || ');
   });
@@ -112,15 +111,15 @@ export default async function (ctx) {
   await guard('gaps.power.an-arch-counts-its-size-and-its-power-comes-from-the-solver', async () => {
     K.reset(); const bad = [];
     const mk = (size, x, z) => { K.clearBay(); const m = toK(z), lat = toI(x), S_ = D.SIZES[size]; const l = D.layout(g, size, 'z', m, lat - (S_.w / 2 - 1), 0); if (!l.ok) throw new Error('layout: ' + l.why); return g.placeEntity('arch', { ...l.ent }); };
-    const gen = K.gen(-9, 2), pole = K.pole(-8, 2); g.power.markDirty(); adv(0.5);
+    const gen = K.gen(-9, 2), pole = K.pole(-8, 2); K.wire(gen, pole); g.power.markDirty(); adv(0.5);
     const net = netOf(gen), d0 = net.demand;
-    const a1 = mk(1, -7, 2); adv(1); const n1 = netOf(gen); if (netOf(a1) !== n1) bad.push('the arch is not on the grid'); if (Math.abs(n1.demand - d0 - D.SIZES[1].kw) > 1e-6) bad.push('arch demand ' + (n1.demand - d0));
+    const a1 = mk(1, -7, 2); if (D.powerOf(g, a1)) bad.push('an arch beside a live pole is lit with no cable'); S().items.cable = 5; g.cables.connect(pole.id, a1.id); adv(1); const n1 = netOf(gen); if (netOf(a1) !== n1) bad.push('the arch is not on the grid'); if (Math.abs(n1.demand - d0 - D.SIZES[1].kw) > 1e-6) bad.push('arch demand ' + (n1.demand - d0));
     if (!(a1.pw > 0.95) || !D.powerOf(g, a1)) bad.push('arch pw ' + a1.pw);
     g.doDecon({ kind: 'mach', id: a1.id }); adv(0.5);
-    const a2 = mk(2, -4, 2); adv(1); const n2 = netOf(gen); if (Math.abs((n2.demand) - d0 - D.SIZES[2].kw) > 1e-6 && netOf(a2) === n2) bad.push('giant arch demand ' + (n2.demand - d0));
+    const a2 = mk(2, -4, 2); g.cables.connect(pole.id, a2.id); adv(1); const n2 = netOf(gen); if (Math.abs((n2.demand) - d0 - D.SIZES[2].kw) > 1e-6 && netOf(a2) === n2) bad.push('giant arch demand ' + (n2.demand - d0));
     // a cable carries power to an arch that stands out of reach
-    g.doDecon({ kind: 'mach', id: a2.id }); adv(0.3); K.small();
-    const far = mk(1, 4, 8); adv(0.8); if (D.powerOf(g, far)) bad.push('a far arch is powered without a cable');
+    g.doDecon({ kind: 'mach', id: a2.id }); adv(0.3);
+    const far = mk(1, 0, 8); adv(0.8); if (D.powerOf(g, far)) bad.push('a far arch is powered without a cable');
     S().items.cable = 2; const c = g.cables.connect(pole.id, far.id); if (!c.ok) return 'the cable tool refused an arch: ' + c.why; adv(1);
     if (!D.powerOf(g, far)) bad.push('the cable did not power the arch');
     return bad.length === 0 || bad.join(' || ');
@@ -129,8 +128,8 @@ export default async function (ctx) {
   await guard('gaps.power.a-new-catalog-type-with-a-kw-handler-is-counted-without-editing-power-js', async () => {
     K.reset(); const bad = [];
     let kw = 5; TYPES.gapfake = { add: () => ({}), kw: () => kw };
-    const gen = K.gen(-9, 2), pole = K.pole(-8, 2); g.power.markDirty(); adv(0.5); const d0 = netOf(gen).demand;
-    const e = K.mach('gapfake', -7.4, 2); adv(1); if (Math.abs(netOf(gen).demand - d0 - 5) > 1e-6) bad.push('fake demand ' + (netOf(gen).demand - d0));
+    const gen = K.gen(-9, 2), pole = K.pole(-8, 2); K.wire(gen, pole); g.power.markDirty(); adv(0.5); const d0 = netOf(gen).demand;
+    const e = K.mach('gapfake', -7.4, 2); K.wire(pole, e); adv(1); if (Math.abs(netOf(gen).demand - d0 - 5) > 1e-6) bad.push('fake demand ' + (netOf(gen).demand - d0));
     kw = 1.5; g.power.markDirty(); adv(0.2); if (Math.abs(netOf(gen).demand - d0 - 1.5) > 1e-6) bad.push('a changed draw was not picked up ' + (netOf(gen).demand - d0));
     if (!isCatalogConsumer('gapfake') || catalogKw(g, e) !== 1.5) bad.push('helpers');
     if (!wireable(e)) bad.push('the fake type cannot take a cable');
@@ -140,12 +139,12 @@ export default async function (ctx) {
 
   await guard('gaps.power.furnish-and-transit-loads-are-counted-once', async () => {
     K.reset(); const bad = [];
-    const gen = K.gen(-9, 2), pole = K.pole(-8, 2); g.power.markDirty(); adv(0.5); const d0 = netOf(gen).demand;
-    const strip = K.mach('strip', -7.4, 2, { y: 1.0, h: 0.1, mount: 'ceiling', dir: 0, mode: 'on' });
+    const gen = K.gen(-9, 2), pole = K.pole(-8, 2); K.wire(gen, pole); g.power.markDirty(); adv(0.5); const d0 = netOf(gen).demand;
+    const strip = K.mach('strip', -7.4, 2, { y: 1.0, h: 0.1, mount: 'ceiling', dir: 0, mode: 'on' }); K.wire(pole, strip);
     adv(1.6); const d1 = netOf(gen).demand; if (Math.abs(d1 - d0 - 0.15) > 1e-6) bad.push('strip light counted ' + (d1 - d0) + ' kW (once is 0.15)');
     if (!((strip.pw || 0) > 0.95)) bad.push('strip pw ' + strip.pw);
     adv(2); if (Math.abs(netOf(gen).demand - d1) > 1e-6) bad.push('the load grew over time: ' + (netOf(gen).demand - d1));
-    S().items.cable = 2; K.small(); const far = K.mach('strip', 6, 8, { y: 1.0, h: 0.1, mount: 'ceiling', dir: 0, mode: 'on' }); adv(1);
+    S().items.cable = 2; const far = K.mach('strip', 3, 6, { y: 1.0, h: 0.1, mount: 'ceiling', dir: 0, mode: 'on' }); adv(1);
     if ((far.pw || 0) > 0.05) bad.push('a far strip light is powered without a cable'); const c = g.cables.connect(pole.id, far.id); if (!c.ok) return 'the cable tool refused a strip light: ' + c.why; adv(1.6);
     if (!((far.pw || 0) > 0.95)) bad.push('the cable did not light the far strip: ' + far.pw);
     return bad.length === 0 || bad.join(' || ');
@@ -155,14 +154,14 @@ export default async function (ctx) {
     X.setup(); const bad = [];
     const k = X.ck(-2.2), iBase = X.ci(1.0); X.line(iBase - 6, iBase, 0, k);
     X.power(cellX(iBase), cellZ(k) + 1.0); const stn = X.station(iBase, 0, k, 'base'); void stn;
-    const fan = K.fan(cellX(iBase) - 1.2, cellZ(k) + 1.8); void fan;
+    const fan = K.fan(cellX(iBase) - 1.2, cellZ(k) + 1.8); K.wire(X.getRig().pole, fan);
     g.power.markDirty(); adv(1.2);
     const gen = [...L().tiles.values()].find((t) => t.type === 'gen'), net = netOf(gen);
     if (!net.loads || Math.abs((net.loads['Rail Station'] || 0) - 3) > 1e-6) bad.push('loads ' + JSON.stringify(net.loads));
     if (Math.abs((net.loads.Fans || 0) - 2) > 1e-6) bad.push('fans ' + (net.loads && net.loads.Fans));
     const line = PP.loadsLine(net); if (!/^Loads: Rail Station 3\.0 kW, Fans 2\.0 kW/.test(line)) bad.push('line: ' + line);
     // the Load Meter machine and the guest
-    const meter = K.part('meter', cellX(iBase) - 2.4, cellZ(k) + 1.8); g.power.markDirty(); adv(0.6);
+    const meter = K.part('meter', cellX(iBase) - 2.4, cellZ(k) + 1.8); K.wire(X.getRig().pole, meter); g.power.markDirty(); adv(0.6);
     const hostInfo = infoFor(g, { kind: 'mach', id: meter.id }).lines.join(' | '); if (!/Loads: Rail Station 3\.0 kW/.test(hostInfo)) bad.push('meter readout: ' + hostInfo);
     const row = JSON.parse(JSON.stringify(g.power.packRow())); const mine = row.n.find((a) => a[9].includes(gen.id)); if (!mine || !Array.isArray(mine[10]) || !mine[10].some((q) => q[0] === 'Rail Station')) bad.push('the row does not carry the loads: ' + JSON.stringify(mine && mine[10]));
     const saved = g.power.nets; g.power.applyRow(row); const gnet = g.power.nets.find((n) => n.nodes.some((q) => q.id === gen.id));

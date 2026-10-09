@@ -34,7 +34,7 @@ export default async function (ctx) {
     function species(x) { return ctx.species[x.sp].rarity; }
   });
   await T('crew.botcmd-charger-panel-and-order-and-empty-charger-refusal', async () => {
-    fresh(upAll); const b = bot(); const r = await placeAtFloor('charger', -3.4, 3.0, 2.0); if (!r.ok) return r.why; const ch = tiles().find((t) => t.type === 'charger'); pick(b); b.battery = 0.3;
+    fresh(upAll); S().crewFuel = false; const b = bot(); const r = await placeAtFloor('charger', -3.4, 3.0, 2.0); if (!r.ok) return r.why; const ch = tiles().find((t) => t.type === 'charger'); kit(ctx).live(ch); pick(b); b.battery = 0.3;   // (the crew's own fueling is off: this test is about the order)
     ch.reserve = 0; aimTile(ch); const t0 = act(); g.useKey(); if (t0 !== 'E: This Charging Station is empty' || b.state !== 'idle') return `empty: "${t0}" state ${b.state}`;
     ch.reserve = 3; const t1 = act(); if (t1 !== 'E: Recharge at this Charging Station (3.0 left), then carry on') return t1; g.useKey(); if (b.state !== 'chgwalk' || b.chg !== ch.id) return 'state ' + b.state;
     run(30); if (!(b.battery >= 0.95 && b.state === 'idle' && Math.abs(ch.reserve - (3 - 0.65)) < 0.1)) return `battery ${b.battery} state ${b.state} reserve ${ch.reserve}`;

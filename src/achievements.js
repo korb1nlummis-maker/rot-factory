@@ -2,6 +2,7 @@
 import { DECOYS, speciesCount, dexTally, REGIONS, regionTotals, regionRange } from './plushdata.js';
 import { UPGRADES, CATS } from './upgrades.js';
 import { UPGRADES as CATALOG_UPGRADES } from './catalog.js';
+import { KIND_IDS, kindsRead, noteTotal } from './notes.js';
 const A = (id, name, desc, check, icon = '★', secret = false) => ({ id, name, desc, check, icon, secret });
 const dexN = (S) => dexTally(S.dex).n;   // regular species found (the decoys and The One do not count)
 // Plushdex milestones scale with the size of the dex: the old absolute ones stay (earned ids are kept in saves), the new ones are shares of all of it
@@ -246,6 +247,17 @@ stat('blasts', '🧨', [
   ['blast100', 100, 'Demolition Crew', 'Set off {n} charges.'], ['blast1k', 1e3, 'Mountain Remover', 'Set off {n} charges.'], ['blast10k', 1e4, 'Big Bang', 'Set off {n} charges.'],
 ]);
 stat('caches', '📦', [['cache50', 50, 'Hoarder', 'Open {n} supply caches.'], ['cache250', 250, 'Pack Rat', 'Open {n} supply caches.']]);
+
+// ---- Notes (src/notes.js, src/notebook.js): every worker note, paper and line of facility paperwork read counts; each kind of paper is one kind
+const noteCount = (S) => noteTotal(S);
+const setNotes = (S, v) => { S.notes = Array.from({ length: v }, (_, q) => ({ id: 'n' + q })); S.papers = []; S.clues = []; };
+const setKinds = (S, v) => {
+  S.notes = []; S.papers = []; S.clues = [];
+  KIND_IDS.forEach((k, q) => { if (q >= v) return; if (k === 'worker') S.notes.push({ id: 'k' }); else if (k === 'paperwork') S.clues.push('Row ledger: the prize lot was shelved between bearing 000° and 100° from Bay 07.'); else S.papers.push({ id: 'zz:' + q, kind: k }); });
+};
+calc('📜', noteCount, setNotes, [['note1', 1, 'First Read', 'Read a note: a worker\'s, a paper or a line of old paperwork.'], ['note10', 10, 'Paper Trail', 'Read {n} notes.'], ['note50', 50, 'Archivist of the Pile', 'Read {n} notes.']]);
+calc('🗂️', (S) => kindsRead(S).size, setKinds, [['notekinds', KIND_IDS.length, 'Every Kind of Paper', 'Read every kind of note: a worker\'s note, shelving log, supervisor\'s memo, map scrap, delivery manifest, inventory ledger, torn photograph, coded message and facility paperwork.']]);
+calc('🧭', (S) => (S.stats.piece5 ? 1 : 0), (S, v) => { S.stats.piece5 = v ? 1 : 0; }, [['piece5', 1, 'Triangulated', 'Piece your notes together until the bearing of The One is known within 5 degrees (a range 10 degrees wide).']]);
 stat('medkits', '🩹', [['medic10', 10, 'Field Nurse', 'Use {n} medkits.'], ['medic100', 100, 'Paramedic', 'Use {n} medkits.']]);
 stat('mfans', '🌀', [['fan10', 10, 'Ventilation Engineer', 'Hang {n} Support Fans.'], ['fan50', 50, 'Wind Tunnel', 'Hang {n} Support Fans.']]);
 stat('turnedFrames', '↪️', [['curve50', 50, 'Winding Road', 'Set {n} frames at a free angle.'], ['curve500', 500, 'Spiral Staircase', 'Set {n} frames at a free angle.']]);
@@ -253,6 +265,7 @@ stat('brokenSupports', '💥', [['buckle10', 10, 'Stress Test', 'Lose {n} suppor
 stat('cartCatch', '🏀', [['cartshot500', 500, 'Hoops', 'Land {n} plush in your cart.'], ['cartshot5k', 5e3, 'Dunk Contest', 'Land {n} plush in your cart.']]);
 stat('slides', '⛰️', [['slide50k', 5e4, 'Scree Slope', 'Set off {n} plush slipping.'], ['slide1m', 1e6, 'Mountain on the Move', 'Set off {n} plush slipping.']]);
 stat('bigSlides', '🏔️', [['bigslide25', 25, 'Avalanche Chaser', 'Set off {n} real slides.'], ['bigslide250', 250, 'Avalanche Magnet', 'Set off {n} real slides.']]);
+stat('climbSlabs', '🛷', [['slab1', 1, 'Sheet Slide', 'Climb too high without the gear and ride a real slab avalanche down the pile (a dozen plush or more must really let go).'], ['slab10', 10, 'Slab Rider', 'Ride {n} climbing avalanches down the pile.']]);
 stat('creaks', '😬', [['creak100', 100, 'Light Sleeper', 'Hear {n} roofs creak.'], ['creak1k', 1e3, 'Haunted Roof', 'Hear {n} roofs creak.']]);
 stat('ropes', '🪢', [['rope1', 1, 'On a Rope', 'Plant a Rope Anchor.'], ['rope25', 25, 'Belay Team', 'Plant {n} Rope Anchors.'], ['rope250', 250, 'Rope Bridge', 'Plant {n} Rope Anchors.']]);
 stat('bulk', '🪧', [['bulk25', 25, 'Wall Builder', 'Build {n} bulkheads.'], ['bulk250', 250, 'Great Wall', 'Build {n} bulkheads.']]);

@@ -16,7 +16,9 @@ export function makeRail(ctx) {
   const isRail = (e) => R.isRailType(e.type);
   const ents = (type) => S().entities.filter((e) => (type ? e.type === type : isRail(e)));
   const carsOf = () => ents('railcar');
+  let rig = null;   // the pole and generator power() built: a station placed afterwards is wired to the pole (power travels only through cables)
   const clean = () => {
+    rig = null;
     try { if (g.ui.isModalOpen()) g.ui.closeModals(); } catch (x) { /* ignore */ }
     g.keys = {}; g.stowed = true; g.dead = false;
     R.reset(g);
@@ -37,17 +39,17 @@ export function makeRail(ctx) {
   // a straight run along +x from cell i0 to i1 (inclusive) at row j, column k
   const line = (i0, i1, j, k) => { const out = []; for (let i = Math.min(i0, i1); i <= Math.max(i0, i1); i++) { const r = lay(i, j, k); if (r.why) throw new Error(`rail at ${i},${j},${k}: ${r.why}`); out.push(r.ent); } return out; };
   const lineZ = (k0, k1, j, i) => { const out = []; for (let k = Math.min(k0, k1); k <= Math.max(k0, k1); k++) { const r = lay(i, j, k); if (r.why) throw new Error(`rail at ${i},${j},${k}: ${r.why}`); out.push(r.ent); } return out; };
-  const station = (i, j, k, role) => { const f = R.buildFields(g, { kind: 'railstn' }, { type: 'railstn', i, j, k }); if (role) f.role = role; const e = g.placeEntity('railstn', f, { quiet: true }); R.invalidate(g); return e; };
+  const station = (i, j, k, role) => { const f = R.buildFields(g, { kind: 'railstn' }, { type: 'railstn', i, j, k }); if (role) f.role = role; const e = g.placeEntity('railstn', f, { quiet: true }); R.invalidate(g); if (rig && g.logi.byId.get(rig.pole.id) === rig.pole) K.wire(rig.pole, e); return e; };
   const cart = (i, j, k) => { const e = g.placeEntity('railcar', R.buildFields(g, { kind: 'railcar' }, { type: 'railcar', i, j, k }), { quiet: true }); R.invalidate(g); return e; };
-  // power: a pole and a burning generator beside the station (the pole carries 1.0 satisfaction), reach shrunk like the power tests do
-  const power = (x, z) => { K.small(); const gen = K.gen(x - 0.9, z); const pole = K.pole(x, z); g.power.markDirty(); adv(0.2); return { gen, pole }; };
+  // power: a pole and a burning generator beside the station (the pole carries 1.0 satisfaction), joined by a cable; every machine in `loads` (a station, a depot) gets its own cable from the pole
+  const power = (x, z, ...loads) => { const gen = K.gen(x - 0.9, z); const pole = K.pole(x, z); K.wire(gen, pole); for (const l of loads) { const r = K.wire(pole, l); if (!r.ok) throw new Error('wiring a load: ' + r.why); } K.wireNear(pole, 12); rig = { gen, pole }; g.power.markDirty(); adv(0.2); return { gen, pole }; };
   // the standard line: a base station by the bin at the east end, a face station at the west end, a cart parked at the face
   const std = (o = {}) => {
     const k = ck(-2.2), j = 0, iBase = ci(1.0), iFace = ci(-24.0);
     const track = line(iFace, iBase, j, k);
     const base = station(iBase, j, k, 'base'), face = station(iFace, j, k, 'face');
     const car = cart(iFace + 1, j, k);
-    if (o.power !== false) power(cellX(iBase), cellZ(k) + 1.0);
+    if (o.power !== false) power(cellX(iBase), cellZ(k) + 1.0, base);
     R.invalidate(g); adv(0.3);
     return { track, base, face, car, k, j, iBase, iFace };
   };
@@ -65,5 +67,5 @@ export function makeRail(ctx) {
   const standNear = (x, z) => { p().pos.set(x, 0, z); p().vel.set(0, 0, 0); };
   const msgs = () => (document.getElementById('hint') ? document.getElementById('hint').textContent : '');
   const sayLog = () => { const log = []; const orig = g.ui.hint; g.ui.hint = (t, s) => { log.push(String(t).replace(/<[^>]*>/g, '')); return orig.call(g.ui, t, s); }; return { log, restore: () => { g.ui.hint = orig; } }; };
-  return { R, K, C, box, clearBox, clean, setup, ents, carsOf, lay, line, lineZ, station, cart, power, std, keyOf, near, until, aimAtCell, equip, standNear, msgs, sayLog, ci, ck };
+  return { R, K, C, box, clearBox, clean, setup, ents, carsOf, lay, line, lineZ, station, cart, power, getRig: () => rig, std, keyOf, near, until, aimAtCell, equip, standNear, msgs, sayLog, ci, ck };
 }

@@ -208,7 +208,7 @@ export function info(g, t) {
   } else {
     lines.push(...outputLines(g, t));
     lines.push(t.mode === 'prio' ? `Order: ${(SR.isPerm(t.prio) ? t.prio : [0, 1, 2]).map((s, q) => `${q + 1} ${SR.SLOT_NAMES[s]}`).join(', ')}, the next only when the better ones are full` : 'Order: round robin between the outputs that take a plush');
-    lines.push(on ? `Draws ${PART_KW[part]} kW. E opens the rules, Shift+E copies them.` : 'Unpowered: it deals out forward, right and left in turn and ignores its rules until a pole reaches it.');
+    lines.push(on ? `Draws ${PART_KW[part]} kW. E opens the rules, Shift+E copies them.` : 'Unpowered: it deals out forward, right and left in turn and ignores its rules until a Power Cable from a live pole or generator reaches it.');
   }
   return { title: `${spec.name.toUpperCase()}${tier ? ' ' + TIER_NAMES[tier].toUpperCase() : ''}`, lit: on, lines };
 }

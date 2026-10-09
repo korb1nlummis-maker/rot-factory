@@ -14,7 +14,7 @@ export const isPart = (type) => type === 'switch' || type === 'breaker' || type 
 
 // ---------- numbers ----------
 export const KW = { switch: 0.05, pswitch: 0.08, breaker: 0.1, battery: 0.1, meter: 0.02 };
-export const BATT_CAP = [0, 36000, 360000, 3600000];      // kJ by mark: Mk1 is 50 Commons (50 x 90 s x 8 kW) or 3 Epics
+export const BATT_CAP = [0, 36000, 360000, 3600000];      // kJ by mark: Mk1 is about 17 Commons (270 s x 8 kW each) or 1 Epic
 export const BATT_NAME = ['', 'Power Storage Mk1', 'Power Storage Mk2', 'Power Storage Mk3'];
 export const BATT_FILL_S = 1800;                           // the charge rate limit is cap / 1800 kW: a flat battery fills in 30 minutes of surplus
 export const TRIP_DEFAULT = { at: 1, delay: 3 };           // trips when demand > rated output x at for longer than delay seconds
@@ -54,11 +54,11 @@ export function partName(e) {
 export const labelOf = (e) => (e.name ? `${partName(e)} "${e.name}"` : partName(e));
 
 // ---------- cable ports ----------
-// How many cables one object takes. Pole range linking is automatic and uses no port. `g` (optional) lets a pole count Grid Range.
-export const PORTS = { gen: 2, pole: 6, switch: 2, battery: 2, breaker: 4, charger: 1, meter: 1, hlamp: 2 };   // hlamp: one cord in and one out, so a line of hanging lanterns chains from a single generator
+// How many cables one object takes (its sockets). Cables are the only links there are. A pole is the hub: it has the most sockets. A machine takes one cable
+// (a belt line takes one in all, see cables.js). `g` is unused (it used to count Grid Range: that upgrade now only lengthens a cable).
+export const PORTS = { gen: 4, pole: 10, switch: 2, battery: 4, breaker: 6, charger: 1, meter: 1, hlamp: 2 };   // hlamp: one cord in and one out, so a string of hanging lanterns hangs from a single node
 export function maxPorts(e, g) {
   if (!e) return 0;
-  if (e.type === 'pole') { const lv = (g && g.S && g.S.up && g.S.up.gridRange) | 0; return 6 + 2 * Math.max(0, lv); }
   if (e.type === 'gen') return genKindOf(e).ports;   // the bigger plants take more cords
   const p = PORTS[e.type];
   return p === undefined ? 1 : p;
@@ -364,7 +364,7 @@ export function hudTick(g, dt) {
 // ---------- alerts (host when it trips, a guest when the row says so) ----------
 export function tripAlert(g, e) {
   try {
-    if (g.sound) { g.sound.thump(0.5, 80); g.sound.tone('square', 240, 60, 0.2, 0.2); g.sound.tone('square', 150, 50, 0.16, 0.14, 0.12); }
+    if (g.sound) { const sv = e && Number.isFinite(e.x + e.z) && g.sound.at ? g.sound.at(e.x, (e.y || 0) + 1, e.z, 'alarm') : g.sound; sv.thump(0.5, 80); sv.tone('square', 240, 60, 0.2, 0.2); sv.tone('square', 150, 50, 0.16, 0.14, 0.12); }   // the breaker trips where it stands: the alarm fades with distance, the hint stays
     if (g.ui && g.ui.hint) g.ui.hint(`<b>GRID TRIPPED</b> at ${labelOf(e)}: fix the demand, then press <kbd>E</kbd> on the breaker.`, 7);
   } catch (x) { /* the alert is only sound and text */ }
 }
@@ -420,14 +420,14 @@ export function openPanel(g, focusId) {
 // every rung (T.genOutput is the base 8 kW and the rung multiplies it; T.genBuffer is the base hopper).
 // ---------------------------------------------------------------------------------------------------
 export const GEN_KINDS = [
-  { key: 'portable', id: 'gen:portable', name: 'Portable Generator', short: 'Portable', mul: 0.25, hop: 0.2, ports: 2, scale: 0.62, glow: 5, price: 120, grow: 1.2, color: 0xb8801c },
-  { key: 'std', id: 'gen', name: 'Generator', short: 'Generator', mul: 1, hop: 1, ports: 2, scale: 1, glow: 8, price: 350, grow: 1.35, color: 0x8a2a1c },
-  { key: 'turbine', id: 'gen:turbine', name: 'Turbine Generator', short: 'Turbine', mul: 6, hop: 2, ports: 3, scale: 1.3, glow: 10, price: 24000, grow: 1.3, color: 0x2f5f86, bit: 1 },
-  { key: 'plant', id: 'gen:plant', name: 'Power Plant', short: 'Plant', mul: 30, hop: 4, ports: 4, scale: 1.65, glow: 12, price: 320000, grow: 1.3, color: 0x4a5a3a, bit: 2 },
+  { key: 'portable', id: 'gen:portable', name: 'Portable Generator', short: 'Portable', mul: 0.25, hop: 1, ports: 2, scale: 0.62, glow: 5, price: 120, grow: 1.2, color: 0xb8801c },
+  { key: 'std', id: 'gen', name: 'Generator', short: 'Generator', mul: 1, hop: 1, ports: 4, scale: 1, glow: 8, price: 350, grow: 1.35, color: 0x8a2a1c },
+  { key: 'turbine', id: 'gen:turbine', name: 'Turbine Generator', short: 'Turbine', mul: 6, hop: 2, ports: 4, scale: 1.3, glow: 10, price: 24000, grow: 1.3, color: 0x2f5f86, bit: 1 },
+  { key: 'plant', id: 'gen:plant', name: 'Power Plant', short: 'Plant', mul: 30, hop: 4, ports: 5, scale: 1.65, glow: 12, price: 320000, grow: 1.3, color: 0x4a5a3a, bit: 2 },
   { key: 'grid', id: 'gen:grid', name: 'Grid Power Station', short: 'Station', mul: 150, hop: 8, ports: 6, scale: 2.0, glow: 14, price: 3600000, grow: 1.3, color: 0x5a4a78, bit: 4 },
   { key: 'titan', id: 'gen:titan', name: 'Titan Plant', short: 'Titan', mul: 800, hop: 16, ports: 8, scale: 2.4, glow: 16, price: 40000000, grow: 1.3, color: 0x7a2f2f, bit: 8 },
 ];
-export const BURN_S_AT_8KW = [90, 240, 600, 1500];   // seconds one Common, Uncommon, Rare and Epic burns at 8 kW (power.js BURN_SECONDS says the same; a test compares them)
+export const BURN_S_AT_8KW = [270, 720, 1800, 4500];   // seconds one Common, Uncommon, Rare and Epic burns at 8 kW (power.js BURN_SECONDS says the same; a test compares them)
 export const GEN_BY_KEY = Object.assign(Object.create(null), Object.fromEntries(GEN_KINDS.map((k) => [k.key, k])));   // no prototype: a key like __proto__ or constructor never resolves to a rung
 export const GEN_STD = GEN_BY_KEY.std;
 export const GEN_BY_ITEM = Object.assign(Object.create(null), Object.fromEntries(GEN_KINDS.map((k) => [k.id, k])));

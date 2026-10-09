@@ -32,7 +32,8 @@ export function kit(ctx) {
   // clear a column of cells (a lift shaft) up to row `top`
   const clearCol = (i0, k0, top, w4 = 4) => { for (let j = 0; j <= top; j++) for (let dz = 0; dz < w4; dz++) for (let dx = 0; dx < w4; dx++) if (w().get(i0 + dx, j, k0 + dz)) poke(i0 + dx, j, k0 + dz, 0, 0); };
   // a pole at (x, z) with `gens` burning generators beside it: everything within the (short) reach of the pole is on a grid
-  const powerAt = (x, z, gens = 2) => { const G = P.grid(x, z, { gens }); g.power.markDirty(); return G; };
+  // (power travels only through cables: the pole is wired to every unwired door, lift and pad within 8 m, one cable each)
+  const powerAt = (x, z, gens = 2, o = {}) => { const G = P.grid(x, z, { gens }); if (o.near !== false) P.wireNear(G.pole, 8); g.power.markDirty(); return G; };   // (o.near false: wire nothing, the test lays its own cables)
   // make a transit ent the plain way (an ent in the world, no bench): returns the live ent
   const make = (type, fields) => { const e = g.placeEntity(type, fields, { quiet: true }); return e; };
   // a door placed straight into a cleared box: ax 'x' spans x (4 wide, 1 thick); returns the live ent. i0 / k0 / j are the min corner cell.
@@ -68,8 +69,9 @@ export function kit(ctx) {
   // (the grid stands at the height of the home stop, so a pole that is 2.6 m away reaches it at the usual 3 m and no machine far below the cab joins it)
   const powerCab = (L0, gens = 2) => {
     const x = L0.px - 2.6, z = L0.pz, G = { x, z, pole: P.tile('pole', x, z, { j: L0.j }), gens: [], fans: [] };
-    for (let n = 0; n < gens; n++) { const t = P.tile('gen', x - 1.2 - n * 0.9, z, { j: L0.j }); t.burn = 1e5; t.burnMax = 1e5; t.lit = true; G.gens.push(t); }
-    g.power.markDirty(); return G;
+    for (let n = 0; n < gens; n++) { const t = P.tile('gen', x - 1.2 - n * 0.9, z, { j: L0.j }); t.burn = 1e5; t.burnMax = 1e5; t.lit = true; G.gens.push(t); P.wire(t, G.pole); }
+    for (const c of g.cables.of(L0.id)) g.cables.remove(c.id, false);   // (a new rig replaces the old cable of this lift: the old pole may be gone or dark)
+    P.wireNear(G.pole, 8); g.power.markDirty(); return G;
   };
   // a slab of pad cells beside a shaft (side 0 east, 1 south, 2 west, 3 north), 3 cells deep and 6 wide, rows 0 .. j-1, so a floor at row j stands next to the car.
   // Returns the cell a call button can stand on: { i, k }.

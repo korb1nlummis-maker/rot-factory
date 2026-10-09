@@ -69,4 +69,31 @@ export default async function (ctx) {
     box.checked = true; box.dispatchEvent(new Event('change')); if (g.S.settings.stressBoxes !== true) bad.push('setting not restored');
     return bad.length === 0 || bad.join('; ');
   });
+  await T('ui.items-come-back-off-the-hotbar-by-button-double-click-right-click-and-drag', async () => {
+    fresh({ timber: 1, power: 1, belts: 1 }); const bad = []; S().items = { 'frame:timber': 3, belt: 10, gen: 1 }; S().hotbar = ['hammer', 'frame:timber', 'belt', 'gen', null, null, null, null, null]; g.rebuildTools(); g.ui.open('inv');
+    const bar = () => [...document.querySelectorAll('#invBar .islot')]; const slots = () => S().hotbar.slice();
+    // 1. the button
+    g.ui.invSel = 'frame:timber'; g.ui.renderInventory(); const pb = document.getElementById('invPutBack'); if (!pb) bad.push('no Put back button'); else { pb.click(); if (S().hotbar.includes('frame:timber')) bad.push('button did not take it off'); }
+    if ((S().items['frame:timber'] || 0) !== 3) bad.push('putting back changed the count');
+    // 2. double click
+    bar()[2].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); if (S().hotbar.includes('belt')) bad.push('double click did not clear');
+    // 3. right click
+    g.ui.renderInventory(); bar()[3].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); if (S().hotbar.includes('gen')) bad.push('right click did not clear');
+    // 4. drag from the bar onto the pack, and a swap between two slots
+    S().hotbar = ['hammer', 'frame:timber', 'belt', null, null, null, null, null, null]; g.rebuildTools(); g.ui.renderInventory();
+    const dt = (data) => ({ getData: (k) => data[k] ?? '', setData() {}, });
+    const grid = document.getElementById('invGrid'); const ev = (type, data) => { const e = new Event(type, { bubbles: true, cancelable: true }); e.dataTransfer = dt(data); return e; };
+    grid.ondrop(ev('drop', { 'text/plain': 'belt', 'application/x-slot': '2' })); if (S().hotbar.includes('belt')) bad.push('dropping on the pack did not put it back');
+    g.ui.renderInventory(); const b2 = bar(); b2[4].ondrop(ev('drop', { 'text/plain': 'frame:timber', 'application/x-slot': '1' })); if (S().hotbar[4] !== 'frame:timber' || S().hotbar[1] === 'frame:timber') bad.push('slot to slot move failed ' + JSON.stringify(slots()));
+    g.ui.closeModals(); return bad.length === 0 || bad.join('; ');
+  });
+  await T('hands.throwing-with-empty-hands-empties-the-cart-next-to-you', async () => {
+    fresh({ cart: 3, bag: 2 }); g.T = g.tune(); g.stowed = true; const st = S(); st.items['cart:1'] = 1; g.useCart(); const c = st.cart; if (!c) return 'no cart'; const bad = [];
+    const P = g.player.pos; c.x = P.x + 1.5; c.z = P.z; c.mode = 'stay'; c.load = []; for (let q = 0; q < 6; q++) c.load.push({ sp: 3, vr: 0 }); st.carry = []; g.curTargetRef = null; g.throwCd = 0; g.keys.KeyG = false;
+    const n0 = g.sim.n; g.gPress(); if (c.load.length !== 5) bad.push('one click did not throw from the cart: ' + c.load.length); if (g.sim.n <= n0) bad.push('no plush flew');
+    const cam = g.renderer.camera; const f = new cam.position.constructor(); g.player.forward(f); g.keys.KeyG = true; for (let n = 0; n < 24; n++) { g.time += 0.05; g.throwCd -= 0.05; g.interact(0.05, cam.position, f); } g.keys.KeyG = false; g.interact(0.05, cam.position, f);
+    if (c.load.length > 1) bad.push('holding did not empty the cart: ' + c.load.length + ' left');
+    c.x = P.x + 12; c.load.push({ sp: 3, vr: 0 }, { sp: 3, vr: 0 }); g.throwCd = 0; const k = c.load.length; g.gPress(); if (c.load.length !== k) bad.push('threw from a cart 12 m away');
+    return bad.length === 0 || bad.join('; ');
+  });
 }

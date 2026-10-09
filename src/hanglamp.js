@@ -1,6 +1,6 @@
 // Powered hanging lanterns. A lantern clips under the top beam of a support frame, like the Support Fan (mountfan.js): the mount
 // point is the frame's cx, cz and the top of its beam (y0 + h), and nothing else about the frame matters, so it works for any frame size.
-// It draws 1.6 kW (one 8 kW Generator runs five), is wired with the Power Cable chain (generator, then lantern to lantern), dims with its
+// It draws 1.6 kW (one 8 kW Generator runs five), is wired with Power Cables (a string: pole or generator, then lantern to lantern; the string must end on a node), dims with its
 // grid in a brownout and lights the plush around it through game.glowSources().
 //
 // A lantern is a machine ent (game.machines.items): { type:'hlamp', frameId, slot 0..3, x, y, z, h, hr, on, pw, cache }.
@@ -9,20 +9,21 @@
 // No game imports: power.js, catalog_power.js and game.js use this file.
 import * as THREE from 'three';
 import { cacheOf, genKindOf, partName } from './powerparts.js';
+import { makeHalo, haloFade } from './lanternlight.js';   // the soft halo and its distance fade (no game imports there either)
 
 export const LAMP_KW = 1.6;            // kW each, lit; a switched-off lantern draws nothing
 export const LAMP_H = 0.4;             // body height (m)
 export const LAMP_HANG = 0.5;          // the bottom of the body hangs this far below the top of the frame (a standing player's head clears it in a 2.4 m frame)
 export const LAMP_SIDE = 0.5;          // metres from the middle of the frame to a lantern
-export const LAMP_RANGE = 11;          // light radius on the plush (m)
-export const LAMP_COLOR = [2.3, 1.9, 1.15];
+export const LAMP_RANGE = 15;          // light radius on the plush (m): a lit room, a faint glow at the edge (the plush shader's falloff, shaders.js)
+export const LAMP_COLOR = [3.2, 2.5, 1.25];
 export const LAMP_PRICE = 300;         // bench price before the K = 3 multiplier
 export const LAMP_MAX_PER_SOURCE = 5;  // one 8 kW Generator carries this many (8 / 1.6)
 const SLOT = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 
 export const lampsOf = (g) => { const out = []; for (const it of g.machines.items.values()) if (it.ent.type === 'hlamp') out.push(it.ent); return out; };
 export const topOf = (f) => f.y0 + f.h;
-export const lampLevel = (e) => (e.on === false ? 0 : Math.max(0, Math.min(1, e.pw ?? 0)));
+export const lampLevel = (e) => (e.on === false || !Number.isFinite(e.pw ?? 0) ? 0 : Math.max(0, Math.min(1, e.pw ?? 0)));   // (a NaN level from a glitch is dark, never a NaN colour in the shader)
 export const lampCenterY = (e) => e.y + LAMP_H / 2;
 
 // the fields of the lantern that hangs from frame f in `slot` (the host builds them itself: a guest only says which frame and which side)
@@ -80,6 +81,7 @@ export function buildLamp(e, ghostOk) {
   const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.1, 5), dark); chain.position.y = 0.24;
   const plate = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.1), steel); plate.position.y = 0.295;
   grp.add(cap, base, bulb, chain, plate);
+  if (ghostOk === undefined) grp.add(makeHalo([1, 0.66, 0.3], 0.7));   // a soft halo so a lit lantern reads from across a tunnel; it follows the level and fades up close
   for (let q = 0; q < 4; q++) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 4), steel); bar.position.set(Math.cos(q * Math.PI / 2) * 0.1, 0, Math.sin(q * Math.PI / 2) * 0.1); grp.add(bar); }
   grp.position.set(e.x, lampCenterY(e), e.z);
   if (ghostOk !== undefined) {
@@ -91,11 +93,12 @@ export function buildLamp(e, ghostOk) {
 export const ghostLamp = (e, ok) => buildLamp(e, ok);
 
 // how bright the glass looks for a given level 0..1 (dim in a brownout)
-export function paint(obj, lvl) {
+export function paint(obj, lvl, cam) {
   const glass = obj && obj.getObjectByName && obj.getObjectByName('glass'); if (!glass) return;
+  const halo = obj.getObjectByName('halo'); if (halo) haloFade(halo, cam && cam.distanceTo ? cam.distanceTo(obj.position) : 6, lvl);
   const m = glass.material, k = Math.round(lvl * 40) / 40;
   if (m.userData.k === k) return; m.userData.k = k;
-  m.emissiveIntensity = k * 2.6; m.color.setRGB(0.22 + 0.55 * k, 0.21 + 0.45 * k, 0.17 + 0.2 * k);
+  m.emissiveIntensity = k * 1.35; m.color.setRGB(0.22 + 0.55 * k, 0.21 + 0.45 * k, 0.17 + 0.2 * k);   // modest glass: under the bloom threshold, it never flares to a white blob
 }
 
 // ---------------------------------------------------------------- light on the plush: game.glowSources() asks for the nearest lit lanterns
@@ -105,7 +108,7 @@ export function lampSources(g, camPos, n, out) {
   for (const e of lampsOf(g)) {
     const lvl = lampLevel(e); if (lvl <= 0.05) continue;
     const y = lampCenterY(e), d = (e.x - camPos.x) ** 2 + (y - camPos.y) ** 2 + (e.z - camPos.z) ** 2;
-    if (d < 40 * 40) cand.push({ x: e.x, y, z: e.z, r: LAMP_RANGE, cr: LAMP_COLOR[0] * lvl, cg: LAMP_COLOR[1] * lvl, cb: LAMP_COLOR[2] * lvl, d });
+    if (d < 40 * 40) cand.push({ x: e.x, y, z: e.z, r: LAMP_RANGE, cr: LAMP_COLOR[0] * lvl, cg: LAMP_COLOR[1] * lvl, cb: LAMP_COLOR[2] * lvl, d, key: 'h' + e.id, real: true });
   }
   cand.sort((a, b) => a.d - b.d);
   for (const c of cand) { if (n-- <= 0) break; out.push({ ...c, d: -1 }); }
@@ -118,7 +121,7 @@ export function tick(g, dt, guest) {
   accum += dt; if (accum < 0.08) return; const step = accum; accum = 0;
   for (const it of g.machines.items.values()) {
     const e = it.ent; if (e.type !== 'hlamp') continue;
-    paint(it.obj, lampLevel(e));
+    paint(it.obj, lampLevel(e), g.renderer && g.renderer.camera ? g.renderer.camera.position : null);
     if (guest) continue;
     const c = cacheOf(e);
     if (g.machines.items.has(e.frameId)) { c.gone = 0; continue; }
@@ -176,13 +179,13 @@ export function info(g, e) {
   const on = e.on !== false, pw = e.pw ?? 0;
   const state = !on ? 'SWITCHED OFF' : pw <= 0.05 ? 'DARK' : pw < 0.99 ? `DIM ${Math.round(lvl * 100)}%` : 'LIT';
   if (!on) lines.push('Switched off: it draws no power. E switches it on.');
-  else if (pw <= 0.05) lines.push(c.tr ? 'No light: the grid is tripped.' : 'No light: no power reaches it. Wire a Power Cable from a generator or from the lantern before it in the line.');
+  else if (pw <= 0.05) lines.push(c.tr ? 'No light: the grid is tripped.' : 'No light: no power reaches it. Wire a Power Cable from a live pole or generator, or from the lantern before it in the string.');
   else if (pw < 0.99) lines.push(`Dimmed to ${Math.round(lvl * 100)}%: the grid supplies ${(c.sup ?? 0).toFixed(1)} of ${(c.dem ?? 0).toFixed(1)} kW wanted (a brownout dims the whole line).`);
   else lines.push('Burning at full brightness.');
   lines.push(`Load ${on ? LAMP_KW.toFixed(1) : '0.0'} kW (a lantern draws ${LAMP_KW.toFixed(1)} kW)`);
   const line = traceLine(g, e), n = line.lamps.length, lit = line.lamps.filter((q) => q.on !== false).length;
   if (line.src) lines.push(`Source: ${nameOf(line.src)}${line.hops > 1 ? `, through ${line.hops - 1} other lantern${line.hops > 2 ? 's' : ''}` : ''}`);
-  else lines.push(pw > 0.05 ? 'Source: the nearest pole or generator in reach' : 'Source: none wired yet');
+  else lines.push('Source: none wired yet: run a Power Cable from a live pole or generator to it');
   if (n > 1 || line.src) lines.push(`${n} lantern${n === 1 ? '' : 's'} on this line draw ${(lit * LAMP_KW).toFixed(1)} kW`);
   if (c.cap > 0) lines.push(`Grid ${(c.sup ?? 0).toFixed(1)} kW supplied, ${(c.dem ?? 0).toFixed(1)} kW wanted, ${c.cap.toFixed(1)} kW rated`);
   return { title: `HANGING LANTERN · ${state}`, lit: on && pw > 0.05, lines };

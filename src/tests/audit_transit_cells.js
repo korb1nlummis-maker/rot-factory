@@ -90,19 +90,19 @@ export default async function (ctx) {
   });
 
   // a cable beats the pole's reach: a door 8 m up, a car and a pad out of the pole's range all run on a wire, at full speed, and the wire goes (and comes back) with the thing
-  await guard('transit.audit.cables-power-a-door-a-lift-and-a-pad-out-of-reach', async () => {
+  await guard('transit.audit.cables-power-a-door-a-lift-and-a-pad-and-nothing-without-one', async () => {
     X.setup(); const bad = [], i0 = I0(), k0 = K0(); S().items.cable = 20;
     for (let j = 12; j < 20; j++) for (let dz = -1; dz < 5; dz++) for (let dx = -1; dx < 5; dx++) { const a = w().get(i0 + dx, j, k0 + dz); if (a) w().removeCell(i0 + dx, j, k0 + dz, false); }
-    const G = X.powerAt(ctx.cellX(i0) - 2.0, ctx.cellZ(k0) - 4.0, 3), D = X.door(i0, k0, { j: 14, auto: false }), Lf = X.lift(i0 + 12, k0 + 6, { home: 12, depth: 6, top: 18 }), J = X.jump(i0 + 20, k0 + 6, { ang: 45, hd: 0 });
-    p().pos.set(D.px, 0, D.pz - 14); adv(0.7);
-    for (const e of [D, Lf, J]) if ((e.pw ?? 0) > 0.05) bad.push(e.type + ' has power with no pole in reach: ' + e.pw);
+    const G = X.powerAt(ctx.cellX(i0 + 6), ctx.cellZ(k0) - 4.0, 3, { near: false }), D = X.door(i0, k0, { j: 14, auto: false }), Lf = X.lift(i0 + 8, k0 + 6, { home: 12, depth: 6, top: 18 }), J = X.jump(i0 + 12, k0 + 6, { ang: 45, hd: 0 });
+    p().pos.set(D.px, 0, D.pz - 14); adv(0.7); const base = g.cables.list().length;   // (the three generators are wired to the pole: those cables stay)
+    for (const e of [D, Lf, J]) if ((e.pw ?? 0) > 0.05) bad.push(e.type + ' has power beside a live pole with no cable: ' + e.pw);
     for (const e of [D, Lf, J]) { const r = g.cables.connect(G.pole.id, e.id); if (!r.ok) bad.push(`the cable to the ${e.type} was refused: ${r.why}`); }
     adv(0.7); for (const e of [D, Lf, J]) if (!((e.pw ?? 0) > 0.99)) bad.push(`the wired ${e.type} has pw ${e.pw}`);
     g.setCfg(D, { tgt: 1 }); adv(0.5); if (D.crank || !D.draw || !(D.p > 0.4 && D.p < 0.7)) bad.push(`the wired door is not running on power: p ${D.p} crank ${D.crank} draw ${D.draw}`);
     adv(1.0); if (!X.openCells(D)) bad.push('the wired door did not open');
-    const n0 = g.cables.list().length; if (n0 !== 3) bad.push(n0 + ' cables, want 3');
+    const n0 = g.cables.list().length - base; if (n0 !== 3) bad.push(n0 + ' machine cables, want 3');
     const c0 = S().items.cable; X.decon(D); X.decon(Lf); X.decon(J);
-    if (g.cables.list().length !== 0) bad.push('a cable was left hanging after its machine went: ' + g.cables.list().length); if ((S().items.cable || 0) !== c0 + 3) bad.push(`the cables did not come back: ${c0} -> ${S().items.cable}`);
+    if (g.cables.list().length !== base) bad.push('a cable was left hanging after its machine went: ' + (g.cables.list().length - base)); if ((S().items.cable || 0) !== c0 + 3) bad.push(`the cables did not come back: ${c0} -> ${S().items.cable}`);
     return bad.length === 0 || bad.join(' || ');
   });
 }

@@ -317,6 +317,19 @@ export class World {
       }
     }
   }
+  // the same edits as forEachDiff, as arrays of [idx, sp, vr, ...] of at most `max` numbers: a late joiner is sent a few slices a frame (netgame.js)
+  *diffSlices(max = 3000) {
+    let buf = [];
+    for (const [key, d] of this.diffCols) {
+      const cx = key % NCX, cz = Math.floor(key / NCX);
+      for (const [b, [sp, vr]] of d) {
+        const li = b & 15, lk = (b >> 4) & 15, j = b >> 8;
+        buf.push(((j * NZ) + (cz * 16 + lk)) * NX + (cx * 16 + li), sp, vr);
+        if (buf.length >= max) { yield buf; buf = []; }
+      }
+    }
+    if (buf.length) yield buf;
+  }
   restoreDiff(i, j, k, sp, vr) {
     const key = this.colKey(i >> 4, k >> 4);
     const b = ((j * 16) + (k & 15)) * 16 + (i & 15);

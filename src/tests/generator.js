@@ -19,8 +19,8 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
   await T('power.a-plush-really-burns-for-its-whole-time-and-then-the-grid-goes-dark', async () => {
-    const gen = await mkGen(); gen.q.push({ sp: sp(0), vr: 0 }); run(gen, 0.2); const lit1 = g.power.genOutput(gen) > 0; run(gen, 85); const lit2 = gen.burn > 0 && g.power.genOutput(gen) > 0; run(gen, 6); const dark = !(gen.burn > 0) && gen.cur === null && g.power.genOutput(gen) === 0;
-    return (lit1 && lit2 && dark) || `lit at start ${lit1}, still lit at 85 s ${lit2}, out after 91 s ${dark}`;
+    const gen = await mkGen(); gen.q.push({ sp: sp(0), vr: 0 }); run(gen, 0.2); const lit1 = g.power.genOutput(gen) > 0; run(gen, 265); const lit2 = gen.burn > 0 && g.power.genOutput(gen) > 0; run(gen, 6); const dark = !(gen.burn > 0) && gen.cur === null && g.power.genOutput(gen) === 0;
+    return (lit1 && lit2 && dark) || `lit at start ${lit1}, still lit at 265 s ${lit2}, out after 271 s ${dark}`;
   });
   await T('power.legendary-and-mythic-are-too-valuable-to-burn', async () => {
     const gen = await mkGen(); const a = g.logi.accept(gen, { sp: sp(4), vr: 0 }, null), b = g.logi.accept(gen, { sp: sp(5), vr: 0 }, null), c = g.logi.accept(gen, { sp: sp(3), vr: 0 }, null);
@@ -40,7 +40,7 @@ export default async function (ctx) {
   await T('power.hover-readout-names-the-burning-plush-the-rate-and-the-hopper', async () => {
     const gen = await mkGen({ genBuffer: 1 }); g.T = g.tune(); gen.q.push({ sp: sp(2), vr: 0 }, { sp: sp(0), vr: 0 }, { sp: sp(3), vr: 0 }); run(gen, 5);
     const info = g.genInfo(gen); const t = info.lines.join('\n'); const cur = species[gen.cur.sp];
-    const bad = []; if (!info.lit) bad.push('not lit'); if (!t.includes(cur.name) || !t.includes('Rare')) bad.push('burning plush not named'); if (!/left of 10 min/.test(t)) bad.push('time left/total'); if (!/Output 8\.0 kW/.test(t)) bad.push('output'); if (!/Common \(1 plush per 1 min 30 s|1 min 30 s \(Common\)/.test(t)) bad.push('rate per rarity: ' + t); if (!/Hopper 2\/100: 1 Common, 1 Epic/.test(t)) bad.push('hopper: ' + t.split('\n')[3]); if (!/too valuable/.test(t)) bad.push('rule line');
+    const bad = []; if (!info.lit) bad.push('not lit'); if (!t.includes(cur.name) || !t.includes('Rare')) bad.push('burning plush not named'); if (!/left of 30 min/.test(t)) bad.push('time left/total'); if (!/Output 8\.0 kW/.test(t)) bad.push('output'); if (!/Per plush: Common 4 min 30 s, Uncommon 12 min 0 s, Rare 30 min 0 s, Epic 1 h 15 min/.test(t)) bad.push('rate per rarity: ' + t); if (!/Hopper 2\/100: 1 Common, 1 Epic/.test(t)) bad.push('hopper: ' + t.split('\n')[3]); if (!/too valuable/.test(t)) bad.push('rule line');
     return bad.length === 0 || bad.join(' | ');
   });
   await T('power.aiming-at-a-generator-shows-the-readout-on-screen', async () => {

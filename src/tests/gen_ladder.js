@@ -28,7 +28,7 @@ export default async function (ctx) {
     if (out.portable !== 2 || out.std !== 8 || out.turbine !== 48 || out.plant !== 240 || out.grid !== 1200 || out.titan !== 6400) bad.push('output ' + JSON.stringify(out));
     if (PP.genKw(g.T, {}) !== 8 || PP.genKw(g.T, { gk: 'nope' }) !== 8 || PP.genKw(g.T, { gk: 'std' }) !== 8) bad.push('an old or unknown generator is not 8 kW');
     const hop = Object.fromEntries(ks.map((k) => [k.key, PP.genHopper(g.T, { gk: k.key })]));
-    if (hop.portable !== 10 || hop.std !== 50 || hop.turbine !== 100 || hop.plant !== 200 || hop.grid !== 400 || hop.titan !== 800) bad.push('hopper ' + JSON.stringify(hop));
+    if (hop.portable !== 50 || hop.std !== 50 || hop.turbine !== 100 || hop.plant !== 200 || hop.grid !== 400 || hop.titan !== 800) bad.push('hopper ' + JSON.stringify(hop));
     if (PP.GEN_STD.price !== 350 || PP.GEN_STD.grow !== 1.35) bad.push('the ordinary generator price changed');
     return bad.length === 0 || bad.join('; ');
   });
@@ -68,7 +68,7 @@ export default async function (ctx) {
       if (r.kind !== 'gen' || r.name !== k.name || !/Common lasts/.test(r.desc) || !/Power Cable/.test(r.desc) || !/hopper of \d+ plush/.test(r.desc) || !/hold|feed|belt|throw/i.test(r.use) || !/placed/.test(r.status)) bad.push(k.id + ' row: ' + JSON.stringify([r.kind, r.name, r.desc.slice(0, 40), r.use.slice(0, 20), r.status]));
       if (/\u2014/.test(r.desc + r.use + r.status)) bad.push(k.id + ' has an em dash');
     }
-    g.T.genOutput = 8; const port = recipes(g).find((q) => q.id === 'gen:portable'); if (!/2\.0 kW/.test(port.desc) || !/a quarter of/.test(port.desc) || !/6 min/.test(port.desc) || !/Common lasts 6 min 0 s|Common lasts 6 min/.test(port.desc)) bad.push('portable desc ' + port.desc);
+    g.T.genOutput = 8; const port = recipes(g).find((q) => q.id === 'gen:portable'); if (!/2\.0 kW/.test(port.desc) || !/a quarter of/.test(port.desc) || !/18 min/.test(port.desc) || !/Common lasts 18 min 0 s|Common lasts 18 min/.test(port.desc)) bad.push('portable desc ' + port.desc);
     return bad.length === 0 || bad.join(' | ');
   });
 
@@ -94,7 +94,7 @@ export default async function (ctx) {
   await T('gen.supply-and-rated-cap-use-the-rungs-output', async () => {
     const bad = [];
     for (const key of KEYS) {
-      K.reset(FULL); g.T.genOutput = BASE; g.T.poleLink = 14; g.T.poleReach = 7;
+      K.reset(FULL); g.T.genOutput = BASE;
       const t = gen(key, -12, 3, { burn: 1e5, burnMax: 1e5, lit: true }); const pole = K.pole(-12, 4.4); void pole;
       adv(1); const net = K.netOf(t), kw = PP.genKw(g.T, t);
       if (!net || Math.abs(net.supply - kw) > 1e-6 || Math.abs(net.cap - kw) > 1e-6 || g.power.genOutput(t) !== kw) bad.push(`${key}: supply ${net && net.supply} cap ${net && net.cap} want ${kw}`);
@@ -156,7 +156,7 @@ export default async function (ctx) {
       if (!txt.includes(cur.name) || !txt.includes('Rare')) bad.push(`${key}: burning plush not named`);
       const outTxt = kw < 1000 ? kw.toFixed(1) + ' kW' : PP.kwText(kw); if (!txt.includes('Output ' + outTxt)) bad.push(`${key}: output "${outTxt}" not in ${txt.split('\n')[1]}`);
       if (!new RegExp(`Hopper 2/${PP.genHopper(g.T, t)}: 1 Common, 1 Epic`).test(txt)) bad.push(`${key}: hopper line`);
-      const rate = PP.secText(burnTime(0, kw)); if (!txt.includes(rate + ' (Common)')) bad.push(`${key}: Common rate "${rate}" missing: ${txt.split('\n')[2]}`);
+      const rate = PP.secText(burnTime(0, kw)); if (!txt.includes('Common ' + rate)) bad.push(`${key}: Common rate "${rate}" missing: ${txt.split('\n')[2]}`);   // 'Per plush: Common 1 min 30 s, Uncommon ...'
       const left = Math.max(0, t.burn); if (!new RegExp('left of ' + PP.secText(t.burnMax).replace(/\./g, '\\.')).test(txt) || left <= 0) bad.push(`${key}: time left`);
       if (!/runs /.test(txt)) bad.push(key + ': no total run time');
       if (key !== 'std' && !new RegExp(`takes ${k.ports} cables`).test(txt)) bad.push(key + ': cable count');
@@ -205,7 +205,7 @@ export default async function (ctx) {
   await T('gen.cable-ports-grow-with-the-rung', async () => {
     const bad = [];
     for (const key of KEYS) {
-      K.reset(FULL); g.T.poleLink = 4; g.T.poleReach = 3; const t = gen(key, -12, 3), lim = PP.GEN_BY_KEY[key].ports;
+      K.reset(FULL); const t = gen(key, -12, 3), lim = PP.GEN_BY_KEY[key].ports;
       if (PP.maxPorts(t, g) !== lim) bad.push(`${key}: maxPorts ${PP.maxPorts(t, g)} want ${lim}`);
       let ok = 0, refused = '';
       for (let n = 0; n < lim + 1; n++) { const f = K.fan(-12 + (n % 4) * 0.7, 6 + Math.floor(n / 4) * 0.7); const r = K.wire(t, f); if (r.ok) ok++; else refused = r.why; }
@@ -230,7 +230,7 @@ export default async function (ctx) {
 
   await T('gen.old-saves-and-bad-keys-stay-the-ordinary-generator', async () => {
     K.reset(FULL); const a = gen('std'), b = K.tile('gen', -9, 3, { gk: 'bogus' }), c = K.tile('gen', -7, 3, { gk: '__proto__' }), d = K.tile('gen', -5, 3, { gk: 'constructor' });
-    for (const t of [a, b, c, d]) { if (PP.genKindOf(t).key !== 'std' || PP.genKw(g.T, t) !== g.T.genOutput || PP.genHopper(g.T, t) !== g.T.genBuffer || PP.maxPorts(t, g) !== 2) return 'an odd key changed a generator: ' + t.gk; }
+    for (const t of [a, b, c, d]) { if (PP.genKindOf(t).key !== 'std' || PP.genKw(g.T, t) !== g.T.genOutput || PP.genHopper(g.T, t) !== g.T.genBuffer || PP.maxPorts(t, g) !== PP.GEN_STD.ports) return 'an odd key changed a generator: ' + t.gk; }
     return true;
   });
 

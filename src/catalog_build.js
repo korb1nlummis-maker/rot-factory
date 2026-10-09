@@ -51,7 +51,7 @@ export const RECIPES = (g) => {
   }
   if (T.shellLevel) out.push({ id: 'levelpad', kind: 'levelpad', p: { mk: bk }, icon: '🏗️', name: 'Leveling Pad', short: 'Leveler', price: B.LEVEL_PRICE, batch: [1, 1, 1],
     desc: 'A machine that digs out a box of plush in front of it and floors it with pads, one 4 x 4 slot at a time. Draws 15 kW and pays for each pad it lays.',
-    use: 'Set it on open floor facing the area (it needs a pole or generator within reach). - and = choose the size, 1 to 3 pads on a side. E starts and stops it. It skips slots with a machine, a wall or The One in them and never digs out The One.',
+    use: 'Set it on open floor facing the area (it needs a Power Cable from a live pole or generator). - and = choose the size, 1 to 3 pads on a side. E starts and stops it. It skips slots with a machine, a wall or The One in them and never digs out The One.',
     statusFn: (gg) => `${count(gg, 'levelpad')} placed.` });
   return out;
 };

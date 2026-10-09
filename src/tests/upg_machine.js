@@ -22,7 +22,7 @@ export default async function (ctx) {
   const withReq = (u, extra = {}) => { const up = { ...extra }; if (u.req) up[u.req.id] = Math.max(up[u.req.id] || 0, u.req.lvl); return up; };
 
   await T('upg.machine.catalog-costs-and-requirements-are-sane', async () => {
-    { const own = MU.filter((u) => !CATALOG_IDS.has(u.id)); if (own.length !== 61) return 'expected 61 machine upgrades, found ' + own.length; }   // 33, the 9 endgame perks counted among them, plus 28 added later (earth movers and top levels, see levels_machine.js); catalog_*.js parts are counted by their own tests
+    { const own = MU.filter((u) => !CATALOG_IDS.has(u.id)); if (own.length !== 62) return 'expected 62 machine upgrades, found ' + own.length; }   // 33, the 9 endgame perks counted among them, plus 28 added later (earth movers and top levels, see levels_machine.js); catalog_*.js parts are counted by their own tests
     for (const u of MU) {
       if (u.cost.length !== u.max) return `${u.id}: ${u.cost.length} costs for max ${u.max}`;
       for (let l = 0; l < u.max; l++) { if (!(u.cost[l] > 0) || !Number.isInteger(u.cost[l])) return `${u.id}: bad cost ${u.cost[l]} at ${l}`; if (l && u.cost[l] <= u.cost[l - 1]) return `${u.id}: cost not rising at level ${l + 1}`; }
@@ -170,6 +170,7 @@ export default async function (ctx) {
       const gen = mk('gen', i0, 0, k0), pole = mk('pole', i0 + 2, 0, k0);
       const mechs = []; for (let n = 0; n < 8; n++) mechs.push(mk('mech', i0 + 3 + n, 0, k0 + 1, { dir: 0, off: true }));
       gen.q.push({ sp: spOf(0), vr: 0 });
+      S().items.cable = 20; g.cables.connect(gen.id, pole.id); for (const m of mechs) g.cables.connect(pole.id, m.id);   // generator to pole, pole to each mech
       g.power.update(0.01); g.power.update(0.01); g.power.recompute();
       const net = g.power.nets[0]; if (!net) return `L${l}: no net`;
       if (!near(net.cap, out, 1e-9) || !near(net.supply, out, 1e-9)) return `L${l}: grid cap ${net.cap} supply ${net.supply}, expected ${out}`;
@@ -195,28 +196,17 @@ export default async function (ctx) {
     return true;
   });
 
-  await T('upg.machine.grid-range-reach-and-link-per-level', async () => {
+  await T('upg.machine.grid-range-cable-length-per-level', async () => {
     for (let l = 0; l <= 4; l++) {
       fresh({ power: 1, belts: 1, gridRange: l });
-      const reach = 7 + 1.5 * l, link = 14 + 4 * l;
-      if (!near(g.T.poleReach, reach, 1e-9) || !near(g.T.poleLink, link, 1e-9)) return `L${l}: reach ${g.T.poleReach} link ${g.T.poleLink}`;
-      // reach: a belt just inside / just outside a pole's reach (generator sits on the far side so it never feeds the belts)
-      const i0 = I0(), k0 = K0() - 5; const nIn = Math.floor(reach / 0.6);
-      const gen = mk('gen', i0 - 1, 0, k0, { burn: 500, lit: true }); const pole = mk('pole', i0, 0, k0);
-      const bIn = mk('belt', i0 + nIn, 0, k0, { dir: 0 }), bOut = mk('belt', i0 + nIn + 1, 0, k0, { dir: 0 });
-      g.power.recompute();
-      if (!(bIn.pw > 0)) return `L${l}: belt ${nIn * 0.6}m from the pole not powered (reach ${reach})`;
-      if (bOut.pw > 0) return `L${l}: belt ${(nIn + 1) * 0.6}m from the pole powered (reach ${reach})`;
-      // link: a second pole just inside / just outside link range of the first one
-      fresh({ power: 1, belts: 1, gridRange: l });
-      const nl = Math.floor(link / 0.6); const a = I0(), b = a + nl;
-      const g2 = mk('gen', a, 0, k0, { burn: 500, lit: true });
-      const pIn = mk('pole', b, 0, k0), cIn = mk('belt', b, 0, k0 + 1, { dir: 0 });
-      const pOut = mk('pole', a - nl - 1, 0, k0), cOut = mk('belt', a - nl - 1, 0, k0 + 1, { dir: 0 });
-      g.power.recompute();
-      if (!(cIn.pw > 0)) return `L${l}: pole ${nl * 0.6}m from the generator did not link (link ${link})`;
-      if (cOut.pw > 0) return `L${l}: pole ${(nl + 1) * 0.6}m from the generator linked (link ${link})`;
-      void g2; void pIn; void pOut; void pole; void gen;
+      const len = 14 + 4 * l;
+      if (!near(g.T.cableLen, len, 1e-9) || g.T.poleLink !== undefined || g.T.poleReach !== undefined) return `L${l}: cableLen ${g.T.cableLen}, expected ${len}; range numbers ${g.T.poleLink} ${g.T.poleReach}`;
+      // a cable between two poles just inside / just outside the length
+      const i0 = I0(), k0 = K0() - 5, nIn = Math.floor(len / 0.6) - 1;   // (the cells are 0.6 m apart: the attach points are level, so n cells is n x 0.6 m)
+      const a = mk('pole', i0, 0, k0), pIn = mk('pole', i0 + nIn, 0, k0), pOut = mk('pole', i0 + nIn + 3, 0, k0);
+      S().items.cable = 4; const rIn = g.cables.connect(a.id, pIn.id), rOut = g.cables.connect(a.id, pOut.id);
+      if (!rIn.ok) return `L${l}: a ${(nIn * 0.6).toFixed(1)} m cable was refused (cableLen ${len}): ${rIn.why}`;
+      if (rOut.ok) return `L${l}: a ${((nIn + 3) * 0.6).toFixed(1)} m cable was accepted (cableLen ${len})`;
     }
     return true;
   });
@@ -361,7 +351,7 @@ export default async function (ctx) {
   await T('upg.machine.rig-limit-follows-more-rigs', () => limitProbe('rig', 'planRig',
     () => ({ ok: true, ent: { x: cellX(toI(0)), y: 0, z: cellZ(toK(-3)), i: toI(0), j: 0, k: toK(-3) } }),
     (n) => ({ id: g.nextId(), type: 'claw', x: cellX(toI(-8) + 3 * n), y: 0, z: cellZ(toK(-6)), ry: 0 }),
-    'claw', (l) => ({ power: 1, claw: 1, rigCount: l }), (l) => 2 + 2 * l, 5));
+    'claw', (l) => ({ power: 1, claw: 1, rigCount: l }), (l) => 4 + 5 * l, 10));
 
   await T('upg.machine.borer-limit-follows-borer-fleet', () => limitProbe('borer', 'planBorer',
     () => ({ ok: true, ent: { i: toI(0), j: 0, k: toK(-3), dx: 1, dz: 0, w: g.T.borerW, h: g.T.borerH, x: cellX(toI(0)), y: 0, z: cellZ(toK(-3)) } }),

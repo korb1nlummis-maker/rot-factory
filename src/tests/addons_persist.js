@@ -78,6 +78,7 @@ export default async function (ctx) {
     S().money = 1e13; g.craftItem('cart:3', 1); K.equip('cart:3'); g.useTool(g.curTool()); S().cart.load.push({ sp: 3, vr: 0 }, { sp: 8, vr: 1 });
     for (const id of ['strut', 'jack', 'medkit', 'canister', 'lantern']) g.craftItem(id, 3); g.craftItem('mat:steel', 25); g.craftItem('mat:timber', 10);
     S().hotbar = ['hammer', 'strut', 'jack', 'medkit', 'lantern', null, null, null, 'canister']; g.rebuildTools(); S().stats.built = 77; S().gear = { helmet: 1 };
+    { const gT = tiles().find((t) => t.type === 'gen'), pT = tiles().find((t) => t.type === 'pole'); K.wire(gT, pT); }   // the base is wired: generator to pole
     const a = K.snapshot(); const n = a && Object.keys(a.ents).length; const size = await saveAndLoad(); const b = K.snapshot();
     const d = K.diffSnap(a, b); if (d.length) bad.push(`${d.length} differences: ` + d.slice(0, 5).join(' | '));
     if (Object.keys(b.ents).length !== n) bad.push(`entity count ${n} -> ${Object.keys(b.ents).length}`);
@@ -85,7 +86,7 @@ export default async function (ctx) {
     if (JSON.stringify(S().hotbar) !== JSON.stringify(['hammer', 'strut', 'jack', 'medkit', 'lantern', null, null, null, 'canister'])) bad.push('hotbar changed: ' + JSON.stringify(S().hotbar));
     if (S().mats.steel !== 25 || S().mats.timber !== 10 || S().items.strut !== 3) bad.push('pack changed ' + JSON.stringify([S().mats, S().items.strut]));
     // the loaded base still runs: the generator powers its pole, the belts draw
-    const gen = tiles().find((t) => t.type === 'gen'), pole = tiles().find((t) => t.type === 'pole'); adv(2); if (!(gen.q.length > 0 || gen.burn > 0) || !(pole.pw > 0.3)) bad.push(`loaded grid is dead: fuel ${gen.q.length} burn ${gen.burn} pole ${pole.pw}`);
+    const gen = tiles().find((t) => t.type === 'gen'), pole = tiles().find((t) => t.type === 'pole'); adv(2); if (!(gen.q.length > 0 || gen.burn > 0) || !(pole.pw > 0.3) || S().cables.length !== 1) bad.push(`loaded grid is dead: fuel ${gen.q.length} burn ${gen.burn} pole ${pole.pw}, cables ${S().cables.length}`);
     L().update(0.01); const nb = tiles().filter((t) => t.type === 'belt').length; if (L().bedMesh.count !== nb) bad.push(`belts drawn ${L().bedMesh.count} of ${nb}`);
     // bulkheads and carved sections are in the saved world diff
     for (const { id, r } of placed) { if (id === 'bulk' && w().get(r.cell.i, r.cell.j, r.cell.k) !== BULK) bad.push('bulkhead cell lost'); const clr = (r.r && r.r.pl && r.r.pl.ent && r.r.pl.ent.clear) || []; for (const [ci, cj, ck] of clr) if (w().get(ci, cj, ck)) { bad.push('carved section of ' + id + ' came back'); break; } }

@@ -47,7 +47,7 @@ export default async function (ctx) {
     const t = K.tile('gen', -12, 3); t.q.push({ sp: sp(0), vr: 0 }); let s = 0;
     for (let n = 0; n < 4000; n++) { g.time += 0.016; g.power.update(0.016); s++; }   // burns out
     const idle = t.burn; t.q.push({ sp: sp(0), vr: 0 }); g.time += 0.016; g.power.update(0.016);
-    return Math.abs(t.burnMax - 90) < 1e-9 || `an idle generator carried a deficit (${idle}): the next Common is worth ${t.burnMax} s, not 90`;
+    return Math.abs(t.burnMax - PP.BURN_S_AT_8KW[0]) < 1e-9 || `an idle generator carried a deficit (${idle}): the next Common is worth ${t.burnMax} s, not ${PP.BURN_S_AT_8KW[0]}`;
   });
 
   await T('gens.audit.readouts-never-say-0.00-s-for-a-very-fast-plant', async () => {

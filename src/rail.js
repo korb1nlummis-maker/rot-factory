@@ -5,7 +5,7 @@
 //   railcar  { x, y, z, yaw, pitch, a, cargo, riders, st, spd, ... }   the cart. The host simulates it, a guest sees it through ent+ and the 0.1 s / 0.5 s xrow rows.
 // Track is an undirected graph: two pieces join when they touch on a side at the same level, or one cell up or down (a 45 degree slope). So turns, junctions
 // and slopes need no orientation; a cart finds its way with a breadth first search to wherever it was sent.
-// Power: a station is a 3 kW consumer of the power grid (a pole or generator in reach, or a Power Cable); its power satisfaction sets the whole line's speed (8 m/s at full power, slower in a brownout), an unpowered line is hand cranked at 2 m/s.
+// Power: a station is a 3 kW consumer of the power grid (only through its own Power Cable to a live pole or generator); its power satisfaction sets the whole line's speed (8 m/s at full power, slower in a brownout), an unpowered line is hand cranked at 2 m/s.
 import * as THREE from 'three';
 import { C, cellX, cellZ, toI, toJ, toK, idx, NX, NZ, NY } from './config.js';
 import { NEEDLE, SPECIAL_MIN, species } from './plushdata.js';
@@ -175,7 +175,7 @@ function planOnTrack(g, tool, eye, dir, type) {
   if (type === 'railcar') { for (const c of R.cars) if (Math.hypot(c.x - cellX(e.i), c.z - cellZ(e.k)) < HEADWAY - 0.01 && Math.abs(c.y - e.j * C) < 0.6) { why = 'A cart is standing here'; break; } }
   if (!why && !clearAt(g, e)) why = 'Something is blocking the track';
   const role = stationRole(g, e);
-  return { plan: { ok: !why, why, ent: { type, i: e.i, j: e.j, k: e.k }, hintText: type === 'railstn' ? `<kbd>B</kbd> sets a ${role.toUpperCase()} station here (it sells at the bin when it is near it, and a pole in reach powers the line) · <kbd>Q</kbd> stow` : `<kbd>B</kbd> sets the cart on the track · <kbd>E</kbd> on it sits you in it · <kbd>Q</kbd> stow` }, cost: 0 };
+  return { plan: { ok: !why, why, ent: { type, i: e.i, j: e.j, k: e.k }, hintText: type === 'railstn' ? `<kbd>B</kbd> sets a ${role.toUpperCase()} station here (it sells at the bin when it is near it, and a Power Cable to a live pole or generator powers the line) · <kbd>Q</kbd> stow` : `<kbd>B</kbd> sets the cart on the track · <kbd>E</kbd> on it sits you in it · <kbd>Q</kbd> stow` }, cost: 0 };
 }
 export const planStation = (g, tool, eye, dir) => planOnTrack(g, tool, eye, dir, 'railstn');
 export const planCar = (g, tool, eye, dir) => planOnTrack(g, tool, eye, dir, 'railcar');
@@ -373,18 +373,10 @@ export function onRemoveCar(g, e) {
 }
 
 // ---------------------------------------------------------------------------------------------------------- power
-// A station is a 3 kW consumer of the grid solver (power.js, DEMAND railstn): its .pw is the satisfaction of the grid it stands on or is wired to, so a brownout slows the
-// line. The geometric read below only serves a station the solver has not seen yet (a pole or generator in reach with power).
+// A station is a 3 kW consumer of the grid solver (power.js, DEMAND railstn): its .pw is the satisfaction of the grid its cable runs to, so a brownout slows the
+// line. A station with no cable, or one the solver has not seen yet, has no power.
 export function stationPower(g, e) {
-  if (e.pw !== undefined) return e.pw;
-  const reach = ((g.T && g.T.poleReach) || 7) + 1.5, x = cellX(e.i), z = cellZ(e.k), y = e.j * C + 1;
-  let best = 0;
-  for (const t of g.logi.tiles.values()) {
-    if (t.type !== 'pole' && t.type !== 'gen') continue;
-    const dx = cellX(t.i) - x, dz = cellZ(t.k) - z, dy = (t.j * C + 1) - y;
-    if (dx * dx + dz * dz + dy * dy * 0.5 <= reach * reach && (t.pw ?? 0) > best) best = t.pw;
-  }
-  return best;
+  return e.pw !== undefined ? e.pw : 0;
 }
 
 // ---------------------------------------------------------------------------------------------------------- people
@@ -876,7 +868,7 @@ function idleWork(g, R, car, dt) {
         c.unT = 0.07; const it = car.cargo.pop(); car.n = car.cargo.length;
         g.S.stats.railHauled = (g.S.stats.railHauled || 0) + 1;   // achievement counter
         g.sellAuto(it.sp, it.vr, 1, sink.bin);   // the plain price, like a belt into the bin: the hand-throw streak must not stack on a 120 plush load
-        g.fliers.push({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(car.x, car.y + 0.6, car.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: 0, dur: 0.4, arc: 0.9 });
+        g.flyFx({ sp: it.sp, vr: it.vr, from: new THREE.Vector3(car.x, car.y + 0.6, car.z), to: new THREE.Vector3(sink.x, sink.y, sink.z), t: 0, dur: 0.4, arc: 0.9 });
       }
     }
   }
@@ -1053,7 +1045,7 @@ export function infoRail(g, e) {
   const slope = a.some((v, n) => n % 2 === 1 && v > C + 0.01) ? 'Climbs or drops here (45 degrees).' : a.length >= 6 ? 'A junction: a cart picks the way to where it was sent.' : a.length === 2 ? 'End of the line: lay the next piece beside it.' : 'Joins the pieces beside it.';
   return { title: 'MINE RAIL', lit: L.c.powered, lines: [
     `${L.pieces} pieces on this line, ${L.stns} stations, ${L.cars} carts`,
-    L.c.powered ? `Powered: carts run at ${L.c.speed.toFixed(0)} m/s` : `Hand cranked: carts crawl at ${HAND_SPEED} m/s. A station within reach of a powered pole or generator runs the line at ${POWER_SPEED} m/s.`,
+    L.c.powered ? `Powered: carts run at ${L.c.speed.toFixed(0)} m/s` : `Hand cranked: carts crawl at ${HAND_SPEED} m/s. A station wired to a live pole or generator runs the line at ${POWER_SPEED} m/s.`,
     slope, 'The hammer takes it up and gives it back.',
   ] };
 }
@@ -1061,7 +1053,7 @@ export function infoStation(g, e) {
   const R = sync(g), key = keyOf(e), L = lineOf(R, key), lit = (e.pw || 0) > 0.05;
   return { title: `RAIL STATION: ${(e.name || e.role).toUpperCase()}`, lit, lines: [
     e.role === 'base' ? 'BASE end: carts that stop near the bin sell their load.' : 'FACE end: the work end of the line. Carts wait here.',
-    lit ? `Powered ${Math.round((e.pw || 0) * 100)}%: the line runs at ${(L ? L.c.speed : POWER_SPEED).toFixed(0)} m/s` : `No power: the line is hand cranked at ${HAND_SPEED} m/s. Put the station within reach of a powered pole or generator.`,
+    lit ? `Powered ${Math.round((e.pw || 0) * 100)}%: the line runs at ${(L ? L.c.speed : POWER_SPEED).toFixed(0)} m/s` : `No power: the line is hand cranked at ${HAND_SPEED} m/s. Run a Power Cable from a live pole or generator to the station.`,
     L ? `${L.pieces} pieces on this line, ${L.cars} carts` : 'Not on a track',
     `E switches it between BASE and FACE. ${KEY} calls the nearest cart.`,
   ] };

@@ -245,6 +245,7 @@ export default async function (ctx) {
     await world(); fresh(up({ fusion: 3, genOutput: 6, earthDrives: 0 })); const a = arena(); const e = mk('excavator', a.i0, a.k0), d = mk('dozer', a.i0, a.k0 + 8);
     const gen = { id: g.nextId(), type: 'gen', i: a.i0 - 3, j: 0, k: a.k0 + 4, dir: 0, rise: 0, q: [] }; S().entities.push(gen); g.addEntity(gen);
     const pole = { id: g.nextId(), type: 'pole', i: a.i0 - 2, j: 0, k: a.k0 + 4, dir: 0, rise: 0 }; S().entities.push(pole); g.addEntity(pole);
+    S().items.cable = 5; for (const [x, y] of [[gen, pole], [pole, e], [pole, d]]) { const r = g.cables.connect(x.id, y.id); if (!r.ok) return 'wiring: ' + r.why; }   // generator to pole, pole to each digger
     g.power.recompute(); const net = g.power.nets.find((n) => n.nodes.length); const dem0 = net ? net.demand : -1;
     const want0 = DEMAND.excavator + DEMAND.dozer; if (Math.abs(dem0 - want0) > 0.01) return `demand ${dem0}, expected ${want0}`;
     e.off = true; g.power.recompute(); const dem1 = g.power.nets[0].demand; if (Math.abs(dem1 - DEMAND.dozer) > 0.01) return 'parked excavator still draws: ' + dem1;
@@ -252,16 +253,18 @@ export default async function (ctx) {
     a.clear(); return Math.abs(dem2 - want2) < 0.01 || `with drives ${dem2}, expected ${want2}`;
   });
 
-  await T('earth.a-big-machine-reaches-a-pole-from-further-off-than-a-small-one', async () => {
-    await world(); fresh(up()); const a = arena(); const reach = g.T.poleReach; const base = { id: g.nextId(), type: 'pole', i: a.i0, j: 0, k: a.k0 - 20, dir: 0, rise: 0 };
+  await T('earth.a-digger-of-any-size-needs-its-own-cable-and-runs-on-it', async () => {
+    await world(); fresh(up()); const a = arena(); const base = { id: g.nextId(), type: 'pole', i: a.i0, j: 0, k: a.k0 - 20, dir: 0, rise: 0 };
     const gen = { id: g.nextId(), type: 'gen', i: a.i0 + 1, j: 0, k: a.k0 - 20, dir: 0, rise: 0, q: [] }; S().entities.push(base, gen); g.addEntity(base); g.addEntity(gen);
-    const lit = tiles().find((t) => t.type === 'gen'); lit.burn = 1e6; lit.lit = true;
+    const lit = tiles().find((t) => t.type === 'gen'); lit.burn = 1e6; lit.lit = true; S().items.cable = 8; g.cables.connect(lit.id, base.id);
     const at = (kind, d) => mk(kind, a.i0, base.k + Math.round(d / 0.6));
-    const wheel = at('wheel', reach + 5), exc = at('excavator', reach + 5), doz = at('dozer', reach + 2.6), near = at('excavator', reach + 2.4);
+    const wheel = at('wheel', 5), exc = at('excavator', 3), doz = at('dozer', 2), far = at('excavator', 40 / 0.6 * 0.6);
     g.power.recompute(); const bad = [];
-    const dist = (c) => { const [x, , z] = g.power.pos(c); const [px, , pz] = g.power.pos(lit); return Math.hypot(x - px, z - pz); };
-    void dist; if (!(wheel.pw > 0)) bad.push('the wheel, 5 m past the base reach, is not linked'); if (exc.pw > 0 || doz.pw > 0) bad.push('a small machine linked from too far: ' + [exc.pw, doz.pw]); if (!(near.pw > 0)) bad.push('excavator within its reach is not linked');
-    a.clear(); return bad.length === 0 || bad.join('; ') + ` (reach ${reach})`;
+    for (const m of [wheel, exc, doz]) if (m.pw > 0) bad.push(m.type + ' runs beside a live pole with no cable (' + m.pw + ')');
+    for (const m of [wheel, exc, doz]) { const r = g.cables.connect(base.id, m.id); if (!r.ok) bad.push(m.type + ': ' + r.why); }
+    g.power.recompute(); for (const m of [wheel, exc, doz]) if (!(m.pw > 0)) bad.push(m.type + ' not powered by its cable (' + m.pw + ')');
+    const rf = g.cables.connect(base.id, far.id); if (rf.ok || !/Too far/.test(rf.why)) bad.push('a digger 40 m away was wired: ' + JSON.stringify(rf)); if (far.pw > 0) bad.push('the far digger is powered');
+    a.clear(); return bad.length === 0 || bad.join('; ');
   });
 
   await T('earth.guest-sees-what-the-host-reports-and-can-park-a-machine-with-E', async () => {

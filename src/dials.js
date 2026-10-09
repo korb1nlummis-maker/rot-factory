@@ -6,13 +6,24 @@
 // ui.dials.set(id, {...}) only touches the DOM for what changed, so it is cheap to call every frame.
 const NS = 'http://www.w3.org/2000/svg';
 export const STATES = ['ok', 'hot', 'warn', 'crit', 'closed'];
+// The VACUUM dial: the share of the owned suction the vacuum draws starts at 30 percent, and its cone never narrows past this half angle (12 degrees: a plush you aim at is always inside it)
+export const VAC_DEFAULT_PCT = 30;
+export const VAC_MIN_HALF = 12 * Math.PI / 180;
+// Suction depth: how far past the first plush on the aim line one aim may dig, in metres, for a share (0..1) of the owned suction: 0.3 m + 6 m x share cubed. At 30% that is under half a metre (the face
+// layer only), at 60% 1.6 m, at 90% 4.7 m, and 100% has no limit at all (it is the old vacuum). The aim line is measured again when the aim moves more than 3 degrees, you move 0.25 m or 0.3 s have run.
+export const vacDepth = (share) => 0.3 + 6 * Math.pow(Math.max(0, Math.min(1, share)), 3);
+export const VAC_REFRESH = 0.3;
+export const VAC_AIM_COS = Math.cos(3 * Math.PI / 180);
+// a suction rate for a reader: whole numbers from 10 up, one decimal below (a small vacuum draws 1.2 or 1.5 a second at its lower settings)
+export const rateText = (r) => { const n = Number.isFinite(r) ? Math.max(0, r) : 0; return n >= 10 || Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1); };
 
 // side L = left of the hotbar, R = right of it. Order is nearest to the hotbar first.
 export const DIAL_DEFS = [
   { id: 'hp', side: 'L', label: 'HEALTH', c: '#6fe39a' },
   { id: 'carry', side: 'L', label: 'CARRY', c: '#d7f26a', segs: true },
   { id: 'cart', side: 'L', label: 'CART', c: '#ffcf8a' },
-  { id: 'scoop', side: 'L', label: 'SCOOP', c: '#ffb86b', steps: true },   // steps: a minus and a plus button under the ring (onStep(id, -1 or +1))
+  { id: 'scoop', side: 'L', label: 'SCOOP', c: '#ffb86b', steps: true, step: '3' },   // steps: a minus and a plus button under the ring (onStep(id, -1 or +1)); step: what one press changes (for the tooltip)
+  { id: 'vacuum', side: 'L', label: 'VACUUM', c: '#8fd6ff', steps: true, step: '10%' },   // the Plush Vacuum: how much of its suction it draws, in tens of percent
   { id: 'breath', side: 'L', label: 'AIR', c: '#7fd0ff' },
   { id: 'oxy', side: 'L', label: 'OXYGEN', c: '#8fe3ff' },
   { id: 'suffoc', side: 'L', label: 'SUFFOCATION', c: '#ff9a8a' },
@@ -57,7 +68,7 @@ function build(def) {
     const row = document.createElement('div'); row.className = 'stp';
     for (const [dir, ch, word] of [[-1, '\u2212', 'fewer'], [1, '+', 'more']]) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'sb ' + (dir < 0 ? 'dn' : 'up'); b.textContent = ch; b.tabIndex = -1; b.dataset.dir = String(dir);
-      b.setAttribute('aria-label', `${def.label.toLowerCase()} ${word}`); b.title = `${def.label}: 3 ${word}`;
+      b.setAttribute('aria-label', `${def.label.toLowerCase()} ${word}`); b.title = `${def.label}: ${def.step || '3'} ${word}`;
       row.appendChild(b);
     }
     el.insertBefore(row, dl);

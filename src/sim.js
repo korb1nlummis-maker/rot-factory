@@ -5,6 +5,7 @@ import { NEEDLE } from './plushdata.js';
 const RB = 0.3; // loose plush radius
 const G = 15;    // gravity (a little heavier than 9.8 so plush feel like they have weight)
 const MU = 0.72; // friction between plush and the pile
+const MU_SLAB = 0.14; // the same for the bodies of a climbing avalanche (they flow like snow)
 const CAP = 2600;
 const HSIZE = 16384;
 
@@ -70,6 +71,7 @@ export class Sim {
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
     this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
     this.nud = new Uint8Array(CAP); // how many times a body that could not settle has been nudged
+    this.tag = new Uint8Array(CAP); // 1 = a body of a climbing avalanche (avalanche.js drives it down the slope and places it in the runout)
     this.en = new Float32Array(CAP); // slide energy this body carries (decays as the slide spreads)
     this.wx = new Float32Array(CAP); this.wy = new Float32Array(CAP); this.wz = new Float32Array(CAP); // spin
     this.bid = new Uint32Array(CAP); this.own = new Uint8Array(CAP); this.idc = 1; // stable ids for syncing, and who threw it (0 host, 1 guest)
@@ -97,7 +99,7 @@ export class Sim {
     this.sp[i] = sp; this.vr[i] = vr; this.rest[i] = 0; this.age[i] = 0; this.flag[i] = flag;
     this.ox[i] = x; this.oz[i] = z; this.sq[i] = 0;
     this.bid[i] = this.idc++; this.own[i] = own;
-    this.en[i] = 0; this.nud[i] = 0;
+    this.en[i] = 0; this.nud[i] = 0; this.tag[i] = 0;
     const spin = flag === 1 ? 5 : 2.2;
     this.wx[i] = (Math.random() - 0.5) * spin; this.wy[i] = (Math.random() - 0.5) * spin; this.wz[i] = (Math.random() - 0.5) * spin;
     return i;
@@ -109,7 +111,7 @@ export class Sim {
       this.x[i] = this.x[l]; this.y[i] = this.y[l]; this.z[i] = this.z[l];
       this.vx[i] = this.vx[l]; this.vy[i] = this.vy[l]; this.vz[i] = this.vz[l];
       for (let t = 0; t < 4; t++) this.q[i * 4 + t] = this.q[l * 4 + t];
-      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l]; this.en[i] = this.en[l]; this.nud[i] = this.nud[l];
+      this.sp[i] = this.sp[l]; this.vr[i] = this.vr[l]; this.rest[i] = this.rest[l]; this.age[i] = this.age[l]; this.flag[i] = this.flag[l]; this.ox[i] = this.ox[l]; this.oz[i] = this.oz[l]; this.sq[i] = this.sq[l]; this.bid[i] = this.bid[l]; this.own[i] = this.own[l]; this.wx[i] = this.wx[l]; this.wy[i] = this.wy[l]; this.wz[i] = this.wz[l]; this.en[i] = this.en[l]; this.nud[i] = this.nud[l]; this.tag[i] = this.tag[l];
     }
   }
 
@@ -181,7 +183,7 @@ export class Sim {
         const ts = Math.hypot(tx, ty, tz);
         if (ts > 1e-4) {
           const load = jn + (ny > 0.05 ? G * ny * dt : 0);
-          const fr = Math.min(ts, MU * load);
+          const fr = Math.min(ts, (this.tag[i] ? MU_SLAB : MU) * load);   // (a body of a climbing avalanche slides on a fluidized sheet: less friction, avalanche.js)
           vx -= tx / ts * fr; vy -= ty / ts * fr; vz -= tz / ts * fr;
         }
         // rolling: the surface drags the spin toward the rolling speed
@@ -304,7 +306,7 @@ export class Sim {
             const tvx = rvx - rv * nx, tvy = rvy - rv * ny, tvz = rvz - rv * nz;
             const ts = Math.hypot(tvx, tvy, tvz);
             if (ts > 1e-4) {
-              const fr = Math.min(ts * 0.5, MU * (jn + G * dt * 0.5));
+              const fr = Math.min(ts * 0.5, (this.tag[i] && this.tag[j] ? MU_SLAB : MU) * (jn + G * dt * 0.5));
               this.vx[i] += tvx / ts * fr; this.vy[i] += tvy / ts * fr; this.vz[i] += tvz / ts * fr;
               this.vx[j] -= tvx / ts * fr; this.vy[j] -= tvy / ts * fr; this.vz[j] -= tvz / ts * fr;
               const sx = (ny * tvz - nz * tvy) / RB * 0.15, sy = (nz * tvx - nx * tvz) / RB * 0.15, sz = (nx * tvy - ny * tvx) / RB * 0.15;
@@ -350,7 +352,7 @@ export class Sim {
       // anything that has been loose for a long time is placed or retired, however it is moving
       if (this.age[i] > 12 && this.flag[i] !== 99) {
         if (this.forceFreeze(i)) { this.remove(i); continue; }
-        if (this.age[i] > 30 && this.sp[i] !== NEEDLE) { if (this.hooks && this.hooks.onStale) this.hooks.onStale(this.sp[i], this.vr[i]); this.remove(i); continue; }
+        if (this.age[i] > 30 && this.sp[i] !== NEEDLE) { if (this.hooks && this.hooks.onStale) this.hooks.onStale(this.sp[i], this.vr[i], this.x[i], this.y[i], this.z[i]); this.remove(i); continue; }
       }
     }
   }

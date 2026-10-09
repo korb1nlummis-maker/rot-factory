@@ -125,14 +125,14 @@ export default async function (ctx) {
   });
 
   await guard('transit.jump-places-with-a-path-preview-and-a-readout', async () => {
-    X.setup(); X.powerAt(cellX(JI()) - 2.6, cellZ(JK()), 2); const bad = [], i = JI(), k = JK();
+    X.setup(); const G0 = X.powerAt(cellX(JI()) - 2.6, cellZ(JK()), 2); const bad = [], i = JI(), k = JK();
     g._jang = 60; g._jr = 0; craft('jump', 1); K.equip('jump'); K.aim(i, k, { y: 0.0, back: 3.0, yaw: Math.PI / 2 }); p().yaw = Math.PI / 2;
     const pl = await plan(); if (!pl.ok) return 'plan: ' + pl.why; const e = pl.ent;
     if (e.ang !== 60 || e.hd !== 90 || e.i0 !== i - 1 || e.k0 !== k - 1 || e.j !== 0) bad.push('plan ent ' + JSON.stringify(e));
     const gh = g.machines.ghost; let line = null; if (gh) gh.traverse((c) => { if (c.isLine) line = c; }); if (!line || line.geometry.drawRange.count < 10) bad.push('the placement ghost has no path line');
     if (!/degrees up, facing 90/.test(g._xInfo.lines.join(' ')) || !/Lands \d+\.\d m away/.test(g._xInfo.lines.join(' '))) bad.push('placement readout ' + JSON.stringify(g._xInfo));
     g.placeCurrent(g.curTool()); const J = X.ents('jump')[0]; if (!J || J.ang !== 60 || J.hd !== 90 || J.buf !== 5 || J.on !== true || J.rid !== 'jump') return 'placed ' + JSON.stringify(J);
-    if (S().items.jump) bad.push('item not used');
+    if (S().items.jump) bad.push('item not used'); S().items.cable = (S().items.cable || 0) + 1; g.cables.connect(G0.pole.id, J.id);   // the pad runs on its own cable
     for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) if (!X.reservedAt(J.i0 + dx, 0, J.k0 + dz)) { bad.push('footprint not reserved'); break; }
     // aim at it with nothing in hand: the readout and the path line follow your crosshair
     g.stowed = true; selectTool('hammer'); K.aim(i, k, { y: 0.1, back: 2.8 }); adv(0.1); TR.lineTick(g);

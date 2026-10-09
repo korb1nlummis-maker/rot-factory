@@ -103,7 +103,7 @@ export default async function (ctx) {
 
   await G('audit.bins.flow-a-depot-on-a-real-grid-is-a-bin-while-its-generator-burns-and-is-dark-when-it-stops', async () => {
     const bad = [], P = powerKit(ctx); P.reset({ power: 1, belts: 1, depots: 1, crew: 1, crewSlots: 3 });
-    const G2 = P.grid(-6, 4, { gens: 1 }), d = P.mach('beacon', -4.6, 4, { num: 0 }), bot = K.mkBot(-2, 6); bot.dest = d.id;
+    const G2 = P.grid(-6, 4, { gens: 1 }), d = P.mach('beacon', -4.6, 4, { num: 0 }), bot = K.mkBot(-2, 6); bot.dest = d.id; P.wire(G2.pole, d);   // a depot runs on its own cable to the pole
     const step = (secs) => { for (let n = 0; n < secs / 0.1; n++) { g.time += 0.1; g.power.update(0.1); } };
     step(1);
     if (!((d.pw ?? 0) > 0.05)) return 'the depot has no power on a grid with a burning generator: ' + d.pw;

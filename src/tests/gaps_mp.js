@@ -28,7 +28,7 @@ export default async function (ctx) {
     try { for (let n = 0; n < 12; n++) g.sellAuto(1, 0, 1); } finally { k.restore(); }
     const fb = ofType('sale').filter((m) => m.fb); if (fb.length !== 1) bad.push('12 sales in one frame sent ' + fb.length + ' sale messages');
     if (fb[0] && (fb[0].sp !== undefined || fb[0].vr !== undefined)) bad.push('the message carries a plush: ' + JSON.stringify(fb[0]));
-    for (let n = 0; n < 3; n++) { g.coinCd -= 0.05; g.sellAuto(1, 0, 1); } g.coinCd = 0.0; g.sellAuto(1, 0, 1);
+    for (let n = 0; n < 3; n++) { g.coinCd -= 0.05; g.sellAuto(1, 0, 1); } g.time += 0.2; g.coinCd = 0.0; g.sellAuto(1, 0, 1);   // (the message to the guest has its own 0.12 s of game time: a coin nobody hears must not hold it)
     if (ofType('sale').filter((m) => m.fb).length < 2) bad.push('no second message once the 0.12 s passed');
     // alone (no friend connected) nothing is sent
     done(); cap(); g.coinCd = 0; g.sellAuto(1, 0, 1); if (ofType('sale').length) bad.push('a message went out with no friend connected');
@@ -36,7 +36,7 @@ export default async function (ctx) {
   });
 
   await guard('mp.gaps.a-belt-selling-plush-at-the-bin-is-heard-by-the-guest', async () => {
-    fresh({ belts: 1 }); role('host'); cap(); g.remote = fakeRemote(new V3(-100, 0, 0)); const bad = [];
+    fresh({ belts: 1 }); role('host'); cap(); g.remote = fakeRemote(new V3(-100, 0, 0)); const bad = []; p().pos.set(bp().x + 2, 0, bp().z); g.sound._win = null;   // (the host hears the coin from the bin: it stands next to it)
     for (const t of tiles()) L().remove(t); for (const [x, z, d] of binPath()) g.layBelt(toI(x), 0, toK(z), d); L().rebuildBelts();
     const start = tiles().find((t) => t.i === toI(bp().x - 3) && t.k === toK(bp().z + 3)); const m0 = S().money; g.coinCd = 0;
     for (let n = 0; n < 3; n++) start.items.push({ sp: pools[1][0], vr: 0, t: n * 0.3 });
@@ -59,10 +59,12 @@ export default async function (ctx) {
 
   await guard('mp.gaps.the-guest-plays-the-coin-once-per-0.12-s-and-never-sells-the-plush-again', async () => {
     fresh({}); done(); role('guest'); cap(); const bad = [], k = coins(), money = S().money, sold = S().stats.sold;
+    p().pos.set(bp().x + 2, 0, bp().z); g.sound._win = null;   // (a coin is heard from the bin: stand next to it; the voice limiter's window is real time, which a test does not wait for)
+    const at = { x: bp().x, y: 1.2, z: bp().z };
     try {
-      g.coinCd = 0; g.netMessage({ t: 'sale', fb: 1 }); g.netMessage({ t: 'sale', fb: 1 }); g.netMessage({ t: 'sale', fb: 1 });
+      g.coinCd = 0; g.netMessage({ t: 'sale', fb: 1, ...at }); g.netMessage({ t: 'sale', fb: 1, ...at }); g.netMessage({ t: 'sale', fb: 1, ...at });
       if (k.calls.length !== 1) bad.push('three messages inside 0.12 s played ' + k.calls.length + ' coins');
-      g.coinCd = 0; g.netMessage({ t: 'sale', fb: 1 }); if (k.calls.length !== 2) bad.push('no coin after the cooldown');
+      g.coinCd = 0; g.sound._win = null; g.netMessage({ t: 'sale', fb: 1, ...at }); if (k.calls.length !== 2) bad.push('no coin after the cooldown');
     } finally { k.restore(); }
     if (sent.some((m) => m.t === 'cmd' && m.c === 'sell')) bad.push('the guest sold the plush back to the host');
     if (S().money !== money || S().stats.sold !== sold) bad.push('the guest changed its own money or sales');

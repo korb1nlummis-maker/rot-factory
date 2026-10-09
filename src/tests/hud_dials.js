@@ -16,7 +16,7 @@ export default async function (ctx) {
   // ------------------------------------------------------------------------------------------------ structure
   await T('hud.every-dial-sits-in-the-left-or-right-group-and-the-old-boxes-are-gone', async () => {
     const bad = [];
-    const L = ['hp', 'scoop', 'breath', 'oxy', 'suffoc', 'dust', 'grid', 'carry', 'cart'], R = ['signal', 'vein', 'depth', 'tunnel', 'range', 'frame', 'support', 'stale', 'clock'];
+    const L = ['hp', 'scoop', 'vacuum', 'breath', 'oxy', 'suffoc', 'dust', 'grid', 'carry', 'cart'], R = ['signal', 'vein', 'depth', 'tunnel', 'range', 'frame', 'support', 'stale', 'clock'];
     for (const d of DIAL_DEFS) {
       const e = el('dial-' + d.id); if (!e) { bad.push('no element for ' + d.id); continue; }
       const want = L.includes(d.id) ? 'dialsL' : R.includes(d.id) ? 'dialsR' : null;

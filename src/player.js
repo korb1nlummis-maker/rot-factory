@@ -35,6 +35,7 @@ export class Player {
     this.ride = null;   // (player) => true when standing on a lift car (it carries you); installed by transit.js
     this.landSafe = null;   // (player) => true when a fall here does no harm (a Cushion Pad, or a Jump Pad or the plush pile after a launch); installed by transit.js
     this.flight = 0;    // seconds since a Jump Pad threw you (0 = not flying): while it runs your sideways speed is kept, only steered a little
+    this.swept = 0;     // seconds left of being carried by a climbing avalanche (avalanche.js): the flow owns your velocity, the keys only steer a little
     this.launched = false; this.launchLock = 0; this.liftId = 0;
   }
 
@@ -105,7 +106,10 @@ export class Player {
     let speed = stats.walk * (this.crouch ? stats.crouchMul : input.sprint ? 1.55 : 1);
     // squishy ground slows you a little
     if (this.onGround && this.pos.y > 0.6) speed *= 0.92;
-    if (this.flight > 0) {
+    if (this.swept > 0) {
+      this.swept -= dt;
+      if (ml > 0) { this.vel.x += wx * 3 * dt; this.vel.z += wz * 3 * dt; }
+    } else if (this.flight > 0) {
       // thrown by a Jump Pad: the momentum is yours until you land, the keys only steer it a little
       this.flight += dt;
       if (ml > 0) { this.vel.x += wx * 4 * dt; this.vel.z += wz * 4 * dt; }
@@ -200,7 +204,7 @@ export class Player {
     if (grounded && wasAir && this.landVel < -3.5 && this.events.land) this.events.land(-this.landVel, this.landSafe ? !!this.landSafe(this) : false);
     if (grounded) { if (this.flight > 0.15) { this.flight = 0; this.launched = false; } else if (this.flight === 0 && wasAir) this.launched = false; }   // landed: the flight ends (the first 0.15 s still count as the take off)
     this.landVel = this.vel.y;
-    if (grounded && !ml) { this.vel.x *= 0.5; this.vel.z *= 0.5; }
+    if (grounded && !ml && !(this.swept > 0)) { this.vel.x *= 0.5; this.vel.z *= 0.5; }
     // camera smoothing offset decays
     this.stepOff += (0 - this.stepOff) * Math.min(1, dt * 10);
     this.speedNow = Math.hypot(this.vel.x, this.vel.z);

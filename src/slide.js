@@ -41,7 +41,7 @@ export class Slides {
     return false;
   }
 
-  clear() { this.q.clear(); this.hot.clear(); this.recent = 0; }
+  clear() { this.q.clear(); this.hot.clear(); this.recent = 0; if (this.g.avalanche) this.g.avalanche.clear(); if (this.g.softslide) this.g.softslide.clear(); }
 
   trigger(i, j, k, e = 1) {
     if (this.q.size > 5000) return;
@@ -64,6 +64,7 @@ export class Slides {
   }
 
   update(dt) {
+    if (this.g.avalanche) this.g.avalanche.update(dt);   // a climbing avalanche in progress (avalanche.js) runs on the same tick as the slides
     this.recent = Math.max(0, this.recent - dt * 3);
     this.burstN = Math.max(0, (this.burstN || 0) - dt * 1.5); this.burstCool = Math.max(0, (this.burstCool || 0) - dt);
     if (this.hot.size > 600) { const now = this.g.time; for (const [k2, t] of this.hot) if (t < now) this.hot.delete(k2); }

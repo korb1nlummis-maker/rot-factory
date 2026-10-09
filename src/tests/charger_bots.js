@@ -83,9 +83,18 @@ export default async function (ctx) {
     ch.reserve = 5; const seen = states(b, 120, null, 'farm');
     return (seen.includes('chgwalk') && seen.includes('recharge') && b.battery > 0.8 && ch.reserve < 5) || `states ${seen} battery ${b.battery}`;
   });
-  await T('crew.charger-the-charger-reaches-bots-that-need-it-even-with-no-power-grid', async () => {
-    fresh(up); if (g.power.nets.length) return 'a grid exists'; const tun = tunnel(40); const ch = rawTile('charger', tun.i + 26, 0, tun.k); ch.reserve = 5; const b = digging(tun, 30, 0.1); run(15);
-    return (b.battery > 0.8 && ch.reserve < 4.4) || `battery ${b.battery} reserve ${ch.reserve}`;
+  await T('crew.charger-with-no-cable-does-not-charge-bots-and-is-not-a-station-they-choose', async () => {
+    fresh(up); const tun = tunnel(40); const ch = rawTile('charger', tun.i + 26, 0, tun.k, { unwired: true }); ch.reserve = 5; g.power.markDirty(); g.power.recompute();
+    const b = digging(tun, 30, 0.1); if (g.crew.chargerFor(b)) return 'chose a station with no cable'; const seen = states(b, 12);
+    if (seen.includes('chgwalk') || seen.includes('recharge')) return 'went to charge at an unwired station: ' + seen; if (ch.reserve !== 5) return 'drew charge with no cable: ' + ch.reserve;
+    const { live } = kit(ctx); live(ch); if (g.crew.chargerFor(b) !== ch) return 'a cable and a live grid did not open it';
+    const b2 = digging(tun, 30, 0.1); run(15); return (b2.battery > 0.8 && ch.reserve < 4.4) || `after wiring: battery ${b2.battery} reserve ${ch.reserve}`;
+  });
+  await T('crew.charger-whose-cable-is-cut-mid-charge-lets-the-bot-go', async () => {
+    fresh(up); const tun = tunnel(40); const ch = rawTile('charger', tun.i + 10, 0, tun.k); ch.reserve = 8; const gen = [...ctx.L().tiles.values()].find((t) => t.type === 'gen');
+    const b = mkBot(cellX(tun.i + 10) - 0.8, cellZ(tun.k)); b.state = 'recharge'; b.chg = ch.id; b.battery = 0.5; b.chgNext = 'idle'; run(0.4); const mid = b.battery; if (!(mid > 0.6)) return 'did not charge while powered: ' + mid;
+    g.cables.connect(gen.id, ch.id); g.power.markDirty(); g.power.recompute(); run(0.5); if (b.battery > mid + 0.03) return `kept charging with the cable cut: ${mid} -> ${b.battery}`;
+    return b.state !== 'recharge' || `still recharging (state ${b.state})`;
   });
   await T('crew.charger-bot-fed-station-roundtrip-plush-in-then-bot-out', async () => {
     fresh(up); const tun = tunnel(40); const ch = rawTile('charger', tun.i + 26, 0, tun.k);

@@ -106,15 +106,9 @@ export function probeOf(g, ent) {
   return cartN ? [...S.carry, ...cartN] : [...S.carry];
 }
 
-// ---------- power: a pole or generator in reach with some power. No power is fine for the player scan (battery); lamps need it ----------
+// ---------- power: the lamps run on a cable to a powered node (the grid solver counts an arch as a consumer, power.js, and sets .pw). No power is fine for the player scan (battery) ----------
 export function powerOf(g, ent) {
-  if (ent.pw !== undefined) return ent.pw > 0.05;   // the grid solver counts an arch as a consumer (power.js) and sets .pw; a cable can wire it too
-  const reach = (g.T && g.T.poleReach || 0) + ent.w / 2, r2 = reach * reach, y = ent.y0 + 1.0;
-  for (const net of g.power.nets || []) for (const n of net.nodes) {
-    const [nx, ny, nz] = g.power.pos(n); const dx = ent.cx - nx, dz = ent.cz - nz, dy = y - ny;
-    if (dx * dx + dz * dz + dy * dy * 0.5 <= r2 && (n.pw ?? 0) > 0.05) return true;
-  }
-  return false;
+  return ent.pw !== undefined && ent.pw > 0.05;
 }
 
 // ---------- sound level: base 0.1, scaled by the arch's volume setting and the distance (full inside 8 m, off at 60 m); giants are 1.5x ----------
@@ -126,14 +120,14 @@ export function volumeFor(g, ent) {
 // ---------- the reaction every screen shows for one crossing ----------
 // kind: 'tick' (empty bag), 'bad' (nothing matched), 'ok' (a match). info: { mine, n, sp }
 export function react(g, ent, kind, info = {}) {
-  const s = st(ent), snd = g.sound, big = archSize(ent) === 2, vol = volumeFor(g, ent);
+  const s = st(ent), big = archSize(ent) === 2, vol = volumeFor(g, ent), lvl = 0.1 * (ent.volume ?? 0.7) * (big ? 1.5 : 1), snd = g.sound.at(ent.cx, ent.y0 + 1.2, ent.cz, 'arch');   // vol (with its distance) decides who is near enough; the level fades with distance in the positional sound
   const name = info.sp && species[info.sp] ? species[info.sp].name : '';
   s.flash = kind === 'ok' ? 1.5 : kind === 'bad' ? 0.95 : 0.3; s.kind = kind;
   s.last = { t: g.time, kind, n: info.n || 0, name };
   if (vol > 0.002 && snd) {
-    if (kind === 'tick') { if (snd.archTick) snd.archTick(vol); }
-    else if (kind === 'bad') { if (!ent.quiet && snd.archNotFound) snd.archNotFound(vol, big); }
-    else if (snd.archFound) snd.archFound(vol);
+    if (kind === 'tick') { if (snd.archTick) snd.archTick(lvl); }
+    else if (kind === 'bad') { if (!ent.quiet && snd.archNotFound) snd.archNotFound(lvl, big); }
+    else if (snd.archFound) snd.archFound(lvl);
   }
   const top = ent.y0 + ent.h;
   if (kind === 'ok' && g.fx && vol > 0.002) {
@@ -319,7 +313,7 @@ export function recipes(g) {
   if (m.includes('arch')) out.push({
     id: 'arch', kind: 'arch', icon: '⛩️', name: SIZES[1].name, short: SIZES[1].short, price: PRICES[1] / K_BENCH, batch: [1, 2, 3], p: { size: 1 },
     desc: 'A steel walk-through arch, 2.4 m wide and 2.4 m tall. Carry plush through it: a soft buzz when nothing you carry is what it looks for, a two note da-ding when something is. E picks the target.',
-    use: 'Set it down with B (it faces the way you look, so you walk through it), then press E on it to pick what it looks for. It works without power; lamps need a pole.',
+    use: 'Set it down with B (it faces the way you look, so you walk through it), then press E on it to pick what it looks for. It works without power; the lamps need a cable from a live pole or generator.',
     statusFn: () => `${count(1)} placed. 1.5 kW for the lamps. Fits a 4 x 4 frame line.`,
   });
   if (m.includes('archBig')) out.push({
@@ -338,7 +332,7 @@ export function info(g, ent) {
   const s = st(ent), S = SIZES[archSize(ent)], lines = [];
   lines.push(`Looking for: ${targetLabel(ent)}`);
   lines.push(`Mode: ${MODE_NAMES[ent.mode] || 'The One'}. ${MODE_HELP[ent.mode] || ''}`);
-  lines.push(s.powered ? `Powered. Lamps and crown are lit (${S.kw} kW).` : `No power: it still scans you from its battery, but the lamps stay dark. A pole or generator within reach lights it (${S.kw} kW).`);
+  lines.push(s.powered ? `Powered. Lamps and crown are lit (${S.kw} kW).` : `No power: it still scans you from its battery, but the lamps stay dark. A cable from a live pole or generator lights it (${S.kw} kW).`);
   if (s.last) { const ago = Math.max(0, Math.round(g.time - s.last.t)); lines.push(s.last.kind === 'ok' ? `Last scan ${ago} s ago: MATCH ${s.last.name || ''}`.trim() : s.last.kind === 'bad' ? `Last scan ${ago} s ago: not found (${s.last.n} plush)` : `Last scan ${ago} s ago: nothing carried`); }
   else lines.push('Nothing scanned yet.');
   lines.push(`Walk through it carrying plush: a match rings a da-ding, no match buzzes, an empty bag only ticks.${ent.quiet ? ' Quiet mode: no buzz.' : ''}`);

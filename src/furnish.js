@@ -61,13 +61,13 @@ const USE = {
   silo: 'Aim at the floor and press B. Belts that end at it fill it (2,000 plush). Plush leave through the face you were looking at, onto a belt. E sets a species filter and takes plush out.',
   ovault: 'Place it like a Vault Crate, facing a belt. It fills from a belt behind it and feeds the oldest plush onto the belt it faces.',
   dimdepot: 'Aim at the floor and press B. Every vault and silo within 36 m reports into one pool. E lists it and takes plush out. A belt on its face pulls the chosen species. Needs no power.',
-  sign: 'Aim at a wall, the floor or the roof and press B. E edits the text, size, icon and colour. Lit signs need a pole in reach.',
+  sign: 'Aim at a wall, the floor or the roof and press B. E edits the text, size, icon and colour. Lit signs need a cable from a live pole or generator.',
   dsign: 'Aim at a wall, the floor or the roof and press B. E turns the arrow and sets a short label.',
   psign: 'Aim at a wall, the floor or the roof and press B. It prints how deep you are and the cheapest frame rated for it.',
-  clamp: 'Aim at the roof (or a wall) and press B. Needs a pole in reach. On Auto it lights up under a roof or a frame. E picks Auto, On or Off.',
-  flood: 'Aim at the floor, a wall or the roof and press B. Needs a pole in reach. E aims it: turn and tilt.',
-  strip: 'Aim at a floor edge, a wall or the roof and press B. A 2.4 m bar. Needs a pole in reach.',
-  wbeacon: 'Place it anywhere in reach of a pole. On Auto it flashes orange while a detector gate holds The One or a breaker on its grid has tripped.',
+  clamp: 'Aim at the roof (or a wall) and press B. Needs a cable from a live pole or generator. On Auto it lights up under a roof or a frame. E picks Auto, On or Off.',
+  flood: 'Aim at the floor, a wall or the roof and press B. Needs a cable from a live pole or generator. E aims it: turn and tilt.',
+  strip: 'Aim at a floor edge, a wall or the roof and press B. A 2.4 m bar. Needs a cable from a live pole or generator.',
+  wbeacon: 'Place it anywhere and run a cable to it. On Auto it flashes orange while a detector gate holds The One or a breaker on its grid has tripped.',
 };
 const owned = (g, id, type) => ((g.S.items && g.S.items[id]) || 0) + (g.machines ? g.machines.count(type) : 0);
 
@@ -465,7 +465,7 @@ function buildObj(e) {
 }
 const disposeTex = (obj) => { if (obj && obj.userData && obj.userData.tex) { obj.userData.tex.dispose(); if (obj.userData.bright) obj.userData.bright.dispose(); } };
 
-// ---------------------------------------------------------------- power: lights and lit signs find their grid the way every consumer does (nearest node in pole reach)
+// ---------------------------------------------------------------- power: lights and lit signs run on a cable to a powered node, like every consumer
 export function furnKw(e) {
   const k = KW[e.type]; if (k === undefined) return undefined;
   if (e.type === 'sign' || e.type === 'dsign' || e.type === 'psign') return e.lit ? k : 0;
@@ -473,24 +473,11 @@ export function furnKw(e) {
 }
 function resolvePower(g) {
   const P = g.power; if (!P || !P.nets) return;
-  const reach2 = g.T.poleReach * g.T.poleReach, add = new Map(), L = lists(g);
+  const L = lists(g);
+  // the solver counts lights and signs itself (furnKw): it already set .pw (a light runs only on a cable to a powered node)
   for (const it of L.list) {
     const e = it.ent; if (KW[e.type] === undefined) continue;
-    const ex = e.x, ey = e.y + (e.h || 0.5) / 2, ez = e.z;
-    if (P.catalogConsumers) { it.net = P.netOfEnt(e); if (e.type === 'wbeacon') it.trip = tripped(it); continue; }   // the solver counts lights and signs itself (furnKw): it already set .pw
-    let best = null, bd = 1e12;
-    for (const net of P.nets) for (const n of net.nodes) { const [px, py, pz] = P.pos(n); const dx = ex - px, dz = ez - pz, dy = ey - py, d = dx * dx + dz * dz + dy * dy * 0.5; if (d <= reach2 && d < bd) { bd = d; best = net; } }
-    it.net = best; if (e.type === 'wbeacon') it.trip = tripped(it);
-    if (best) add.set(best, (add.get(best) || 0) + (furnKw(e) || 0));
-  }
-  // The grid answers for what it feeds: add our load to each grid once per recompute (power.js builds new net objects every time), unless power.js
-  // counts catalog consumers itself (it then sets P.catalogConsumers). A tripped grid stays at 0, a battery covers the extra kW like any other load.
-  if (!P.catalogConsumers) for (const [net, kw] of add) {
-    if (FS.seenNets.has(net) || kw <= 0) continue;
-    FS.seenNets.add(net); net.demand += kw; net.furn = kw;
-    const gen = net.gen ?? net.supply;
-    net.supply = net.tripped ? 0 : (net.charged && net.demand > gen ? net.demand : gen);
-    net.sat = net.demand <= 1e-6 ? (net.supply > 0 ? 1 : 0) : Math.min(1, net.supply / net.demand);
+    it.net = P.netOfEnt(e); if (e.type === 'wbeacon') it.trip = tripped(it);
   }
   for (const it of L.list) { const e = it.ent; if (KW[e.type] === undefined) continue; const pw = it.net && !it.net.tripped ? it.net.sat : 0; if (Math.abs((e.pw ?? -1) - pw) > 0.004) e.pw = pw; }   // a tripped grid is dark (the solver already gives it sat 0)
   FS.lastNets = P.nets;
@@ -811,7 +798,7 @@ function guestRowFor(g, d) {
 }
 
 // ---------------------------------------------------------------- readouts
-function powerText(e) { return (e.pw ?? 0) > 0.05 ? `Powered ${Math.round((e.pw ?? 0) * 100)}%` : 'No power: link it to a pole or a generator'; }
+function powerText(e) { return (e.pw ?? 0) > 0.05 ? `Powered ${Math.round((e.pw ?? 0) * 100)}%` : 'No power: run a cable to it from a live pole or generator'; }
 function nameOfItem(g, id) { const r = CRAFT && CRAFT.recipes(g).find((q) => q.id === id); return r ? r.name : id; }
 function infoFor(kind) {
   return (g, e) => {

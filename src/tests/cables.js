@@ -1,7 +1,7 @@
-// Hand-wired power cables: the Power Cable tool, the explicit link it adds on top of pole reach, drawing, hover text, saves.
+// Hand-wired power cables: the Power Cable tool, the only link power has (see wire_*.js for the wire-only rules), drawing, hover text, saves.
 import { SAVE_KEY } from '../config.js';
 import { loadSaved } from '../state.js';
-import { cableMax } from '../cables.js';
+import { cableMax, segsFor } from '../cables.js';
 import { CONTROLS } from '../controls.js';
 import { infoFor } from '../info.js';
 import { EARTH } from '../earth.js';
@@ -36,12 +36,11 @@ export default async function (ctx) {
     return (have() === 5 && m0 - S().money === r.price * 5 && tool && tool.icon && g.S.hotbar.includes('cable')) || `have ${have()}, paid ${m0 - S().money}, tool ${JSON.stringify(tool)}`;
   });
 
-  await T('cables.wiring-a-generator-to-a-far-machine-powers-it-beyond-pole-reach', async () => {
+  await T('cables.wiring-a-generator-to-a-machine-powers-it-and-the-hint-shows-the-length', async () => {
     reset(); const G = mkGen(-9, 3), B = mk('belt', 3, 3); craft('cable', 2); selectTool('cable'); adv(1);
-    if ((B.pw || 0) > 0.05) return 'belt 10 m from the generator is powered with no pole and no cable';
-    if (Math.hypot(cellX(G.i) - cellX(B.i), cellZ(G.k) - cellZ(B.k)) <= g.T.poleReach) return 'test setup: belt is inside pole reach';
+    if ((B.pw || 0) > 0.05) return 'belt 12 m from the generator is powered with no cable';
     lookAt(G); adv(0.06); click(); if (g.cables.from !== G.id) return 'first click did not start a wire: ' + hintText();
-    lookAt(B); adv(0.06); const pv = g.cables.preview; if (!pv || pv.state !== 'green') return 'no green preview wire while aiming at the belt: ' + JSON.stringify(pv); if (!/attach/i.test(hintText()) || !/m of 25 m/.test(hintText())) return 'hint does not show the length: ' + hintText();
+    lookAt(B); adv(0.06); const pv = g.cables.preview; if (!pv || pv.state !== 'green') return 'no green preview wire while aiming at the belt: ' + JSON.stringify(pv); if (!/attach/i.test(hintText()) || !/m of 14 m/.test(hintText())) return 'hint does not show the length: ' + hintText();
     click(); if (S().cables.length !== 1) return 'second click did not attach: ' + hintText(); if (g.cables.from != null) return 'wire still in hand after attaching';
     if (have() !== 1) return 'cable item not used: ' + have();
     const pw0 = B.pw; adv(1);
@@ -50,9 +49,9 @@ export default async function (ctx) {
   });
 
   await T('cables.a-cable-between-two-poles-merges-their-grids', async () => {
-    reset(); const G = mkGen(-9, 3), P1 = mk('pole', -8, 3.6), P2 = mk('pole', 7, 3.6), B = mk('belt', 7.6, 3.0); craft('cable'); adv(1);
+    reset(); const G = mkGen(-9, 3), P1 = mk('pole', -8, 3.6), P2 = mk('pole', 4, 3.6), B = mk('belt', 4.6, 3.0); craft('cable', 3); g.cables.connect(G.id, P1.id); adv(1);
     if (g.power.nets.length !== 2) return 'expected two separate grids before wiring, got ' + g.power.nets.length; if ((B.pw || 0) > 0.05) return 'far belt powered before wiring';
-    const r = g.cables.connect(P1.id, P2.id); if (!r.ok) return r.why; adv(0.2);
+    const r = g.cables.connect(P1.id, P2.id); if (!r.ok) return r.why; if ((B.pw || 0) > 0.05) return 'a belt beside the far pole is powered with no cable'; g.cables.connect(P2.id, B.id); adv(0.2);
     const net = g.power.nets.find((n) => n.nodes.includes(P2)); if (!net || !net.nodes.includes(G) || g.power.nets.length !== 1) return `grids after wiring: ${g.power.nets.length}, gen on far pole's grid: ${!!(net && net.nodes.includes(G))}`;
     return (B.pw > 0.9 && P2.pw > 0.9) || `far belt ${B.pw}, far pole ${P2.pw}`;
   });
@@ -89,11 +88,11 @@ export default async function (ctx) {
     click(); return (g.cables.from === G.id && S().cables.length === 0 && have() === 1 && /Too far/.test(hintText())) || `from ${g.cables.from}, cables ${S().cables.length}, item ${have()}, hint ${hintText()}`;
     })(); } finally { delete g.cables.max; } });
 
-  await T('cables.length-limit-is-25-m-and-grid-range-lengthens-it', async () => {
+  await T('cables.length-limit-is-14-m-and-grid-range-lengthens-it', async () => {
     tune({ power: 1 }); const a = cableMax(g.T); tune({ power: 1, gridRange: 4 }); const b = cableMax(g.T);
     reset({ power: 1 }); const G = mkGen(-14, 3), B = mk('belt', 13, 3); craft('cable'); const r0 = g.cables.connect(G.id, B.id);   // 27 m
     reset({ power: 1, gridRange: 4 }); const G2 = mkGen(-14, 3), B2 = mk('belt', 13, 3); craft('cable'); const r1 = g.cables.connect(G2.id, B2.id);
-    return (a === 25 && b > a && !r0.ok && r1.ok && S().cables.length === 1) || `max ${a} then ${b}, 27 m at level 0: ${r0.ok}, at level 4: ${r1.ok}`;
+    return (a === 14 && b === 30 && !r0.ok && r1.ok && S().cables.length === 1) || `max ${a} then ${b}, 27 m at level 0: ${r0.ok}, at level 4: ${r1.ok}`;
   });
 
   await T('cables.cancel-by-clicking-air-or-pressing-q-or-esc-or-switching-tool', async () => {
@@ -110,7 +109,7 @@ export default async function (ctx) {
   });
 
   await T('cables.cables-keep-working-after-save-and-reload', async () => {
-    reset(); const G = mkGen(-9, 3), B = mk('belt', 3, 3), P1 = mk('pole', -8, 3.6), P2 = mk('pole', 9, 3.6); craft('cable', 2); g.cables.connect(G.id, B.id); g.cables.connect(P1.id, P2.id); adv(1); if (!(B.pw > 0.9)) return 'setup: not powered';
+    reset(); const G = mkGen(-9, 3), B = mk('belt', 3, 3), P1 = mk('pole', -8, 3.6), P2 = mk('pole', 3, 3.6); craft('cable', 2); g.cables.connect(G.id, B.id); g.cables.connect(P1.id, P2.id); adv(1); if (!(B.pw > 0.9)) return 'setup: not powered';
     const before = JSON.stringify(S().cables); await saveAndLoad(); adv(1.5);
     const B2 = L().byId.get(B.id);
     if (JSON.stringify(S().cables) !== before) return 'cable list changed: ' + JSON.stringify(S().cables);
@@ -131,7 +130,7 @@ export default async function (ctx) {
   });
 
   await T('cables.claws-borers-beacons-fans-sorters-mechs-and-earth-movers-can-all-be-wired', async () => {
-    reset({ ...up, excavator: 1, dozer: 1, borer: 1, gridRange: 2 }); const bad = []; const G = mkGen(-9, 3), P = mk('pole', -8, 3.6); S().items.cable = 20;   // a generator takes 2 cables (power parts spec), so a pole with Grid Range 2 (10 ports) is the hub
+    reset({ ...up, excavator: 1, dozer: 1, borer: 1 }); const bad = []; const G = mkGen(-9, 3), P = mk('pole', -1, 8); S().items.cable = 20; g.cables.connect(G.id, P.id);   // the pole is the hub (10 sockets): the generator feeds it, every machine gets its own cable
     const parts = [mk('belt', 3, 3), mk('sorter', 4, 4.2), mk('mech', 4, 5.4), mk('fan', 4, 6.6), mk('charger', 4, 7.8), mkMach('claw', 3, 9, { ry: 0 }), mkMach('beacon', 3, 10.2),
       mkMach('borer', 3, 11.4, { dx: 1, dz: 0, w: 2, h: 3 })];
     const spec = EARTH.dozer; parts.push(mkMach('dozer', 3, 13.2, { dx: 1, dz: 0, hy: spec.hy, hr: spec.hr, hop: [], hn: 0, steps: 0, dug: 0, state: 'idle', yaw: 0 }));
@@ -142,22 +141,22 @@ export default async function (ctx) {
     return bad.length === 0 || bad.slice(0, 5).join('; ');
   });
 
-  await T('cables.a-machine-wired-to-a-machine-shares-its-power-and-poles-still-work-by-reach', async () => {
-    reset(); const bad = []; const G = mkGen(-9, 3), P = mk('pole', -8, 3.6), near = mk('belt', -6.4, 3), near2 = mk('belt', -5.8, 3), far1 = mk('belt', 3, 3), far2 = mk('sorter', 3, 4.2); S().items.cable = 5; adv(1);   // a machine takes one cable (port limit), so two powered belts each share with one far machine
-    if (!(near.pw > 0.9)) bad.push('belt in pole reach lost its power (' + near.pw + ')'); const d0 = g.power.nets[0].demand;
-    g.cables.connect(near.id, far1.id); g.cables.connect(near2.id, far2.id); adv(1);
-    if (!(far1.pw > 0.9) || !(far2.pw > 0.9)) bad.push(`chained machines unpowered: ${far1.pw} ${far2.pw}`);
-    const d1 = g.power.nets[0].demand; if (Math.abs(d1 - d0 - 0.03 - 1.2) > 1e-6) bad.push(`demand ${d0} -> ${d1}, expected +1.23`); void G; void P;
+  await T('cables.a-machine-takes-its-cable-from-a-node-never-from-another-machine', async () => {
+    reset(); const bad = []; const G = mkGen(-9, 3), P = mk('pole', -8, 3.6), near = mk('belt', -6.4, 3), far1 = mk('belt', 3, 3), far2 = mk('sorter', 3, 4.2); S().items.cable = 5; g.cables.connect(G.id, P.id); adv(1);
+    if ((near.pw || 0) > 0.05) bad.push('a belt 1.8 m from a live pole has power with no cable (' + near.pw + ')'); g.cables.connect(P.id, near.id); adv(1); if (!(near.pw > 0.9)) bad.push('belt on its own cable is not powered (' + near.pw + ')');
+    const r1 = g.cables.connect(near.id, far1.id), r2 = g.cables.connect(near.id, far2.id); if (r1.ok || r2.ok || !/not from another machine|socket|line/.test(r1.why + r2.why)) bad.push('a machine to machine cable was accepted: ' + JSON.stringify([r1, r2]));
+    adv(1); if ((far1.pw || 0) > 0.05 || (far2.pw || 0) > 0.05) bad.push(`machines wired to a machine are powered: ${far1.pw} ${far2.pw}`);
+    const r3 = g.cables.connect(G.id, far1.id); if (!r3.ok) bad.push('generator to a far belt: ' + r3.why); adv(1); if (!(far1.pw > 0.9)) bad.push('belt on a cable from the generator is not powered');
     return bad.length === 0 || bad.join('; ');
   });
 
   await T('cables.wire-colors-follow-the-grid-green-orange-and-red', async () => {
-    reset(); const bad = []; const G = mkGen(-9, 3), P = mk('pole', -8, 3.6); craft('cable', 6);   // the pole is the hub: a generator only takes 2 cables
+    reset(); const bad = []; const G = mkGen(-9, 3), P = mk('pole', -8, 3.6); craft('cable', 7); g.cables.connect(G.id, P.id);   // the pole is the hub
     const ms = [0, 1, 2, 3].map((n) => mk('mech', 3, 3 + n * 1.2)); g.cables.connect(P.id, ms[0].id); adv(1); g.cables.redraw();
     if (kind(colorOf(0)) !== 'green') bad.push('powered wire is ' + kind(colorOf(0)) + ' ' + JSON.stringify(colorOf(0)));
     for (const m of ms.slice(1)) g.cables.connect(P.id, m.id); adv(1); g.cables.redraw(); const sat = g.power.nets[0].sat; if (!(sat < 0.95 && sat > 0.05)) bad.push('test needs a brownout, sat ' + sat); if (kind(colorOf(0)) !== 'orange') bad.push('brownout wire is ' + kind(colorOf(0)));
     G.burn = 0; G.q = []; G.lit = false; adv(1); g.cables.redraw(); if (kind(colorOf(0)) !== 'red') bad.push('dead wire is ' + kind(colorOf(0)));
-    if (g.cables.segCount !== 4 * 12) bad.push('segments drawn ' + g.cables.segCount);
+    { let want = 0; for (const { A, B } of g.cables.live()) want += segsFor(g.cables.lengthBetween(A, B)); if (g.cables.live().length !== 5 || g.cables.segCount !== want) bad.push(`segments drawn ${g.cables.segCount}, expected ${want} for ${g.cables.live().length} cables`); }   // (a short wire takes fewer segments than a long one: segsFor)
     const sag = g.cables.curve([0, 1, 0], [10, 1, 0]); if (!(sag[6][1] < 1 - 0.2)) bad.push('wire does not sag: ' + sag[6][1]);
     return bad.length === 0 || bad.join('; ');
   });
@@ -165,18 +164,18 @@ export default async function (ctx) {
   await T('cables.hover-readout-names-the-source-and-the-cable-has-its-own-card', async () => {
     reset(); const G = mkGen(-9, 3), B = mk('belt', 3, 3); craft('cable'); g.cables.connect(G.id, B.id); adv(1); const bad = [];
     const ib = infoFor(g, { kind: 'tile', id: B.id }), ig = infoFor(g, { kind: 'tile', id: G.id });
-    if (!ib || !/Powered by cable from Generator/.test(ib.lines.join('|')) || !/Powered/.test(ib.lines.join('|'))) bad.push('belt card: ' + JSON.stringify(ib && ib.lines));
-    if (!ig || !/Cables: Belt/.test(ig.lines.join('|'))) bad.push('generator card: ' + JSON.stringify(ig && ig.lines));
+    if (!ib || !/Powered 100%: Line of 1 tile powered through a cable at tile .*from Generator/.test(ib.lines.join('|'))) bad.push('belt card: ' + JSON.stringify(ib && ib.lines));
+    if (!ig || !/Cables 1 of 4 sockets/.test(ig.lines.join('|')) || !/Grid: 1 generator/.test(ig.lines.join('|'))) bad.push('generator card: ' + JSON.stringify(ig && ig.lines));
     const ic = infoFor(g, { kind: 'cable', id: S().cables[0].id }); if (!ic || !/POWER CABLE/.test(ic.title) || !/Generator to Belt/.test(ic.lines[0]) || !ic.lit) bad.push('cable card: ' + JSON.stringify(ic));
-    G.burn = 0; G.q = []; adv(1); const ib2 = infoFor(g, { kind: 'tile', id: B.id }); if (!/no power/i.test(ib2.lines.join('|'))) bad.push('dead card: ' + JSON.stringify(ib2.lines));
+    G.burn = 0; G.q = []; adv(1); const ib2 = infoFor(g, { kind: 'tile', id: B.id }); if (!/no power|not powered/i.test(ib2.lines.join('|'))) bad.push('dead card: ' + JSON.stringify(ib2.lines));
     selectTool('hammer'); const rec = S().cables[0], pts = g.cables.curve(g.cables.attach(G), g.cables.attach(B)); look(pts[6][0], pts[6][1], pts[6][2], 2); const ref = g.cables ? (await import('../info.js')).findInfoRef(g) : null; if (!ref || ref.kind !== 'cable' || ref.id !== rec.id) bad.push('hover ref on the wire: ' + JSON.stringify(ref));
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('cables.no-cable-leaves-existing-power-numbers-alone', async () => {
-    reset(); const G = mkGen(-9, 3), P = mk('pole', -8, 3.6), bs = [0, 1, 2].map((n) => mk('belt', -7.4 + n * 0.6, 3)), m = mk('mech', -6.4, 4.2); adv(1);
+  await T('cables.laying-and-removing-another-cable-leaves-existing-power-numbers-alone', async () => {
+    reset(); const G = mkGen(-9, 3), P = mk('pole', -8, 3.6), bs = [0, 1, 2].map((n) => mk('belt', -7.4 + n * 0.6, 3)), m = mk('mech', -6.4, 4.2); craft('cable', 5); g.cables.connect(G.id, P.id); g.cables.connect(P.id, bs[1].id); g.cables.connect(P.id, m.id); adv(1);
     const n0 = g.power.nets.length, d0 = g.power.nets[0].demand, s0 = g.power.nets[0].supply, pw0 = bs.map((b) => b.pw).concat([m.pw, P.pw]);
-    craft('cable'); const far = mk('belt', 8.4, 3); g.cables.connect(G.id, far.id); g.cables.remove(S().cables[0].id, true); adv(1);
+    const far = mk('belt', 3, 3); const r = g.cables.connect(G.id, far.id); if (!r.ok) return 'far belt: ' + r.why; g.cables.remove(S().cables[S().cables.length - 1].id, true); adv(1);
     const d1 = g.power.nets[0].demand, pw1 = bs.map((b) => b.pw).concat([m.pw, P.pw]);
     return (g.power.nets.length === n0 && Math.abs(d0 - (0.03 * 3 + 3.5)) < 1e-9 && Math.abs(d1 - d0) < 1e-9 && s0 === g.power.nets[0].supply && JSON.stringify(pw0) === JSON.stringify(pw1)) || `nets ${n0}->${g.power.nets.length}, demand ${d0} -> ${d1}, pw ${pw0} -> ${pw1}`;
   });
@@ -190,7 +189,7 @@ export default async function (ctx) {
   });
 
   await T('cables.long-run-has-no-frame-errors-and-keeps-wires-standing', async () => {
-    reset(); const G = mkGen(-9, 3), P = mk('pole', -8, 3.6); craft('cable', 5); const bs = [0, 1, 2, 3, 4].map((n) => mk('belt', 3 + n * 0.6, 3)); for (const b of bs) g.cables.connect(P.id, b.id);
+    reset(); const G = mkGen(-9, 3), P = mk('pole', -8, 3.6); craft('cable', 6); g.cables.connect(G.id, P.id); const bs = [0, 1, 2, 3].map((n) => mk('fan', -3 + n * 1.2, 3)); for (const b of bs) g.cables.connect(P.id, b.id);
     selectTool('cable'); lookAt(G); click(); adv(8); const ok = S().cables.length === 5 && bs.every((b) => b.pw > 0.9); bareHands(); return ok || 'cables ' + S().cables.length;
   });
 }

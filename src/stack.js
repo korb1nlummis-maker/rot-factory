@@ -368,13 +368,13 @@ export function addLadder(machines, e, mesh) {
   e.x = cellX(e.i); e.z = cellZ(e.k); e.y = e.j * C; e.h = LADDER_H * C; e.y0 = e.y; e.hr = 0.6;
   const obj = mesh(e); obj.position.set(e.x, e.y, e.z);
   for (const [i, j, k] of ladderCells(e)) w.reserved.add(idxOf(i, j, k));
-  ladders(g).set(e.id, e);
+  ladders(g).set(e.id, e); g.botnavVer = (g.botnavVer | 0) + 1;
   return { obj };
 }
 export function removeLadder(g, e) {
   const w = g.world;
   for (const [i, j, k] of ladderCells(e)) w.reserved.delete(idxOf(i, j, k));
-  ladders(g).delete(e.id);
+  ladders(g).delete(e.id); g.botnavVer = (g.botnavVer | 0) + 1;
 }
 // player.climb: called every step before gravity. true while you are on a ladder.
 export function climbStep(g, pl, input, dt) {

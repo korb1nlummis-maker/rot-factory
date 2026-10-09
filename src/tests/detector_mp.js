@@ -153,7 +153,7 @@ export default async function (ctx) {
   await guard('mp.detector.power-state-reaches-the-guest-in-the-half-second-row', async () => {
     fresh(UP); const bad = []; K.clearBay(); role('host'); cap();
     const gen = await K.put('gen', { x: -9, z: -1.2, dir: 0 }), pole = await K.put('pole', { x: -9, z: 1.2, dir: 0 }); if (!gen.ok || !pole.ok) return 'rig';
-    K.feedGen(K.tileOf(gen.ent), 12); const lit = mk(1, -9, 3.6), dark = mk(1, -5.4, 9.6); g.power.markDirty(); g.power.update(0.1); adv(1.0, 0.05);
+    K.feedGen(K.tileOf(gen.ent), 12); const lit = mk(1, -9, 3.6), dark = mk(1, -5.4, 9.6); S().items.cable = 4; g.cables.connect(gen.ent.id, pole.ent.id); g.cables.connect(pole.ent.id, lit.id); g.power.markDirty(); g.power.update(0.1); adv(1.0, 0.05);   // the lit arch has its cable, the dark one none
     if (!D.archState(lit).powered || D.archState(dark).powered) return `host power: lit ${D.archState(lit).powered}, far ${D.archState(dark).powered}`;
     g.time += 6; g._extRow = 0; sent.length = 0; EXT.update(g, 0.1, false); const row = ofType('xrow').find((m) => m.k === 'arch'); if (!row || row.d.pw[lit.id] !== 1 || row.d.pw[dark.id] !== 0) return 'row: ' + JSON.stringify(row);
     sent.length = 0; g._extRow = 0; EXT.update(g, 0.1, false); if (ofType('xrow').some((m) => m.k === 'arch')) bad.push('an unchanged row was sent again at once');

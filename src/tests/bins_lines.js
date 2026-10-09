@@ -90,7 +90,7 @@ export default async function (ctx) {
   void nearBin;
 
   await railTest('bins.line.a-cart-sells-at-the-nearest-bin-on-auto-and-only-at-the-bin-of-its-line-when-assigned', async () => {
-    const bad = [], std = RL.std(); const b = K.bin(), d = K.beacon(-20, 1.0); RL.power(-19.1, 1.6); R.invalidate(g); g.power.markDirty(); ctx.adv(0.5);
+    const bad = [], std = RL.std(); const b = K.bin(), d = K.beacon(-20, 1.0); RL.power(-19.1, 1.6, d); R.invalidate(g); g.power.markDirty(); ctx.adv(0.5);
     if (!(d.pw > 0.05)) return 'the depot has no power in the test grid';
     const nearD = RL.cart(RL.ci(-19), 0, std.k), nearBin2 = RL.cart(RL.ci(0.2), 0, std.k);
     // Auto: each cart sells at the bin it stops by
@@ -114,7 +114,7 @@ export default async function (ctx) {
 
   await railTest('bins.line.a-line-that-never-comes-near-its-bin-or-whose-bin-is-dark-sells-at-the-nearest-and-says-so', async () => {
     const bad = [], std = RL.std(); const far = K.beacon(8, 5.5);   // the track runs along z -2.2: this depot is 7.7 m off it
-    RL.power(8.9, 5.5); R.invalidate(g); ctx.adv(0.5); g.setCfg(std.base, { dest: far.id }); const car = RL.cart(RL.ci(0.2), 0, std.k); load(car, 3); K.toasts.length = 0; ctx.adv(3);
+    RL.power(8.9, 5.5, far); R.invalidate(g); ctx.adv(0.5); g.setCfg(std.base, { dest: far.id }); const car = RL.cart(RL.ci(0.2), 0, std.k); load(car, 3); K.toasts.length = 0; ctx.adv(3);
     if (sold(BINS.HALL).n !== 3) bad.push('an unreachable bin: the cart should sell at the nearest one: ' + sold(BINS.HALL).n);
     if (!K.toasts.some((t) => /Rail Cart cannot reach Depot A from here, so it uses Auto/.test(t))) bad.push('no message: ' + K.toasts);
     const near = K.beacon(-6, 0.5); R.invalidate(g); g.setCfg(std.base, { dest: near.id }); g._binSaid = new Map(); const car2 = RL.cart(RL.ci(0.2), 0, std.k); load(car2, 2); K.toasts.length = 0;   // (no pole reaches it: it is dark)

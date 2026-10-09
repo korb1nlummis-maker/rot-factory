@@ -78,7 +78,7 @@ export default async function (ctx) {
   });
 
   await guard('mp.gen.guest-cable-ports-follow-the-host-rule-for-each-rung', async () => {
-    K.reset(FULL, false); g.T.poleLink = 4; g.T.poleReach = 3; role('host'); cap(); const bad = [];
+    K.reset(FULL, false); role('host'); cap(); const bad = [];
     for (const key of ['portable', 'plant']) {
       const t = K.tile('gen', key === 'portable' ? -12 : -8, 3, { gk: key }), lim = PP.GEN_BY_KEY[key].ports; let refused = '';
       const fans = []; for (let n = 0; n < lim + 1; n++) fans.push(K.fan(t.i * 0 + cellX(t.i) + n * 0.7 - 1, 6.5));

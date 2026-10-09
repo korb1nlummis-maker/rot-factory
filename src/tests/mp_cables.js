@@ -57,11 +57,11 @@ export default async function (ctx) {
     const { G, B } = hostSetup(); craft('cable'); g.cables.connect(G.id, B.id); adv(1); const ref = (id) => ({ kind: 'tile', id });
     const h = infoFor(g, ref(B.id)).lines.join('|'); sent = []; g.sendDyn(); const dyn = ofType('dyn')[0]; const hw = hostWorld(); toGuest(hw); g.netMessage(json(dyn)); g.cables.update(0.5);
     const gl = infoFor(g, ref(B.id)).lines.join('|'), gg = infoFor(g, ref(G.id)).lines.join('|'), gc = infoFor(g, { kind: 'cable', id: S().cables[0].id });
-    return (/Powered by cable from Generator/.test(h) && /Powered by cable from Generator/.test(gl) && /Cables: Belt/.test(gg) && gc && /POWER CABLE/.test(gc.title) && gc.lit) || `host "${h}" guest "${gl}" / "${gg}" ${JSON.stringify(gc)}`;
+    return (/Line of 1 tile powered through a cable at tile .*from Generator/.test(h) && /Line of 1 tile powered through a cable at tile .*from Generator/.test(gl) && /Cables 1 of 4: Belt/.test(gg) && gc && /POWER CABLE/.test(gc.title) && gc.lit) || `host "${h}" guest "${gl}" / "${gg}" ${JSON.stringify(gc)}`;
   });
 
   await bareTest('mp.cables.late-joiner-gets-every-cable-with-the-world', async () => {
-    const { G, B } = hostSetup(); const B2 = mk('belt', 3, 4.2), P = mk('pole', -8, 3.6), P2 = mk('pole', 8, 3.6); craft('cable', 3); g.cables.connect(G.id, B.id); g.cables.connect(G.id, B2.id); g.cables.connect(P.id, P2.id); sent = [];
+    const { G, B } = hostSetup(); const B2 = mk('belt', 3, 4.2), P = mk('pole', -8, 3.6), P2 = mk('pole', 4, 3.6); craft('cable', 3); g.cables.connect(G.id, B.id); g.cables.connect(G.id, B2.id); g.cables.connect(P.id, P2.id); sent = [];
     g.sendWorld(); const kinds = sent.map((m) => m.t); const ci = kinds.indexOf('cables'), ei = kinds.lastIndexOf('ents'), ri = kinds.indexOf('ready');
     if (ci < 0) return 'sendWorld did not send the cables: ' + kinds.join(); if (!(ei < ci && ci < ri)) return 'cables must come after the entities and before ready: ' + kinds.join();
     return (sent[ci].list.length === 3) || 'sent ' + sent[ci].list.length + ' cables';

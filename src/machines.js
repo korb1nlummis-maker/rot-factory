@@ -10,6 +10,8 @@ import { buildMountFan, MOUNT_FAN } from './mountfan.js';
 import { catalogType } from './catalog.js';
 import { furnishLights, LIGHT_CAP } from './furnish.js';
 import { isEarth, planEarth as planEarthMachine, makeEarth, addEarth, updateEarth, guestEarth } from './earth.js';
+import * as LL from './lanternlight.js';   // lantern, flare and glow stick light: the halo, the burn-down, the real light pool
+import * as NB from './notebook.js';   // remains and supply caches beside a digger are flagged, and a borer stops short of them
 
 const woodTex = (() => {
   const c = document.createElement('canvas'); c.width = 128; c.height = 128;
@@ -148,7 +150,7 @@ export class Machines {
   }
 
   disposeObj(o) {
-    o.traverse((c) => { if (c.geometry) c.geometry.dispose(); if (c.material && !c.material.__shared && c.isLineSegments) c.material.dispose(); });
+    o.traverse((c) => { if (c.geometry && !(c.geometry.userData && c.geometry.userData.shared)) c.geometry.dispose(); if (c.material && !c.material.__shared && c.isLineSegments) c.material.dispose(); });
   }
 
   clear() {
@@ -608,15 +610,12 @@ export class Machines {
   }
 
   // ---------- builders ----------
-  makeLantern() {
+  makeLantern() {   // a small lantern (0.3 m) standing on its base: modest warm glass in a dark cage, a ring to carry it. The glow around it is the light it casts (lanternlight.js), not the glass
     const g = new THREE.Group();
-    const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.26, 10, 1, true), new THREE.MeshStandardMaterial({ color: 0x222, metalness: 0.9, roughness: 0.4, wireframe: true }));
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.2, 1.6) }));
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.05, 10), MATS.dark);
-    cap.position.y = 0.15;
-    const hook = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.01, 6, 12), MATS.dark);
-    hook.position.y = 0.22;
-    g.add(cage, bulb, cap, hook);
+    const iron = new THREE.MeshStandardMaterial({ color: 0x24211d, metalness: 0.8, roughness: 0.45 });
+    const glass = new THREE.MeshStandardMaterial({ color: 0x35260f, emissive: new THREE.Color(LL.BULB[0], LL.BULB[1], LL.BULB[2]), emissiveIntensity: 1.35, roughness: 0.4, metalness: 0 }); glass.userData.lamp = true;
+    const G = LL.lanternGeometry(), body = new THREE.Mesh(G.iron, iron), gl = new THREE.Mesh(G.glass, glass); gl.position.y = 0.11; gl.name = 'glass';   // two meshes for every lantern, geometry shared (lanternlight.js)
+    g.add(body, gl);
     return g;
   }
 
@@ -636,12 +635,12 @@ export class Machines {
       const flag = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.01), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(2) })); flag.position.set(0.15, 1.15, 0);
       g.add(pole, flag);
     } else if (kind === 'glow') {
-      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.4, 1.0) })); stick.position.y = 0.04; stick.rotation.z = Math.PI / 2;
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.01, 4, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.4, 1.0) })); tip.name = 'tip'; tip.visible = false;
+      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.32, 1.45, 0.62) })); stick.position.y = 0.04; stick.rotation.z = Math.PI / 2;
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.01, 4, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.32, 1.45, 0.62) })); tip.name = 'tip'; tip.visible = false;
       g.add(stick, tip);
     } else if (kind === 'flare') {
       const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), new THREE.MeshStandardMaterial({ color: 0xaa2218, roughness: 0.8 })); stick.position.y = 0.17; stick.rotation.z = 0.5;
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.2, 1.2, 0.5) })); tip.position.set(-0.09, 0.32, 0); tip.name = 'tip';
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.3, 0.9, 0.38) })); tip.position.set(-0.09, 0.32, 0); tip.name = 'tip';
       g.add(stick, tip);
     } else if (kind === 'dynamite') {
       const red = new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.6 });
@@ -777,11 +776,13 @@ export class Machines {
     } else if (['marker', 'flare', 'charge', 'strut', 'rope'].includes(ent.type)) {
       it.obj = this.makeSimple(ent.dyn ? 'dynamite' : ent.jack ? 'jack' : ent.glow ? 'glow' : ent.type, ent);
       it.obj.position.set(ent.x, ent.y, ent.z);
+      if (ent.type === 'flare') { const h = LL.makeHalo(ent.glow ? [0.35, 1, 0.55] : [1, 0.5, 0.2], ent.glow ? 0.5 : 0.65); h.position.set(ent.glow ? 0 : -0.09, ent.glow ? 0.06 : 0.32, 0); it.obj.add(h); }
       if (ent.type === 'strut') { w.supports.push({ x: ent.x, y: ent.y + 0.6, z: ent.z, r: ent.jack ? 2.7 : 1.9, b: ent.jack ? 2 : 1, id: ent.id, kind: ent.jack ? 'jack' : 'strut', cap: capacityOf(ent.jack ? 'jack' : 'strut'), born: game.time }); game.queueLoad && game.queueLoad(ent.x, ent.y + 0.6, ent.z); }
       if (ent.type === 'flare') ent.born = ent.born ?? game.S.stats.playSecs;
     } else if (ent.type === 'lantern') {
       it.obj = this.makeLantern();
       it.obj.position.set(ent.x, ent.y, ent.z);
+      { const h = LL.makeHalo([1, 0.66, 0.3], 0.75); h.position.y = 0.12; it.obj.add(h); }
     } else if (ent.type === 'claw') {
       const r = this.makeRig();
       it.obj = r.group; it.rig = r;
@@ -833,8 +834,8 @@ export class Machines {
       else if (e.type === 'borer') { const k = Math.min(1, dt * 6); const tx = cellX(e.i) + (e.dz !== 0 && e.w % 2 === 0 ? C / 2 : 0), tz = cellZ(e.k) + (e.dx !== 0 && e.w % 2 === 0 ? C / 2 : 0); it.obj.position.x += (tx - it.obj.position.x) * k; it.obj.position.z += (tz - it.obj.position.z) * k; if (it.borer) it.borer.teeth.rotation.z += dt * 7; }
       else if (isEarth(e.type)) guestEarth(this, it, dt, time);
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
-      else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
-      else if (e.type === 'flare') { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); }
+      else if (e.type === 'lantern') { it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02; LL.tickHalo(this.game, it); }
+      else if (e.type === 'flare') { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); LL.paintFlare(this.game, it, LL.flareLevel(LL.ageOf(this.game, e), !!e.glow, time, e.x)); }
       else if (e.type === 'charge') { const led = it.obj.getObjectByName('led'); if (led) led.visible = Math.sin(time * 14) > 0; }
     }
   }
@@ -861,8 +862,8 @@ export class Machines {
       else if (e.type === 'borer') this.updateBorer(it, dt, time);
       else if (isEarth(e.type)) updateEarth(this, it, dt, time);
       else if (e.type === 'beacon') { const rg = it.obj.getObjectByName('ring'); if (rg) rg.rotation.z = time * 1.5; }
-      else if (e.type === 'lantern') it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02;
-      else if (e.type === 'flare') { if (game.S.stats.playSecs - e.born > (e.glow ? 600 : 240)) this.expire.push(e); else { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); } }
+      else if (e.type === 'lantern') { it.obj.rotation.z = Math.sin(time * 1.3 + e.x) * 0.02; LL.tickHalo(game, it); }
+      else if (e.type === 'flare') { if (game.S.stats.playSecs - e.born > (e.glow ? LL.GLOW_LIFE : LL.FLARE_LIFE)) this.expire.push(e); else { const tp = it.obj.getObjectByName('tip'); if (tp) tp.scale.setScalar(0.8 + Math.sin(time * 23 + e.x) * 0.25); LL.paintFlare(game, it, LL.flareLevel(LL.ageOf(game, e), !!e.glow, time, e.x)); } }
       else if (e.type === 'charge') {
         e.fuse -= dt;
         const led = it.obj.getObjectByName('led'); if (led) led.visible = Math.sin(e.fuse * (e.fuse < 2 ? 22 : 9)) > 0;
@@ -894,6 +895,7 @@ export class Machines {
       return;
     }
     if (!it.target) {
+      NB.scan(game, 'Claw Rig', e.x, e.z, reach + 1);   // flag remains or a cache in reach (the claw never takes them)
       // choose the highest exposed plush in reach
       let best = null, bs = -1e9;
       const rc = Math.ceil(reach / C);
@@ -968,6 +970,13 @@ export class Machines {
     // carve slab
     const px = e.dz !== 0 ? 1 : 0, pz = e.dx !== 0 ? 1 : 0; // perpendicular axis
     const half = Math.floor((e.w - 1) / 2);
+    NB.scan(game, 'Tunnel Borer', cellX(e.i), cellZ(e.k), 4);   // flag remains or a cache within a few metres
+    {   // remains or a supply cache in the next slab: stop short (the cutter never takes them, and a borer sitting on one would be wrong), say so, and go on once it is opened
+      const cells = []; for (let o = -half; o < e.w - half; o++) for (let h = 0; h < e.h; h++) cells.push([nx + px * o, e.j + h, nk + pz * o]);
+      const hold = NB.holdFor(game, 'Tunnel Borer', cells);
+      if (hold) { if (e.hold !== hold) { e.hold = hold; NB.announce(game, '🚇', 'Borer stopped short', `The Tunnel Borer will not cut it. ${hold}`); } it.timer = 1.5; return; }
+      if (e.hold) e.hold = null;
+    }
     let eaten = 0;
     for (let o = -half; o < e.w - half; o++) {
       for (let h = 0; h < e.h; h++) {

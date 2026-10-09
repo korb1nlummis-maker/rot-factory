@@ -32,14 +32,14 @@ export default async function (ctx) {
 
   await T('power.switch-does-not-isolate-if-pole-path-exists', async () => {
     reset(); const A = grid(-10, 3, { gens: 1, fans: 1 }), B = grid(7.5, 3, { fans: 2 });
-    for (const x of [-6.5, -3, 0.5, 4]) K.pole(x, 3);   // a chain of poles 3.5 m apart joins A and B by range
+    { let prev = A.pole; for (const x of [-6.5, -3, 0.5, 4]) { const q = K.pole(x, 3); wire(prev, q); prev = q; } wire(prev, B.pole); }   // a chain of poles 3.5 m apart, each wired to the next, joins A and B
     const sw = part('switch', -1, 6); wire(sw, A.pole); wire(sw, B.pole); adv(1);
     const bad = [];
-    if (g.power.nets.length !== 1) bad.push('poles should join the grids: ' + g.power.nets.length);
+    if (g.power.nets.length !== 1) bad.push('the pole chain should join the grids: ' + g.power.nets.length);
     if (!allPowered(B)) bad.push('B dark although a pole path joins it: ' + K.nearFans(B));
     if (sw.on) bad.push('switch is not open');
     // and a second cable path: two grids joined by a cable, with an open switch on another pair of cables, stay joined
-    reset(); const C = grid(-10, 3, { gens: 1, fans: 1 }), D = grid(8, 3, { fans: 2 }); const s2 = part('switch', -1, 6); wire(s2, C.pole); wire(s2, D.pole); wire(C.pole, D.pole); adv(1);
+    reset(); const C = grid(-10, 3, { gens: 1, fans: 1 }), D = grid(3, 3, { fans: 2 }); const s2 = part('switch', -1, 6); wire(s2, C.pole); wire(s2, D.pole); wire(C.pole, D.pole); adv(1);
     if (g.power.nets.length !== 1 || !allPowered(D)) bad.push('a cable between the poles was cut by an open switch: ' + g.power.nets.length);
     return bad.length === 0 || bad.join(' | ');
   });
@@ -175,7 +175,7 @@ export default async function (ctx) {
     const r = g.setCfg(s3, { shed: false }); if (r.ok) bad.push('reset accepted while the grid is still overloaded');
     if (g.setCfg(s3, { shed: true }).ok) bad.push('a player may not shed a switch');
     // a second generator: supply covers the whole load, E resets it and it stays closed
-    const g2 = K.gen(-13.2, 4.2); void g2; adv(0.5);
+    const g2 = K.gen(-13.2, 4.2); wire(g2, R.M.pole); adv(0.5);
     const r2 = g.setCfg(s3, { shed: false }); if (!r2.ok) bad.push('reset refused with surplus: ' + r2.why); adv(2);
     if (s3.shed || !s3.on) bad.push('it did not stay closed: ' + kinds([s3]));
     if (!R.B[2].fans.every((f) => (f.pw || 0) > 0.99)) bad.push('branch not fed again');
@@ -185,7 +185,7 @@ export default async function (ctx) {
   await T('power.remote-reset-closes-a-shed-switch-after-10-s-of-surplus', async () => {
     const R = branches([1, 1, 2], [1, 2, 3], { power: 1, belts: 1, fans: 1, autoReset: 1 }); adv(1); const bad = [], s3 = R.S[2];
     if (!s3.shed) return 'setup: nothing shed';
-    K.gen(-13.2, 4.2); adv(7); if (!s3.shed) bad.push('closed before 10 s of surplus');
+    wire(K.gen(-13.2, 4.2), R.M.pole); adv(7); if (!s3.shed) bad.push('closed before 10 s of surplus');
     adv(5); if (s3.shed) bad.push('did not close after surplus: ' + kinds(R.S));
     return bad.length === 0 || bad.join(' | ');
   });
@@ -264,7 +264,7 @@ export default async function (ctx) {
   });
 
   await T('power.meter-draws-its-face-and-needs-a-grid', async () => {
-    reset(); const G = grid(-8, 3, { gens: 1, fans: 1 }), m = part('meter', -4, 6), bad = [];
+    reset(); const G = grid(-8, 3, { gens: 1, fans: 1, hub: false }), m = part('meter', -4, 6), bad = [];
     const it = g.machines.items.get(m.id), cv = it.obj.userData.cv; if (!cv) return 'no canvas on the meter mesh';
     ctx.p().pos.set(-6, 0, 6); adv(1.2); if (!(it.obj.userData.tex)) bad.push('no texture');
     if ((m.pw || 0) !== 0) bad.push('an unwired meter far from a pole should be dark: ' + m.pw);
@@ -277,24 +277,25 @@ export default async function (ctx) {
   });
 
   // ------------------------------------------------------------------ demand and nodes
-  await T('power.part-demand-kw-and-batteries-and-breakers-join-by-range', async () => {
+  await T('power.part-demand-kw-and-batteries-and-breakers-join-by-cable', async () => {
     reset(); const bad = [];
     for (const [k, v] of Object.entries({ switch: 0.05, breaker: 0.1, battery: 0.1, meter: 0.02, pswitch: 0.08 })) if (PP.KW[k] !== v || DEMAND[k] !== v) bad.push(`kW ${k}: parts ${PP.KW[k]}, power.js ${DEMAND[k]}`);
     const G = grid(-8, 3, { gens: 1, fans: 0 }), br = part('breaker', -8, 5.4), bat = part('battery', -7, 5.4), mt = part('meter', -9.4, 5.4); adv(1);
     const net = netOf(G.pole); if (!near(net.demand, 0.1 + 0.1 + 0.02, 1e-6)) bad.push('demand ' + net.demand + ' want 0.22');
-    if (!net.nodes.includes(br) || !net.nodes.includes(bat)) bad.push('breaker and battery should be nodes of the grid by pole range');
-    if (net.nodes.includes(mt) || !((mt.pw || 0) > 0.99)) bad.push('the meter is a machine fed by reach: pw ' + mt.pw);
+    if (!net.nodes.includes(br) || !net.nodes.includes(bat)) bad.push('breaker and battery should be nodes of the grid they are wired to');
+    if (net.nodes.includes(mt) || !((mt.pw || 0) > 0.99)) bad.push('the meter is a machine fed by its cable: pw ' + mt.pw);
     const sw = part('switch', -3, 8); const ps = part('switch', -2, 8, { prio: 2 }); wire(sw, G.pole); wire(ps, G.pole); adv(0.5);
     if (!near(netOf(G.pole).demand, 0.22 + 0.05 + 0.08, 1e-6)) bad.push('switch demand: ' + netOf(G.pole).demand);
     return bad.length === 0 || bad.join(' | ');
   });
 
   await T('power.nothing-changes-without-the-new-parts', async () => {
-    reset({ power: 1, belts: 1, fans: 1 }, false); const G = grid(-8, 3, { gens: 1, fans: 6 }); g.T.poleLink = 14; g.T.poleReach = 7; adv(3);
+    reset({ power: 1, belts: 1, fans: 1 }, false); const G = grid(-8, 3, { gens: 1, fans: 6 }); adv(3);
     const net = netOf(G.pole), bad = [];
     if (!near(net.sat, 8 / 12, 0.01) || net.tripped || net.batts.length || net.breakers.length) bad.push('plain grid changed: ' + JSON.stringify({ sat: net.sat, t: net.tripped }));
     if (net.supply !== 8 || net.demand !== 12 || net.cap !== 8) bad.push(`supply ${net.supply} demand ${net.demand} cap ${net.cap}`);
-    if (g.power.packRow() !== null) bad.push('a row is sent with no power parts');
+    { const row = g.power.packRow(); if (!row || row.e.length !== 0) bad.push('a row with part entries is sent with no power parts: ' + JSON.stringify(row && row.e)); }   // (the grids themselves are sent: a guest reads them)
+    reset({ power: 1 }, false); if (g.power.packRow() !== null) bad.push('a row is sent with no grids at all');
     return bad.length === 0 || bad.join(' | ');
   });
 }

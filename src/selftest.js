@@ -41,9 +41,9 @@ export async function runSelfTest(g, only = '') {
   const wallCells = [];
   const fresh = (up = {}) => {
     for (const c of wallCells.splice(0)) w().setCell(c[0], c[1], c[2], 0, 0);
-    resetEntities(); clearBodies();
+    resetEntities(); clearBodies(); S().cables = []; g.cables.reset();   // (every test starts with no wires: cables are saved state and would otherwise carry over)
     for (const b of [...S().crew]) { const o = g.crew.objs.get(b.id); if (o) { g.machines.disposeObj(o); g.crew.root.remove(o); g.crew.objs.delete(b.id); } }
-    S().crew = [];
+    S().crew = []; delete S().crewFuel;   // (the crew's 'keep machines fueled' switch is back on)
     S().up = { ...up }; S().items = {}; S().mats = {}; S().carry = []; S().cart = null; S().gcart = null; S().hcart = null; g.cart.sync(); g.cart2.sync();
     S().money = 1e12; S().stats.plush = 1e9; S().stats.maxDist = 0; S().hotbar = ['hammer', null, null, null, null, null, null, null, null]; g.buildIdx = 0;
     S().contracts = []; S().ending = null; S().needleLost = false;
@@ -51,6 +51,7 @@ export async function runSelfTest(g, only = '') {
     p().embedded = false; p().buried = 0; p().vel.set(0, 0, 0);
     g.dust.cells.clear(); g.dust.lung = 0; g.dust.recover = 0; g._lungPrev = undefined; g._lungRate = 0;
     g.stowed = true; g.vacT = 0; g.holdBlock = false; g.keys = {}; // bare hands unless a test takes a tool out
+    S().vacSet = 100;   // the VACUUM dial starts at 30% in a real game; the tests that measure the vacuum measure all of it (src/tests/vacuum_dial.js deletes this to test the default)
     g.T = g.tune(); w().stabBonus = g.T.stabBonus; sim().binCatch = g.T.binCatch;
     g.rebuildTools();
   };
@@ -62,7 +63,7 @@ export async function runSelfTest(g, only = '') {
     return { i, k: kk };
   };
   const newWorld = async () => { await g.startPlay(true); g.mode = 'play'; g.noSave = true; await realSleep(250); };
-  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.', 'island.', 'thincap.'];
+  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.', 'island.', 'thincap.', 'netperf.', 'mp.netperf.', 'lag.', 'avalanche.audit.'];
   const aimPoint = (x, y, z, back = 2.0) => {
     p().pos.set(x - back, 0, z); p().vel.set(0, 0, 0);
     const e = p().eyePos(new V3()); const dx = x - e.x, dy = y - e.y, dz = z - e.z;
@@ -102,7 +103,7 @@ export async function runSelfTest(g, only = '') {
   const tune = (up) => { S().up = { ...up }; g.T = g.tune(); return g.T; };
 
   Object.defineProperty(document, 'pointerLockElement', { get: () => g.canvas, configurable: true });
-  g.mode = 'play'; g.noSave = true;
+  g.mode = 'play'; g.noSave = true; g.careOff = true;   // (the courier drone sleeps in every test that is not a care package test: src/tests/care_*.js turns it on for itself)
 
   // ================================================================== BOOT
   await T('boot.no-frame-errors', async () => { fresh(); const b = g.errCount || 0; adv(3); return (g.errCount || 0) === b || 'errors during idle frames'; });
@@ -554,13 +555,13 @@ export async function runSelfTest(g, only = '') {
   });
   await T('machines.fan-runs-on-power-and-clears-dust', async () => {
     fresh(powerUp()); await placeAtFloor('gen', -6.6, 2.4, 2.2); await placeAtFloor('pole', -6.6, 3.4, 2.2); const f = await placeAtFloor('fan', -6.6, 4.4, 2.2); if (!f.ok) return f.why;
-    const gen = tiles().find((t) => t.type === 'gen'), fan = tiles().find((t) => t.type === 'fan'); feedGen(gen, 20); g.dust.cells.clear(); g.dust.add(-6.6, 1.0, 4.4, 1.5); const d0 = g.dust.at(-6.6, 1.0, 4.4); adv(6); return (fan.pw > 0.5 && g.dust.at(-6.6, 1.0, 4.4) < d0) || `fan pw ${fan.pw} dust ${g.dust.at(-6.6, 1.0, 4.4)}`;
+    const gen = tiles().find((t) => t.type === 'gen'), fan = tiles().find((t) => t.type === 'fan'), pole = tiles().find((t) => t.type === 'pole'); feedGen(gen, 20); S().items.cable = 2; g.cables.connect(gen.id, pole.id); g.cables.connect(pole.id, fan.id); g.dust.cells.clear();   // generator to pole, pole to fan: power travels only through cables g.dust.add(-6.6, 1.0, 4.4, 1.5); const d0 = g.dust.at(-6.6, 1.0, 4.4); adv(6); return (fan.pw > 0.5 && g.dust.at(-6.6, 1.0, 4.4) < d0) || `fan pw ${fan.pw} dust ${g.dust.at(-6.6, 1.0, 4.4)}`;
   });
   await T('machines.fan-does-nothing-without-power', async () => {
     fresh(powerUp()); const f = await placeAtFloor('fan', -6.6, 4.4, 2.2); if (!f.ok) return f.why; const fan = tiles().find((t) => t.type === 'fan'); g.dust.cells.clear(); g.dust.add(-6.6, 1.0, 4.4, 1.5); adv(5); return (fan.pw || 0) < 0.05 || 'fan worked unpowered: pw ' + fan.pw;
   });
   await T('machines.generator-output-and-buffer-upgrades', async () => { const a = tune({ power: 1 }).genOutput, b = tune({ power: 1, genOutput: 6 }).genOutput; const c = tune({ power: 1 }).genBuffer, d = tune({ power: 1, genBuffer: 3 }).genBuffer; return (b > a * 3 && d > c) || `${a} ${b} ${c} ${d}`; });
-  await T('machines.pole-reach-grows-with-grid-range', async () => { const a = tune({ power: 1 }).poleLink, b = tune({ power: 1, gridRange: 4 }).poleLink, c = tune({ power: 1 }).poleReach, d = tune({ power: 1, gridRange: 4 }).poleReach; return (b > a && d > c) || `${a} ${b} ${c} ${d}`; });
+  await T('machines.cable-length-grows-with-grid-range', async () => { const a = tune({ power: 1 }).cableLen, b = tune({ power: 1, gridRange: 4 }).cableLen; return (a === 14 && b === 30) || `${a} ${b}`; });
   await T('machines.belt-carries-to-vault', async () => {
     fresh(powerUp()); await placeAtFloor('gen', -6.6, 2.4, 2.2); await placeAtFloor('pole', -6.6, 3.4, 2.2); for (let n = 0; n < 6; n++) { const r = await placeAtFloor('belt', -5.4 + n * 0.6, 2.4, 2.0); if (!r.ok) return 'belt ' + n + ': ' + r.why; }
     const v = await placeAtFloor('vault', -1.8, 2.4, 2.0); if (!v.ok) return 'vault: ' + v.why; feedGen(tiles().find((t) => t.type === 'gen'), 30); const first = tiles().filter((t) => t.type === 'belt' && !t.free).sort((a, b) => a.i - b.i)[0]; const vault = tiles().find((t) => t.type === 'vault');

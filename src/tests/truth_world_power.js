@@ -25,11 +25,11 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await guard('truth.world.keys-cables-reach-25-m-and-grid-range-adds-more', async () => {
-    K.reset(UP, false); const bad = []; craft('cable'); S().items.cable = 5; selectTool('cable'); const max0 = g.cables.max(); if (max0 !== 25) bad.push('base reach is ' + max0);
+  await guard('truth.world.keys-cables-reach-14-m-and-grid-range-adds-more', async () => {
+    K.reset(UP, false); const bad = []; craft('cable'); S().items.cable = 5; selectTool('cable'); const max0 = g.cables.max(); if (max0 !== 14) bad.push('base reach is ' + max0);
     const wire = (L) => { const a = K.pole(...A0), b = K.pole(...at(L)); aimAt(...A0); io.click(0); if (!g.cables.wiring) return 'no start'; aimAt(...at(L)); io.click(0); const ok = !!g.cables.find(a.id, b.id); const hint = io.hint(); g.cables.cancel(); for (const e of [a, b]) K.decon(e); return { ok, hint }; };
-    let r = wire(24); if (!r.ok) bad.push('24 m was refused: ' + r.hint); r = wire(26); if (r.ok || !/Too far/.test(r.hint)) bad.push('26 m should be too far: ' + JSON.stringify(r));
-    g.T.poleLink = 18; if (g.cables.max() !== 29) bad.push('Grid Range level 1 should give 29 m, got ' + g.cables.max()); r = wire(28); if (!r.ok) bad.push('28 m with Grid Range was refused: ' + r.hint); r = wire(30); if (r.ok) bad.push('30 m should be too far at 29 m reach');
+    let r = wire(13); if (!r.ok) bad.push('13 m was refused: ' + r.hint); r = wire(15); if (r.ok || !/Too far/.test(r.hint)) bad.push('15 m should be too far: ' + JSON.stringify(r));
+    g.T.cableLen = 18; if (g.cables.max() !== 18) bad.push('Grid Range level 1 should give 18 m, got ' + g.cables.max()); r = wire(17); if (!r.ok) bad.push('17 m with Grid Range was refused: ' + r.hint); r = wire(19); if (r.ok) bad.push('19 m should be too far at 18 m'); g.T = g.tune();
     return bad.length === 0 || bad.join('; ');
   });
 

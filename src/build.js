@@ -99,12 +99,14 @@ export function holeAt(op, od, dx, dz) {
 export const cellVr = (e) => Math.max(0, KINDS.indexOf(e.mk)) | (e.type === 'catwalk' ? 16 : 0);
 
 function register(g, e) {
+  g.botnavVer = (g.botnavVer | 0) + 1;   // botnav.js: the walkable graph is a new version
   const r = reg(g);
   if (CELL_TYPES.has(e.type)) for (const [i, j, k] of cellsOf(e)) { if (e.type === 'pad' && e.bay !== undefined && g.world.get(i, j, k) === BULK) continue; r.own.set(idx(i, j, k), e.id); }   // a door frame already standing on the edge of a plate keeps its cells
   if (WALK_TYPES.has(e.type)) { const s = spec(e); for (let dz = 0; dz < s.nz; dz++) for (let dx = 0; dx < s.nx; dx++) { const key = colKey(e.i0 + dx, e.k0 + dz); let a = r.walk.get(key); if (!a) r.walk.set(key, a = []); if (!a.includes(e.id)) a.push(e.id); } }
 }
 export const reRegister = (g, e) => register(g, e);
 function unregister(g, e) {
+  g.botnavVer = (g.botnavVer | 0) + 1;
   const r = reg(g);
   if (CELL_TYPES.has(e.type)) for (const [i, j, k] of cellsOf(e)) { const key = idx(i, j, k); if (r.own.get(key) === e.id) r.own.delete(key); }
   if (WALK_TYPES.has(e.type)) { const s = spec(e); for (let dz = 0; dz < s.nz; dz++) for (let dx = 0; dx < s.nx; dx++) { const key = colKey(e.i0 + dx, e.k0 + dz); const a = r.walk.get(key); if (a) { const q = a.indexOf(e.id); if (q >= 0) a.splice(q, 1); if (!a.length) r.walk.delete(key); } } }
@@ -908,20 +910,12 @@ function buildLevel(g, tool, e) {
   return { type: 'levelpad', i: e.i, j: e.j, k: e.k, dir: e.dir, size: e.size, mk: bestKindFor(g), on: true, st: 'idle', slot: 0, rid: tool.id, grp: nextGroup(g) };
 }
 
-// power: the grid solver counts a Leveling Pad as a consumer (power.js, DEMAND levelpad) and sets .pw on it; a cable can wire it like any machine.
-// Before the first solve a freshly placed pad reads the nearest pole or generator the way it used to.
+// power: the grid solver counts a Leveling Pad as a consumer (power.js, DEMAND levelpad) and sets .pw on it; it runs only on a cable to a powered node.
+// Before the first solve (or with no cable) it has no power.
 export const levelKw = (e) => (e.on && e.st !== 'done' ? LEVEL_KW : 0);   // an idle or finished pad draws nothing
 export const levelAt = (e) => [cellX(e.i), e.j * C + 1.0, cellZ(e.k)];
 export function levelPower(g, e) {
-  if (e.pw !== undefined) return e.pw;
-  const reach = ((g.T && g.T.poleReach) || 7) + 1.5, x = cellX(e.i), z = cellZ(e.k), y = e.j * C + 1;
-  let best = 0;
-  for (const t of g.logi.tiles.values()) {
-    if (t.type !== 'pole' && t.type !== 'gen') continue;
-    const dx = cellX(t.i) - x, dz = cellZ(t.k) - z, dy = (t.j * C + 1) - y;
-    if (dx * dx + dz * dz + dy * dy * 0.5 <= reach * reach && (t.pw ?? 0) > best) best = t.pw;
-  }
-  return best;
+  return e.pw !== undefined ? e.pw : 0;
 }
 // one frame of one machine
 function levelTick(g, e, dt) {
@@ -949,7 +943,7 @@ function levelTick(g, e, dt) {
     for (let r = 0; r < v.top && n > 0; r++) for (let dz = 0; dz < v.nz && n > 0; dz++) for (let dx = 0; dx < v.nx && n > 0; dx++) {
       const i = s.i0 + dx, j = s.j + r, k = s.k0 + dz; if (!w.get(i, j, k)) continue;
       const rm = w.removeCell(i, j, k, true); if (!rm) continue; n--; e.dug = (e.dug || 0) + 1; S.stats.cells++;
-      g.sellAuto(rm.sp, rm.vr, 0.6);
+      g.sellAuto(rm.sp, rm.vr, 0.6, undefined, { x: cellX(s.i0 + 2), y: s.j * C + 0.9, z: cellZ(s.k0 + 2) });   // the coin rings at the pad
     }
     if (g.fx && Math.random() < dt * 6) g.fx.dust(cellX(s.i0 + 2), s.j * C + 0.6, cellZ(s.k0 + 2), 3, 0.8, 0.9);
     return;
@@ -987,7 +981,7 @@ export function applyLevelRow(g, d) {
     const it = g.machines.items.get(+id); if (it) M.setLamp(it.obj, e.on && (e.st === 'dig' || e.st === 'lay'));
   }
 }
-const ST_TEXT = { idle: 'Ready', dig: 'Digging the area out', lay: 'Laying a pad', nopower: 'No power: link it to a pole or a generator', nofunds: 'Waiting for money for the next pad', blocked: 'Skipped a slot that was blocked', done: 'Finished', off: 'Stopped' };
+const ST_TEXT = { idle: 'Ready', dig: 'Digging the area out', lay: 'Laying a pad', nopower: 'No power: run a Power Cable to it from a live pole or generator', nofunds: 'Waiting for money for the next pad', blocked: 'Skipped a slot that was blocked', done: 'Finished', off: 'Stopped' };
 export function infoLevel(g, e) {
   const st = levelStatus(e), slots = levelSlots(e).length;
   return { title: 'LEVELING PAD', lit: e.on && (st === 'dig' || st === 'lay'), lines: [ST_TEXT[st] + (st === 'blocked' && e.why ? ': ' + e.why : ''), `Area ${e.size} x ${e.size} pads (${e.size * 4} x ${e.size * 4} cells), ${KIND_NAME[e.mk]} pads`, `Slot ${Math.min(e.slot | 0, slots)} of ${slots}: ${e.laid | 0} laid, ${e.skip | 0} skipped, ${e.dug | 0} plush dug`, `Draws ${LEVEL_KW} kW while it runs. ${(e.pw ?? e.pwv ?? 0) > 0.05 ? 'Powered ' + Math.round((e.pw ?? e.pwv ?? 0) * 100) + '%' : 'Not powered'}`, e.on ? 'E stops it' : e.st === 'done' ? 'E runs it again on the same area (pads are skipped where they stand)' : 'E starts it'] };

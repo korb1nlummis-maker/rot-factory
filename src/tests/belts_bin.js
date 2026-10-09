@@ -1,5 +1,5 @@
 import * as PD from '../plushdata.js';
-import { pools } from '../plushdata.js';
+import { pools, NEEDLE } from '../plushdata.js';
 import { infoFor } from '../info.js';
 export default async function (ctx) {
   const { g, S, p, L, fresh, tiles, cellX, cellZ, toI, toK } = ctx;
@@ -86,6 +86,21 @@ export default async function (ctx) {
     // the placement ghost knows too
     if (!L().wouldSink({ type: 'belt', i: toI(b.x - 1.8), j: 0, k: toK(b.z), dir: 0 })) { /* tile already there: nextOf is empty so it still counts */ }
     if (L().wouldSink({ type: 'belt', i: toI(b.x - 8), j: 0, k: toK(b.z), dir: 0 })) bad.push('a far planned piece would glow gold');
+    return bad.length === 0 || bad.join('; ');
+  });
+  await T_('belts.plush-that-spill-off-a-belt-or-hose-end-near-a-bin-are-sucked-in-and-sold', async () => {
+    fresh({ belts: 1 }); const b = bp(), sim = g.sim, bad = [];
+    for (const t of tiles()) L().remove(t);
+    const m0 = S().money, n0 = sim.n;
+    const near = sim.spawn(pools[1][0], 0, b.x - 1.6, 0.3, b.z, 0, 0, 0, 0);    // spilled 1.6 m from the bin (flag 0)
+    const far = sim.spawn(pools[1][0], 0, b.x - 5.0, 0.3, b.z, 0, 0, 0, 0);     // spilled 5 m away: stays
+    const thrown = sim.spawn(pools[1][0], 0, b.x - 1.6, 0.3, b.z + 0.4, 0, 0, 0, 1);   // thrown by the player keeps its own path
+    const one = sim.spawn(NEEDLE, 0, b.x - 1.4, 0.3, b.z - 0.4, 0, 0, 0, 0);            // The One is never taken
+    for (let n = 0; n < 6; n++) { g.time += 0.1; L().update(0.1); }
+    const left = []; for (let q = 0; q < sim.n; q++) left.push(sim.sp[q] + ':' + sim.flag[q]);
+    if (!(S().money > m0)) bad.push('nothing was paid for the spilled plush');
+    if (sim.n !== n0 + 4 - 1) bad.push('expected exactly one body taken, bodies left ' + (sim.n - n0) + ' of 4: ' + left.join(','));
+    void near; void far; void thrown; void one;
     return bad.length === 0 || bad.join('; ');
   });
   function T_(n, f) { return ctx.T(n, f); }

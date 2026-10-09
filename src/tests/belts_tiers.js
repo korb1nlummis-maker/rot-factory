@@ -105,8 +105,10 @@ export default async function (ctx) {
 
   await T('belts.power-per-tile-follows-the-mark', async () => {
     B.setup(UP_ALL); const i = B.i0(), kk = B.k0();
-    g.placeEntity('pole', { i: i + 2, j: 0, k: kk + 2, dir: 0 }, { quiet: true, rebuild: false });
-    const rows = []; for (let k = 0; k < 6; k++) rows.push(B.lay(k, 2, i, kk - 4 + k, 0)); g.power.recompute();
+    const pole = g.placeEntity('pole', { i: i + 2, j: 0, k: kk + 2, dir: 0 }, { quiet: true, rebuild: false });
+    const rows = []; for (let k = 0; k < 6; k++) rows.push(B.lay(k, 2, i, kk - 4 + k, 0));
+    S().items.cable = 10; for (const row of rows) { const r = g.cables.connect(pole.id, row[0].id); if (!r.ok) return 'wiring a line: ' + r.why; }   // one cable per line powers both of its tiles
+    g.power.recompute();
     const net = g.power.nets.find((n) => n.nodes.some((x) => x.type === 'pole')); if (!net) return 'no grid';
     const want = TIER_KW.reduce((a, b) => a + b * 2, 0);
     return near(net.demand, want, 1e-6) || `grid demand ${net.demand}, six marks of two tiles draw ${want}`;
@@ -127,7 +129,7 @@ export default async function (ctx) {
     const a = B.lay(2, 3, i, kk, 0), b = B.lay(2, 3, i + 3, kk, 1); const line = [...a, ...b]; B.vaultAt(i + 3, kk + 3);
     L().rebuildBelts(); const corner = b[0];
     if (corner.cd !== 0) return 'no corner at the turn: cd ' + corner.cd;
-    { const nb = tiles().filter((t) => t.type === 'belt').length; if (L().bedMesh.count !== nb - 1 + 3 || L().railMesh.count !== 2 * (nb - 1) + 6 || L().cornerN !== 1) bad.push(`arc meshes: beds ${L().bedMesh.count}, rails ${L().railMesh.count}, corners ${L().cornerN} for ${nb} tiles (an arc is 3 beds and 6 rails)`); }
+    { const nb = tiles().filter((t) => t.type === 'belt').length; if (L().bedMesh.count !== nb - 1 || L().railMesh.count !== 2 * (nb - 1) || L().bendBedR.count + L().bendBedL.count !== 1 || L().bendRailR.count + L().bendRailL.count !== 1 || L().cornerN !== 1) bad.push(`arc meshes: beds ${L().bedMesh.count}, rails ${L().railMesh.count}, bend decks ${L().bendBedR.count + L().bendBedL.count}, corners ${L().cornerN} for ${nb} tiles (an arc is one curved deck and two curved rails of its own)`); }
     const objs = [{ sp: B.sp, vr: 0, t: 0.9 }, { sp: B.sp, vr: 0, t: 0.56 }, { sp: B.sp, vr: 0, t: 0.22 }]; a[2].items = objs.slice();
     const prog = (it) => { for (let q = 0; q < line.length; q++) if (line[q].items.includes(it)) return q + Math.min(1, it.t); return 99; };
     const pos = () => { const m = new Map(); L().forEachItem((it, x, y, z) => m.set(it, [x, z])); return m; };
@@ -200,7 +202,7 @@ export default async function (ctx) {
     // unpowered: the live number drops to the hand crank
     line[2].pw = 0; const dim = infoFor(g, { kind: 'tile', id: line[2].id }).lines.join(' | '); if (!/148 right now/.test(dim)) bad.push('no live number when unpowered: ' + dim.slice(0, 120));
     // a plain Mk1 belt keeps the old readout and adds the rate
-    const one = B.lay(0, 1, i, kk + 3, 0)[0]; const t1 = infoFor(g, { kind: 'tile', id: one.id }); if (t1.title !== 'BELT' || !/^Mk1 belt: 282 plush per min/.test(t1.lines[0]) || !t1.lines.some((l) => /Speed 1.6 tiles per second/.test(l))) bad.push('Mk1 readout: ' + JSON.stringify(t1.lines.slice(0, 3)));
+    const one = B.lay(0, 1, i, kk + 3, 0)[0]; const t1 = infoFor(g, { kind: 'tile', id: one.id }); if (t1.title !== 'BELT' || !t1.lines.some((l) => /^Mk1 belt: 282 plush per min/.test(l)) || !t1.lines.some((l) => /Speed 1.6 tiles per second/.test(l))) bad.push('Mk1 readout: ' + JSON.stringify(t1.lines.slice(0, 3)));
     return bad.length === 0 || bad.join('; ');
   });
 

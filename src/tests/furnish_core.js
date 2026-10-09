@@ -16,7 +16,8 @@ export default async function (ctx) {
   const cells = [];   // solid cells a test added (walls, roofs): removed again in the finally of each test
   const solid = (i, j, k) => { w().setCell(i, j, k, 2, 0); cells.push([i, j, k]); };
   const clearCells = () => { for (const c of cells.splice(0)) w().setCell(c[0], c[1], c[2], 0, 0); };
-  const reset = () => { clearCells(); fresh(UP); F.resetFurnish(g); S().money = 1e12; K.clearBay(); g.alarmGate = null; };
+  let hub = null, hubs = [];   // the pole of grid(): everything placed afterwards is wired to it (power travels only through cables)
+  const reset = () => { hub = null; hubs = []; clearCells(); fresh(UP); F.resetFurnish(g); S().money = 1e12; K.clearBay(); g.alarmGate = null; };
   const guard = (name, fn) => T(name, async () => { try { return await fn(); } finally { clearCells(); g.stowed = true; g.rebuildTools(); F.resetFurnish(g); } });
   const ids = () => new Set(S().entities.map((e) => e.id));
   // craft, take out, aim at a point of the open bay, plan, place. Returns { ok, why, ent }
@@ -26,7 +27,7 @@ export default async function (ctx) {
     selectTool(id); aimPoint(x, y, z, back); if (o.yaw !== undefined) p().yaw = o.yaw;
     const pl = await plan(); if (!pl || !pl.ok) return { ok: false, why: pl && pl.why, pl };
     const before = ids(); g.placeCurrent(g.curTool());
-    const ent = S().entities.find((e) => !before.has(e.id)); return { ok: !!ent, ent, pl, why: ent ? null : 'nothing was created' };
+    const ent = S().entities.find((e) => !before.has(e.id)); if (ent && hub) K.wireNear(hubs, 14); return { ok: !!ent, ent, pl, why: ent ? null : 'nothing was created' };
   };
   const onFloor = (id, x, z, back = 2.0, o = {}) => putAt(id, x, 0, z, back, o);
   // a solid wall west of x (face at the west side of cell I), 6 cells high, 7 wide
@@ -37,12 +38,13 @@ export default async function (ctx) {
   const act = (e, a) => g.setCfg(e, { act: a });
   const mach = (e) => g.machines.items.get(e.id);
   const count = (e) => Object.values(e.cargo || {}).reduce((a, b) => a + b, 0);
-  const run = (sec, dt = 0.05) => adv(sec, dt);
+  const run = (sec, dt = 0.05) => { if (hub) K.wireNear(hubs, 14); adv(sec, dt); };
   // a powered grid in the bay: a fed generator and a pole next to the spot, returns when the grid is up
   const grid = async (x = -7, z = 8, fuel = 40, gens = 1) => {
     let first = null, pole = null;
     for (let n = 0; n < gens; n++) { const gn = await K.put('gen', { x: x - n * 1.2, z, dir: 0 }); if (!gn.ok) throw new Error('gen: ' + gn.why); K.feedGen(K.tileOf(gn.ent), fuel); first = first || gn.ent; }
     const pl = await K.put('pole', { x: x + 1.2, z, dir: 0 }); if (!pl.ok) throw new Error('pole: ' + pl.why); pole = pl.ent;
+    hub = K.tileOf(pl.ent); hubs = [hub]; for (const gt of S().entities.filter((e) => e.type === 'gen')) K.wire(gt, hub);   // generators to the pole
     run(1.5); return { gen: first, pole };
   };
   const BAD = /undefined|NaN|\[object|null|[\u2013\u2014]/;
@@ -412,6 +414,7 @@ export default async function (ctx) {
 
   await guard('furnish.floodlight-respects-light-budget', async () => {
     reset(); const bad = []; await grid(-7, 8, 60, 4);
+    for (let q = 0; q < 5; q++) { const pr = await K.put('pole', { x: -10 + q * 1.5, z: 9.6, dir: 0 }); if (!pr.ok) return 'extra pole: ' + pr.why; const pt = K.tileOf(pr.ent); K.wire(hub, pt); hubs.push(pt); }   // a pole has ten sockets: the hub keeps four for its generators and one each for the five poles beside it, and each of those spends one on the hub, so five more poles carry the forty lights (four poles left three of them dark: 38 sockets for 40 lights)
     const placed = [], why = []; for (let n = 0; n < 40; n++) { const x = -12 + (n % 10) * 0.9, z = 3.5 + Math.floor(n / 10) * 0.9; const r = await onFloor(n < 4 ? 'flood' : 'strip', x, z, 2); if (r.ok) placed.push(r.ent); else why.push(n + ': ' + r.why); }
     if (placed.length < 36) return 'only placed ' + placed.length + ' (' + why.join('; ') + ')';
     S().money = 1e12; run(2.5);

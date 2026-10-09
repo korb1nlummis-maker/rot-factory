@@ -287,6 +287,17 @@ export function buildHall(scene) {
   hall.colliders.push({ x: hall.craftPos.x, z: hall.craftPos.z, r: 1.15, h: 1.1 });
 
   // ---- dossier kiosk: shows the target plush on a turntable ----
+  // the Night Shift button: a red button on a stand in the middle of the hub (hall.nightPos). Pressing it (E) buys the perk and keeps the lights on at night.
+  hall.nightPos = new THREE.Vector3(0.7, 0, -4.7);
+  { const grp = new THREE.Group(); grp.name = 'nightButton'; grp.position.copy(hall.nightPos); grp.rotation.y = Math.atan2(-hall.nightPos.x, -(hall.nightPos.z + 1.4));
+    const steel = new THREE.MeshStandardMaterial({ color: 0x4c5258, metalness: 0.85, roughness: 0.4 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.08, 20), new THREE.MeshStandardMaterial({ color: 0x23272b, metalness: 0.7, roughness: 0.5 })); base.position.y = 0.04;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.95, 14), steel); pole.position.y = 0.55;
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.2, 0.16, 20), new THREE.MeshStandardMaterial({ color: 0xd9b429, metalness: 0.4, roughness: 0.5 })); head.position.y = 1.07;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.03, 8, 24), new THREE.MeshStandardMaterial({ color: 0x23272b, metalness: 0.6, roughness: 0.5 })); ring.rotation.x = Math.PI / 2; ring.position.y = 1.16;
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xff2a1a, emissive: 0xff1208, emissiveIntensity: 1.2, roughness: 0.3 })); dome.position.y = 1.16; dome.name = 'domeBtn';
+    const glow = new THREE.PointLight(0xff3020, 1.6, 4, 1.8); glow.position.y = 1.4; glow.name = 'btnLight';
+    grp.add(base, pole, head, ring, dome, glow); scene.add(grp); hall.nightGroup = grp; hall.colliders.push({ x: hall.nightPos.x, z: hall.nightPos.z, r: 0.45, h: 1.3 }); }
   hall.kioskPos = new THREE.Vector3(-0.1, 0, -7.8);
   const kiosk = new THREE.Group();
   kiosk.position.copy(hall.kioskPos);
@@ -370,7 +381,7 @@ export function buildHall(scene) {
     const oct = (r) => { g.beginPath(); for (let k = 0; k < 8; k++) { const a = Math.PI / 8 + k * Math.PI / 4; g.lineTo(w / 2 + Math.cos(a) * r, h / 2 + Math.sin(a) * r); } g.closePath(); };
     g.fillStyle = '#f4f4f0'; oct(250); g.fill(); g.fillStyle = '#0a7d3c'; oct(232); g.fill();
     g.fillStyle = '#ffffff'; g.strokeStyle = '#ffffff'; g.lineCap = 'round'; g.lineJoin = 'round';
-    g.lineWidth = 44; g.beginPath(); g.moveTo(256, 360); g.lineTo(256, 160); g.stroke();
+    g.lineWidth = 44; g.beginPath(); g.moveTo(256, 250); g.lineTo(256, 160); g.stroke();   // the arrow's shaft stops above the words
     g.beginPath(); g.moveTo(256, 70); g.lineTo(340, 180); g.lineTo(172, 180); g.closePath(); g.fill(); g.lineWidth = 16; g.stroke();
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `900 104px ${signFont}`; g.fillText('EXIT', 256, 300 + 30);
     g.font = `700 36px ${signFont}`; g.fillText('4.9 km EAST', 256, 420);
@@ -378,8 +389,9 @@ export function buildHall(scene) {
   const mkExitPost = (x, z) => {
     const grp = new THREE.Group(); grp.name = 'exitSign'; grp.position.set(x, 0, z); grp.rotation.y = Math.atan2(-x, -(z + 1.4));
     const metal = new THREE.MeshStandardMaterial({ color: 0x4c5258, metalness: 0.85, roughness: 0.4 });
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 10), metal); post.position.y = 1.15;
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.06, 20), new THREE.MeshStandardMaterial({ color: 0x23272b, metalness: 0.7, roughness: 0.5 })); base.position.y = 0.03;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 10), metal); post.position.set(0, 1.15, -0.09);   // the pole stands BEHIND the sign, never through its face
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.06, 20), new THREE.MeshStandardMaterial({ color: 0x23272b, metalness: 0.7, roughness: 0.5 })); base.position.set(0, 0.03, -0.09);
+    for (const by of [1.78, 2.4]) { const br = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.12), metal); br.position.set(0, by, -0.04); grp.add(br); }   // two small brackets hold the sign to the pole
     const oct = new THREE.CylinderGeometry(0.62, 0.62, 0.04, 8); oct.rotateX(Math.PI / 2); oct.rotateZ(Math.PI / 8);
     const back = new THREE.Mesh(oct, new THREE.MeshStandardMaterial({ color: 0x1a1d1f, metalness: 0.6, roughness: 0.5 })); back.position.set(0, 2.1, 0);
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.64, 8, Math.PI / 8), new THREE.MeshBasicMaterial({ map: exitPostTex, transparent: true, toneMapped: false, color: new THREE.Color(0.95, 1.0, 0.95) })); face.position.set(0, 2.1, 0.026);
@@ -427,9 +439,9 @@ export function buildHall(scene) {
     g.textAlign = 'left'; g.font = `500 41px ${hand}`;
     const rules = [
       'Millions of plush. ONE matters: the Rotto.',
-      'Click = grab. Click again = throw.',
+      'Click = grab. - = scoop, Alt - = vacuum.',
       'Stand near the bin: it eats what you carry.',
-      'Cash buys bags, tools, crew (desk: E).',
+      'Cash buys bags, tools, belts, crew (E).',
       'Dig tunnels. Prop the roof. F = flashlight.',
       'DO NOT CLIMB. Piles slide.',
       'Cannot find it? Exit is 4.9 km EAST  →',
@@ -515,7 +527,7 @@ export function buildHall(scene) {
     ...[300, 500, 800, 1200].map((d) => [`at ${d} m deep`, fsp(d)]),
     `Rule: spacing = ${STALE_OK} x ${FAN_R} / stale. Overlap beats gaps.`,
     '#Power',
-    'No power, no air. Wire it to a pole or a generator.',
+    'No power, no air. Run a cable to it from a live pole.',
     'A brownout makes every fan on the grid weaker.',
   ], `Vent Fan: ${VENT_R} m all around, for rooms and junctions.\nCough or a dim screen edge = fans too far apart.`, Math.PI / 2);
 
@@ -548,18 +560,33 @@ export function buildHall(scene) {
     '10. A shaft up and out lets daylight down.',
   ], 'Remove supports and the tunnel comes down.\nMine Rail: hold B to lay track, Backspace rushes you home.');
 
+  // 5b. power: wires are the only way it travels
+  makeBoard(8.0, GAL_Z, 'POWER NEEDS WIRES', [
+    '#Cables are the only link',
+    ['Generator', 'burns plush, powers nothing alone'],
+    ['Power Pole', 'a hub: dead till a generator is wired'],
+    ['Every machine', 'its own cable (a belt line: one)'],
+    ['Charging Station', '1 kW: it needs a cable too'],
+    ['Two generators', 'wired together add their power'],
+    ['One cable', `${defaultTuning().cableLen} m, more with Grid Range`],
+    ['Burn time, 8 kW', 'Common 4.5, Uncommon 12, Rare 30, Epic 75 min'],
+    '#Build order',
+    '1. A generator, fed plush.',
+    '2. Cable: generator to pole. The lamp lights.',
+    '3. Cable: pole to each machine, or to the next pole.',
+  ], 'Standing next to a pole or generator is not enough.\nNo cable, no power. The info panel says Not wired.');
   // 6 and 7. the controls: short versions of the pause menu's Controls tab (a test checks every key named here is a real control)
   hall.controlBoards = [
     ['CONTROLS: MOVING AND HANDS', [
       '#Moving', ['W A S D', 'walk'], ['Shift', 'sprint'], ['Space', 'jump (hold: punch up)'], ['C', 'crouch'],
-      '#Hands', ['Left click', 'grab (hold) / throw'], ['Z', 'throw one'], ['Right click or P', 'punch'], ['E', 'use what you aim at'],
-      ['F', 'flashlight'], ['K', 'medkit'], ['U', 'cart out / park'], ['H (hold)', 'recall to depot'],
-    ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH']],
+      '#Hands', ['Left click or Z', 'grab (hold) / throw'], ['Right click or P', 'punch'], ['E', 'use what you aim at'],
+      ['F  K', 'flashlight, medkit'], ['U', 'cart out / park'], ['H (hold)', 'recall to depot'], ['`', 'belt intake on / off'], [';', 'pick the bin it sells at'],
+    ], 'Pause menu, Controls tab: every key in full.', ['KeyW', 'ShiftLeft', 'Space', 'KeyC', 'Mouse0', 'KeyZ', 'Mouse2', 'KeyE', 'KeyF', 'KeyK', 'KeyU', 'KeyH', 'Backquote', 'Semicolon']],
     ['CONTROLS: TOOLS AND SCREENS', [
-      '#Tools and building', ['1 to 9, [ ]', 'pick a hotbar tool'], ['Q', 'tool away / out'], ['B (hold)', 'set down / lay belts'], ['Left Right', 'turn a frame'],
-      ['Down', 'frame back to grid'], ['X', 'take back what you aim at'], ['I', 'inventory'],
+      '#Tools and building', ['1 to 9, [ ]', 'pick a hotbar tool'], ['Q', 'tool away / out'], ['B (hold)', 'set down / lay belts'], ['Left Right', 'turn a frame (Down: grid)'],
+      ['X', 'take back what you aim at'], ['I', 'inventory'], ['-  =   Alt - =', 'scoop / vacuum dial'],
       '#Crew and screens', ['V', 'crew panel'], ['T / Y', 'dig ahead / call home'], ['Tab', 'upgrade terminal'], ['N  L  J', 'dex, journal, awards'], ['Esc', 'pause menu'],
-    ], 'Wires: Left click a machine, then another.', ['Digit1', 'KeyQ', 'KeyB', 'ArrowLeft', 'ArrowDown', 'KeyX', 'KeyI', 'KeyV', 'KeyT', 'KeyY', 'Tab', 'KeyN', 'KeyL', 'KeyJ', 'Escape']],
+    ], 'Wires: Left click a machine, then another.', ['Digit1', 'KeyQ', 'KeyB', 'ArrowLeft', 'ArrowDown', 'KeyX', 'KeyI', 'Minus', 'Equal', 'KeyV', 'KeyT', 'KeyY', 'Tab', 'KeyN', 'KeyL', 'KeyJ', 'Escape']],
   ];
   hall.controlBoards.forEach(([title, rows, foot], n) => makeBoard(8.8, -8.6 + n * 3.2, title, rows, foot, -Math.PI / 2));
 
@@ -614,6 +641,68 @@ export function buildHall(scene) {
       'A cube on a cube is one column.',
       'The cube at the bottom carries the lot.',
     ], `Stacked Building unlocks at ${(ST.UNLOCK / 1e6).toFixed(0)}M. Aim a Wall at a cube for a door frame.`, -Math.PI / 2); }
+
+  // 8. belts and the vacuum hose, the crew, slides and avalanches, care packages and Night Shift (the numbers are checked against the game data by tests/chalkboards.js)
+  const BACK_Z = -14.4;   // a second row behind the gallery, facing the bay, well clear of the strip in front of the start that the tests and the first builds use
+  makeBoard(-6.0, BACK_Z, 'BELTS AND HOSE', [
+    '#Laying',
+    'Hold B and sweep: a line, bends and all.',
+    'Click, aim, click: the whole route is laid.',
+    'Press, drag, let go: a cord, bends put in.',
+    '#Reading it',
+    'Chevron arrows show which way it carries.',
+    'A gold last piece feeds a bin. Stop there.',
+    '#Belt intake (backtick: on or off)',
+    ['Free with belts', '2 plush a second within 2 m'],
+    ['Belt Intake upgrade', 'up to 256 a second, 6 m'],
+    '#Vacuum Hose',
+    ['The mouth sucks', 'loose plush within 3.5 m'],
+    ['It runs', 'twice as fast as a belt'],
+  ], 'One cable on any tile powers a whole belt line.\nMk2 to Mk6: set a higher mark over a belt.');
+  makeBoard(-2.0, BACK_Z, 'BOTS AND THE CREW', [
+    '#Crew panel (V)',
+    'T: dig the way you face. Y: all home.',
+    'Aim at a bot, E, aim at a target, E.',
+    '#Battery',
+    'Under 25%: it looks for a Charging Station.',
+    'A 1 kW machine: it needs a cable like any.',
+    'No cable, no charge, and no bot is sent to it.',
+    '#Fuel duty',
+    'Bots top up generators and stations,',
+    'and dig fuel for one that runs low.',
+    '#Floors',
+    'Ramps, stairs, ladders, powered lifts and doors.',
+    'No way up? It says so and tries again later.',
+  ], 'Keep machines fueled (crew panel) and each bot\'s Fuel duty.\nA machine that needs a bot calls it along a route.');
+  makeBoard(-8.6, -8.0, 'SLIDES AND AVALANCHES', [
+    '#What risks a slide',
+    ['Height', 'worse the higher you climb'],
+    ['A steep face', 'and a heavy load'],
+    '#Two kinds',
+    ['8 to 19 m up', 'soft slide: flows, no damage'],
+    ['Over 19 m, steep', 'slab avalanche: a big sheet'],
+    '#Cut the risk',
+    ['Climbing Gear', 'three levels'],
+    ['Rope Anchor', 'roped in within 6 m'],
+    '#Buried? Dig out',
+    ['Legs or waist', 'walk out, about a second'],
+    ['Chest', 'punch: R or right click'],
+    ['Under the pile', 'Space punches up. Watch the air.'],
+  ], 'A slide buries friends and bots below you too.\nDo not climb the piles.', Math.PI / 2);
+  makeBoard(2.0, BACK_Z, 'CARE AND NIGHT SHIFT', [
+    '#Care packages',
+    ['Courier drone', 'every 3 game days'],
+    ['And at', 'milestones: rarity, depth, Plushdex'],
+    ['The crate lands', 'by the SORT bin. E opens it.'],
+    ['Inside', '3 to 5 things you can use'],
+    ['GOLD crate', 'rare, holds more'],
+    ['The log', 'J, the achievements screen'],
+    '#Night Shift',
+    ['Closing time', '19:00, dark until 07:00'],
+    ['The red button', 'in the hub: E to buy'],
+    ['Price', '100M, for the whole team'],
+    'Lights stay on after closing, for good.',
+  ], 'Deep underground, a crate waits at the bin.\nYour helmet lamp works either way.');
 
   // EXIT door in +X wall
   const door = new THREE.Group();

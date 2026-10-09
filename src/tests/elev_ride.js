@@ -213,7 +213,7 @@ export default async function (ctx) {
     const L1 = it.ent; if (L1.tr !== 24 || L1.ex !== 24 || TR.floorsOf(g, L1).join() !== stops || L1.cy !== 18) bad.push('after a real load ' + JSON.stringify({ tr: L1.tr, ex: L1.ex, floors: TR.floorsOf(g, L1).join(), cy: L1.cy }));
     if (!X.reservedAt(L1.i0 + 1, 30, L1.k0 + 1)) bad.push('the cab box is not reserved after the load'); if (X.reservedAt(L1.i0 + 1, 20, L1.k0 + 1)) bad.push('the shaft is reserved after the load');
     if (!g.player.ride || !g.cart.support) bad.push('the player or cart hooks were not reinstalled after the load');
-    X.powerCab(L1, 2); adv(0.7); board(L1); TR.requestFloor(g, L1, 18); adv(4.5); if (Math.abs(L1.cy - 10.8) > 1e-6 || Math.abs(p().pos.y - 10.8) > 0.05) bad.push('the loaded elevator does not run: ' + L1.cy);
+    X.powerCab(L1, 2); adv(0.7); board(L1); TR.requestFloor(g, L1, 18); adv(4.5); if (Math.abs(L1.cy - 10.8) > 1e-6 || Math.abs(p().pos.y - 10.8) > 0.05) bad.push('the loaded elevator does not run: ' + L1.cy + ` (pw ${L1.pw}, cables on it ${g.cables.of(L1.id).length}, cables ${S().cables.length}, grids ${g.power.nets.map((n) => n.supply + '/' + n.demand + '/' + n.nodes.length)}, mv ${L1.mv}, tg ${L1.tg})`);
     return bad.length === 0 || bad.join(' || ');
   });
 

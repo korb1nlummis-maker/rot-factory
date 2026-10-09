@@ -10,7 +10,7 @@ export default async function (ctx) {
   const done = () => { delete g.netSend; role(null); };
   const ofType = (t) => sent.filter((m) => m.t === t);
   const guard = (fn) => async () => { try { return await fn(); } finally { done(); g.crewViews = new Map(); } };
-  const mk = async (x = -3.4, z = 3.0) => { fresh(up); const r = await placeAtFloor('charger', x, z, 2.0); if (!r.ok) throw new Error(r.why); return tiles().find((t) => t.type === 'charger'); };
+  const mk = async (x = -3.4, z = 3.0) => { fresh(up); const r = await placeAtFloor('charger', x, z, 2.0); if (!r.ok) throw new Error(r.why); const t = tiles().find((x) => x.type === 'charger'); kit(ctx).live(t); return t; };
 
   await T('crew.charger-mp-guest-gets-the-tile-from-the-host-with-a-mesh-and-an-empty-hopper', guard(async () => {
     fresh(up); role('host'); cap(); const r = await placeAtFloor('charger', -3.4, 3.0, 2.0); if (!r.ok) return r.why;
@@ -32,8 +32,8 @@ export default async function (ctx) {
     const c = ofType('cmd').find((m) => m.c === 'tile'); if (!c) return 'no tile command';
     if (c.d.items.length !== 2 || S().carry.length !== 1 || species[S().carry[0].sp].rarity !== 4) return `sent ${c.d.items.length}, kept ${S().carry.length} (the legendary stays in the guest's hands)`;
     if (t.q.length) return 'the guest changed the hopper itself'; done();
-    role('host'); cap(); for (let n = 0; n < 11; n++) t.q.push({ sp: sp(0), vr: 0 }); g.netCmd('tile', c.d); const back = ofType('give')[0];
-    return (t.q.length === 12 && back && back.items.length === 1) || `host hopper ${t.q.length}, returned ${back && back.items.length}`;
+    role('host'); cap(); for (let n = 0; n < 49; n++) t.q.push({ sp: sp(0), vr: 0 }); g.netCmd('tile', c.d); const back = ofType('give')[0];
+    return (t.q.length === 50 && back && back.items.length === 1) || `host hopper ${t.q.length}, returned ${back && back.items.length}`;
   }));
   await T('crew.charger-mp-host-runs-the-hopper-and-the-guest-copy-never-digests', guard(async () => {
     const t = await mk(); feed(t, [2]); role('guest'); g.logi.visualOnly = true; run(2); const gu = t.reserve; g.logi.visualOnly = false; done(); run(1);

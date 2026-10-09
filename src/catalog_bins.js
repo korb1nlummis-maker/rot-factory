@@ -20,7 +20,7 @@ export const TYPES = {
     cfg: () => NAME_CFG || (NAME_CFG = { name: (v) => { const r = V.str(20)(v); return r === REJECT ? r : r.replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, '').replace(/[\ud800-\udbff]$/, '').trim(); } }), copy: [], group: 'beacon',   // (built on first use: catalog.js imports this file before V exists)
     info: (g, e) => ({
       title: `DEPOT BEACON: ${BINS.nameOf(g, e).toUpperCase()}`, lit: (e.pw ?? 0) > 0.05,
-      lines: [...BINS.beaconLines(g, e), (e.pw ?? 0) > 0.05 ? 'Powered: bots and machines assigned to it use it.' : 'No power: what is assigned to it uses Auto until a pole or generator reaches it.', 'Sorts and sells what you carry, fast travel and recall point.', 'E opens the travel menu.'],
+      lines: [...BINS.beaconLines(g, e), (e.pw ?? 0) > 0.05 ? 'Powered: bots and machines assigned to it use it.' : 'No power: what is assigned to it uses Auto until a cable from a live pole or generator reaches it.', 'Sorts and sells what you carry, fast travel and recall point.', 'E opens the travel menu.'],
     }),
     row: (g) => BINS.row(g), guestRow: (g, d) => BINS.guestRow(g, d),
   },
