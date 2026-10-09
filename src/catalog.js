@@ -43,8 +43,9 @@ import * as scan from './catalog_scan.js';
 import * as rail from './catalog_rail.js';
 import * as stack from './catalog_stack.js';
 import * as bins from './catalog_bins.js';
+import * as sborer from './catalog_sborer.js';
 
-export const PARTS = { belts, power, build, furnish, transit, haul, detector, scan, rail, stack, bins };
+export const PARTS = { belts, power, build, furnish, transit, haul, detector, scan, rail, stack, bins, sborer };
 // test and dev only: extra part-like objects { UPGRADES, RECIPES, DEMAND, TYPES } read by catalogRecipes (the static merges above run once at load)
 export const EXTRA = {};
 

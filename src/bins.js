@@ -17,16 +17,16 @@ export const HALL_NAME = 'SORT bin';
 export const HALL_REACH = 1.9, BEACON_REACH = 1.6;   // how close a belt end must be to feed the bin / a beacon (as it always was)
 export const UNLOAD_OFFSET = 1.6;                    // a bot stands this far south of its bin
 
-export const MACHINES = new Set(['truck', 'excavator', 'dozer', 'wheel', 'borer', 'claw', 'railstn', 'railcar']);
+export const MACHINES = new Set(['truck', 'excavator', 'dozer', 'wheel', 'borer', 'sborer', 'claw', 'railstn', 'railcar']);
 export const TILES = new Set(['belt', 'mech']);
 export const isPortalEnt = (e) => !!e && e.type === 'garch' && (e.pd === 1 || e.pd === -1);
 // a belt is assignable only as the end of a plain line: a Detector Gate (its E takes The One, so Shift+E keeps meaning that), a splitter, merger, lift or underground end never sells
 export const assignable = (e) => !!e && (MACHINES.has(e.type) || (TILES.has(e.type) && !e.detector && !e.splitter && !e.merger && !e.smart && !e.lift && !e.ug) || isPortalEnt(e));
 
-const KIND_NAME = { truck: 'Haul Truck', excavator: 'Excavator', dozer: 'Bulldozer', wheel: 'Bucket-Wheel Excavator', borer: 'Tunnel Borer', claw: 'Claw Rig', railstn: 'Rail Station', railcar: 'Rail Cart', belt: 'Belt end', mech: 'Mech Scooper', garch: 'Portal', bot: 'Bot', cart: 'Cart' };
+const KIND_NAME = { truck: 'Haul Truck', excavator: 'Excavator', dozer: 'Bulldozer', wheel: 'Bucket-Wheel Excavator', borer: 'Tunnel Borer', sborer: 'Support Borer', claw: 'Claw Rig', railstn: 'Rail Station', railcar: 'Rail Cart', belt: 'Belt end', mech: 'Mech Scooper', garch: 'Portal', bot: 'Bot', cart: 'Cart' };
 const AUTO_TEXT = {
   bot: 'the SORT bin, as before', cart: 'the nearest bin it stops by', truck: 'the nearest bin or Depot Beacon', excavator: 'the nearest bin for the trucks that haul it', dozer: 'the nearest bin for its chute and its trucks',
-  wheel: 'the nearest bin for the trucks that haul it', borer: 'the SORT bin', claw: 'the SORT bin', garch: 'the nearest bin', railstn: 'the nearest bin a cart stops by', railcar: 'the nearest bin it stops by',
+  wheel: 'the nearest bin for the trucks that haul it', borer: 'the SORT bin', sborer: 'the SORT bin', claw: 'the SORT bin', garch: 'the nearest bin', railstn: 'the nearest bin a cart stops by', railcar: 'the nearest bin it stops by',
   belt: 'whichever bin the end touches', mech: 'any line',
 };
 export const kindName = (o) => KIND_NAME[o && o.k === 'ent' ? (isPortalEnt(o.o) ? 'garch' : o.o.type) : o && o.k] || 'Machine';

@@ -112,7 +112,7 @@ export class World {
     for (const [lim, step, skip] of [[25, 1, -1], [60, 2, 25], [R, 3, 60]]) {
       const L = Math.min(lim, R);
       for (const dj of [0, -8, 8, -16, 16, -32]) {
-        const j = cj + dj; if (j < 1 || j > NY - 2) continue;
+        const j = cj + dj; if (j < 1 || j > NY - 2 || Math.abs(dj) * C > range) continue;   // (the range counts up and down too: a vein 5 m overhead is not inside a 0.5 m range)
         for (let dk = -L; dk <= L; dk += step) for (let di = -L; di <= L; di += step) {
           if (Math.abs(di) <= skip && Math.abs(dk) <= skip) continue;   // (a finer pass did that cell)
           const d2 = di * di + dk * dk; if (d2 > R * R || d2 + dj * dj >= bd) continue;

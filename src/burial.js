@@ -1,146 +1,60 @@
 import { C, NX, NZ, cellX, cellY, cellZ, toI, toJ, toK } from './config.js';
 import { isSpecialCell, NEEDLE } from './plushdata.js';
-import { AV, gearOf } from './avalanche.js';
 
 // ---------------------------------------------------------------------------------------------
-// SOFT SLIDES. When the footing gives way under a climber below the slab line (or during the cooldown after a slab, or for a player with
-// Climbing Gear 3) the plush under and around the boots let go as a small SHEET and flow downhill, the same machinery as the climbing
-// avalanche (avalanche.js, started with soft: true) at a smaller scale. Nobody is hit: the player rides the flow (no hp from the slide,
-// only a real fall costs hp, and the ride cushion applies) and comes to rest where the little runout ends. What the slide does to you
-// is a matter of how much plush lands on you.
+// BURIAL. When a slide (wedge.js) is over, the plush that came to rest slumps against everyone in the runout: the player who rode it,
+// a friend or a bot standing below it. Nobody is hit; what the slide does to you is a matter of how much plush lands on you.
 //
-//  1. Size (size()): the number of plush released grows with height, steepness of the slope and what you carry: at least ~40 to 80
-//     cells (a clearly visible sheet), about 150 to 400 for a medium one, 450 and more for a big one (the avalanche's own cap, MAX_CELLS).
-//     The sheet is a slab with a crown just above your boots, flowing as a wave from the top down (avalanche.js release()).
-//  2. Carry: how long the flow is driven and how far it may run (maxTravel) grow with the size and shrink with gear (Climbing Gear,
-//     boots, springs: gearOf). Gear changes the odds (climbRisk) and the carry; it does not change what lands on you.
-//  3. Landing (onFinish): when the flow is over, the plush that really came to rest on the ground around anybody in the runout (the
+//  1. Landing (onFinish, land): once everyone has stopped, the plush that really came to rest on the ground around anybody in the runout (the
 //     columns round their cell that are higher than before the slide: the snapshot taken at the start) slumps against them: a ring of
-//     plush fills the cells round them level by level (legs, waist, chest) and, when there is plenty left over, a cap closes over the head.
-//     The plush is taken from the top of that landed pile, so nothing is made or lost. The burial depth is whatever that pile can fill:
-//     no random roll. It happens to the player who rode it, to a friend or a bot standing below (a slide above a tunnel mouth buries
-//     what is in it), and to the same player when they are downslope. A bot is lifted to the surface afterwards (avalanche.freeBots).
-//  4. Being buried (update(), on the player's own machine; the cells are the same on a guest): the depth is read from the cells round you
+//     plush fills the cells round them level by level (legs, waist, chest) and, when there is plenty left over, a cap closes over the head,
+//     one to four cells thick for a big slide. The plush is taken from the top of that landed pile, so nothing is made or lost. The one who
+//     rode the flow was carried to the thick of it and gets what landed within reach (RIDER_R, then POOL_FAR). A bot is lifted to the surface
+//     afterwards (wedge.freeBots).
+//  2. How deep (BOUND, DEPTH): a small slide buries to the waist or the chest, a medium one to the chest or under a cap, a big one under the
+//     pile (a cap of several cells) most of the time. Gear lowers the odds and shortens the ride; it does not change what lands on you.
+//  3. Being buried (update(), on the player's own machine; the cells are the same on a guest): the depth is read from the cells round you
 //     (cover()). 1 = legs, 2 = waist: you wriggle out in about a second by walking at the way out. 3 = chest: you have to punch your way
 //     out (R, right click, Space for up), the trapped system runs (air, a few seconds). 4 = a cap over your head: the same with the full air
 //     dial. airLeft always starts at the normal 60 s (updateTrapped), a slide alone never kills.
-// Multiplayer: the host runs everything and sends the usual av* messages (with k: 's' for a soft slide); a guest asks with the `sslide`
-// command, which the host judges again (where the guest really is, how high, how often) before it runs.
 // ---------------------------------------------------------------------------------------------
-export const SS = {
-  H_MIN: 8,               // m: climbRisk starts here
-  MIN_TAN: 0.2,           // the least slope a sheet can flow on
-  M0: 60, M1: 700,        // cells released at the weakest and at the strongest conditions (log scale)
-  SMALL: 110, LARGE: 420, // cells released that make a slide small, medium or large
-  WARN_MOVE: 0.2, WARN_STILL: 0.4,
-  FLOW: [1.6, 4.2],       // s the sheet is driven
-  TRAVEL: [6, 24],        // m the loose plush may run at the most (a bound whatever the slope does)
-  VMAX: [6, 10],
-  GEAR_CARRY: 0.45,       // gear at the top shortens the flow and the travel by this much
-  GUEST_CD: 5,            // s between two slides a guest may ask for
+export const BU = {
   POOL_R: 3,              // cells round the buried cell that count as 'landed on you'
-  RIDER_R: 6,             // the same for the one who rode the sheet
-  POOL_FAR: 8,            // cells round it the plush may slump in from
+  RIDER_R: 6,             // the same for the one who rode the flow
+  POOL_FAR: 20,           // cells round it the plush may slump in from (and the reach of a rider who was carried to the edge of the pile)
   POOL_MIN: 6,            // landed cells needed before anything slumps
   CAP_EXTRA: 6,           // landed cells left over after the ring that decide a cap
-  DEPTH: [5, 12, 22, 38], // landed cells (after the size bounds below) that make legs, waist, chest, under a cap
-  BOUND: { small: [0.08, 0.19], medium: [24, 36.9], large: [42, 1e9] },   // what a slide of that size can put on one person: a share of its cells, or whole numbers
+  DEPTH: [5, 12, 22, 38], // landed cells that make legs, waist, chest, under a cap
+  BOUND: { small: [12, 30], medium: [26, 70], big: [44, 1e9] },   // what a slide of that size puts on one person: [least it tries to, most]
+  CAP_LAYERS: { small: 1, medium: 2, big: 4 },
+  CAP_STEP: 20,           // landed cells beyond the first cap's that add another layer
+  SMALL: 110, LARGE: 420, // (released cells that make a slide small, medium or large when its class is not known)
   WRIGGLE: [0, 0.35, 0.65],   // s of walking at the way out per level of burial (legs, waist)
   SLOW: [1, 0.6, 0.35, 0.15, 0.05], // walking speed at each depth
   REST: 4,                // s after a slide that the footing is not rolled again
   WAIT: 2.5,              // s a landing waits for the player to come to rest
   ARM: 14,                // s after a slide that your own burial is watched
 };
+const SS = BU;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const lerp = (a, b, t) => a + (b - a) * t;
 export const LEVELS = ['free', 'legs', 'waist', 'chest', 'buried'];
 
-export class SoftSlides {
+export class Burial {
   constructor(game) {
     this.g = game;
     this.lvl = 0;            // how deep the local player is in (0 free, 1 legs, 2 waist, 3 chest, 4 under a cap)
     this.armT = 0;           // seconds your burial is still being watched after a slide
     this.on = false;         // the player is being held by a pile from a soft slide
     this.wig = 0; this.freeT = 0; this.scanT = 0;
-    this.guestCd = 0;
     this.restT = 0;
     this.pend = null;        // a finished slide whose landing waits for everyone to stop
     this.last = null;        // numbers of the last landing (for the tests and the readout)
     this.log = [];           // landings of the last slide: [{ who, lvl, pool, placed }]
   }
 
-  clear() { this.restT = 0; this.pend = null; this.lvl = 0; this.armT = 0; this.on = false; this.wig = 0; this.freeT = 0; this.guestCd = 0; this.last = null; this.log = []; }
+  clear() { this.restT = 0; this.pend = null; this.lvl = 0; this.armT = 0; this.on = false; this.wig = 0; this.freeT = 0; this.last = null; this.log = []; }
 
-  // ======================= size =======================
-  // how big a sheet lets go under a climber at `pos` on a slope of steepness `tan` carrying `carryN` plush (a pure function of the numbers and the roll)
-  size(pos, carryN, tan, rnd = Math.random, eForce) {
-    const g = this.g, gear = gearOf(g.T);
-    const hN = clamp((pos.y - SS.H_MIN) / 32, 0, 1), sN = clamp((tan - 0.3) / 1.3, 0, 1), lN = clamp(carryN / Math.max(1, g.T.carry || 1), 0, 1);
-    const e = eForce ?? clamp(0.40 * hN + 0.16 * sN + 0.28 * lN + 0.10 * rnd(), 0, 1);   // (eForce: a test or a caller asks for a size)
-    const M = SS.M0 * Math.pow(SS.M1 / SS.M0, e) * (0.88 + 0.24 * rnd());
-    const D = M < 110 ? 1 : M < 300 ? 2 : 3;
-    const W = clamp(Math.sqrt(M / (2.5 * D * 1.35)), 3, 9.6), L = clamp(W * 1.35, 4, 13);
-    const carryMul = 1 - SS.GEAR_CARRY * gear.score;
-    return {
-      e, M: Math.round(M), W, L, depth: D, carryMul,
-      cls: M < SS.SMALL ? 'small' : M < SS.LARGE ? 'medium' : 'large',
-      flowT: lerp(SS.FLOW[0], SS.FLOW[1], e) * carryMul, maxTravel: lerp(SS.TRAVEL[0], SS.TRAVEL[1], e) * carryMul + L * 0.4,
-      vmax: lerp(SS.VMAX[0], SS.VMAX[1], e),
-    };
-  }
-
-  // ======================= start =======================
-  // host: the footing gives way at pos. o: speed, carry, by, rnd, size (a test may ask for a size), warn. Returns the slide or null.
-  start(pos, o = {}) {
-    const g = this.g, av = g.avalanche;
-    if (!av || av.cur || g.isGuest()) return null;
-    const sl = av.slope(toI(pos.x), toK(pos.z));
-    if (!sl || sl.tan < SS.MIN_TAN) return null;
-    const sz = { ...this.size(pos, o.carry || 0, sl.tan, o.rnd || Math.random, o.e), ...(o.size || {}) };
-    const warn = o.warn ?? (o.speed > 1.2 ? SS.WARN_MOVE : SS.WARN_STILL);
-    const ok = av.start(pos, {
-      soft: true, by: o.by || 'soft', speed: o.speed || 0, carry: o.carry || 0, warn, rnd: o.rnd,
-      L: sz.L, W: sz.W, depth: sz.depth, minTan: SS.MIN_TAN, back: AV.BACK_SOFT,
-      flowT: sz.flowT, hard: sz.flowT + 4.5, maxTravel: sz.maxTravel, vmax: sz.vmax, acc: 8, ride: 5, meta: sz,
-    });
-    return ok ? av.cur : null;
-  }
-
-  // climbRisk (game.js) calls this when the footing gave way. true when a soft slide runs (or was asked for)
-  onClimbHit(pos, carryN) {
-    const g = this.g, av = g.avalanche;
-    if (!av || av.cur || av.guestOn > 0) return false;
-    if (av.ask > 0) return true;                       // a guest's request is on its way
-    const vel = g.player.vel, speed = Math.hypot(vel.x, vel.z);
-    if (g.isGuest()) {
-      const sl = av.slope(toI(pos.x), toK(pos.z)); if (!sl || sl.tan < SS.MIN_TAN) return false;
-      av.ask = 3;
-      g.cmd('sslide', { x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), z: +pos.z.toFixed(2), n: carryN, sp: +speed.toFixed(2), cl: g.T.climb || 0 });
-      return true;
-    }
-    const a = this.start(pos, { speed, carry: carryN, by: 'climb' });
-    if (!a) return false;
-    av.dropLoad(0.25 + 0.25 * a.meta.e);               // some of what you carry falls out of your hands
-    return true;
-  }
-
-  // the host runs a soft slide for a guest that climbed. Everything it says is judged again: where the guest really is, how high, how often.
-  fromGuest(d) {
-    const g = this.g, av = g.avalanche;
-    if (g.isGuest() || !g.remote || !d || !av || av.cur) return false;
-    if (this.guestCd > g.time) return false;
-    const rp = g.remote.pos, claim = { x: +d.x, y: +d.y, z: +d.z };
-    if (!Number.isFinite(claim.x + claim.y + claim.z) || !Number.isFinite(rp.x + rp.y + rp.z)) return false;
-    if (Math.hypot(claim.x - rp.x, claim.z - rp.z) > 8 || Math.abs(claim.y - rp.y) > 8) return false;   // it has to be where the guest really is
-    if (rp.y < SS.H_MIN - 1) return false;                                                               // and high enough that the footing can give way
-    if (g.ropedIn(rp)) return false;
-    const pos = { x: rp.x, y: rp.y, z: rp.z };
-    const n = clamp(Math.round(+d.n || 0), 0, 200), sp = clamp(+d.sp || 0, 0, 20);
-    this.guestCd = g.time + SS.GUEST_CD;
-    return !!this.start(pos, { speed: sp, carry: n, by: 'guest', climb: clamp(Math.round(+d.cl || 0), 0, 3) });
-  }
-
-  // avalanche.start calls this: what the ground looked like before, so the pile that lands afterwards can be told from the pile that was there
+  // wedge.start calls this: what the ground looked like before, so the pile that lands afterwards can be told from the pile that was there
   onStart(a) {
     const w = this.g.world, pad = Math.min(60, Math.ceil((a.maxTravel + 6) / C));
     const [x0, x1, z0, z1] = a.bbox, i0 = x0 - pad, k0 = z0 - pad, wd = x1 - x0 + 2 * pad + 1, ht = z1 - z0 + 2 * pad + 1;
@@ -161,7 +75,7 @@ export class SoftSlides {
   onFinish(a, how) {
     const g = this.g;
     this.restT = g.time + SS.REST;   // (no new footing roll for a moment after any slide)
-    if (!a.soft || !a.snap || g.isGuest()) return;
+    if (!a.snap || g.isGuest()) return;
     this.pend = { a, how, t: 0 }; this.armT = SS.ARM;
   }
   tick(dt) {
@@ -180,8 +94,8 @@ export class SoftSlides {
     for (const b of (g.S && g.S.crew) || []) if (Number.isFinite(b.x + b.y + b.z)) targets.push({ who: 'bot:' + (b.name || b.id), pos: { x: b.x, y: b.y, z: b.z }, bot: b });
     const pockets = targets.map((t) => ({ i: toI(t.pos.x), k: toK(t.pos.z), j: toJ(t.pos.y + 0.05) }));
     targets.forEach((t, n) => { const r = this.landOn(a, t, pockets, n); if (r) this.log.push(r); });
-    this.last = { how, cells: a.cells0, released: a.released, cls: a.meta && a.meta.cls, landings: this.log.map((l) => ({ ...l })) };
-    if (this.log.length) g.avalanche.freeBots();   // a bot under the pile is lifted to the surface
+    this.last = { how, cells: a.released, released: a.released, cls: a.cls, landings: this.log.map((l) => ({ ...l })) };
+    if (this.log.length) g.wedge.freeBots();   // a bot under the pile is lifted to the surface
   }
 
   // the landed pile round one pocket: take cells from the tops of the columns that grew, set them round the pocket level by level
@@ -197,16 +111,17 @@ export class SoftSlides {
       const gn = this.gain(a, i0 + di, k0 + dk); if (!gn) continue;
       cols.push({ i: i0 + di, k: k0 + dk, gn }); if (Math.abs(di) <= PR && Math.abs(dk) <= PR) pool += gn;
     }
-    if (rode && pool < 12) { PR = SS.POOL_FAR; pool = 0; for (const c of cols) if (Math.abs(c.i - i0) <= PR && Math.abs(c.k - k0) <= PR) pool += c.gn; }   // (carried to the edge of the pile: what is round you within the reach of the slump still fell on you)
+    const cls0 = a.cls || (Math.max(1, a.released || 1) < SS.SMALL ? 'small' : a.released < SS.LARGE ? 'medium' : 'big');
+    if (rode && pool < SS.BOUND[cls0][0]) { PR = SS.POOL_FAR; pool = 0; for (const c of cols) if (Math.abs(c.i - i0) <= PR && Math.abs(c.k - k0) <= PR) pool += c.gn; }   // (carried to the edge of the pile: what is round you within the reach of the slump still fell on you)
     const res = { who: t.who, pool, placed: 0, lvl: 0, cap: false, B: 0, want: 0, rode, at: [+t.pos.x.toFixed(2), +t.pos.y.toFixed(2), +t.pos.z.toFixed(2)] };
     if (pool < SS.POOL_MIN) { res.lvl = this.coverAt(i0, jb, k0).lvl; return res; }
     // how much of it settles on you: the landed pile, bounded by what a slide of this size can put on one person (a small one never more than your waist, a big one never less than your chest)
-    { const n = Math.max(1, a.released || a.cells0 || 1), cls = n < SS.SMALL ? 'small' : n < SS.LARGE ? 'medium' : 'large', bd = SS.BOUND[cls];
-      const lo = (cls === 'small' ? bd[0] * n : bd[0]) * (rode ? 1 : clamp(pool / 12, 0, 1)), hi = cls === 'small' ? bd[1] * n : bd[1];
+    { const n = Math.max(1, a.released || 1), cls = a.cls || (n < SS.SMALL ? 'small' : n < SS.LARGE ? 'medium' : 'big'), bd = SS.BOUND[cls];
+      const lo = bd[0] * (rode ? 1 : clamp(pool / 12, 0, 1)), hi = bd[1];
       res.B = clamp(pool, Math.min(lo, hi), hi); res.cls = cls; }
     let want = 0; for (let q = 0; q < SS.DEPTH.length; q++) if (res.B >= SS.DEPTH[q]) want = q + 1;
     res.want = want;
-    if (t.bot) { res.lvl = want; res.bot = true; return res; }   // a bot cannot dig: it is only counted as buried that deep, and freeBots (avalanche.js) lifts it to the surface of the pile that landed on it
+    if (t.bot) { res.lvl = want; res.bot = true; return res; }   // a bot cannot dig: it is only counted as buried that deep, and freeBots (wedge.js) lifts it to the surface of the pile that landed on it
     let poolLeft = 0; for (const c of cols) poolLeft += c.gn;
     const others = new Set(); pockets.forEach((q, n) => { if (n === self) return; for (let dj = 0; dj <= 3; dj++) others.add(((jb + dj) * NZ + q.k) * NX + q.i); });
     const take = () => {
@@ -232,28 +147,37 @@ export class SoftSlides {
     };
     const ringAt = (L) => { const j = jb + L; return [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a2, b2]) => [i0 + a2, j, k0 + b2, a2 * b2 === 0]); };
     const outerAt = (L) => { const j = jb + L; return [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [-1, 2], [1, -2], [-1, -2]].map(([a2, b2]) => [i0 + a2, j, k0 + b2]); };
+    // the four cells beside you level by level first (they are what makes you buried), then the diagonals while the landed pile allows
     let lvl = 0;
     for (let L = 0; L < Math.min(3, want); L++) {
       let ok = true;
-      for (const [i, j, k, orth] of ringAt(L)) { if (!build(i, j, k) && orth) ok = false; }
+      for (const [i, j, k, orth] of ringAt(L)) if (orth && !build(i, j, k)) ok = false;
       if (!ok) break; lvl++;
     }
+    for (let L = 0; L < lvl; L++) for (const [i, j, k, orth] of ringAt(L)) if (!orth && left() >= 3) build(i, j, k);
     // a chest deep or deeper burial is two cells thick: an outer ring (a plus of the 12 cells at distance 2) at each level, while the landed pile allows
     if (lvl >= 3 && want >= 3) {
       for (let L = 0; L < lvl; L++) { if (left() < 12 || res.placed > 110) break; for (const [i, j, k] of outerAt(L)) build(i, j, k); }
     }
     if (lvl === 3 && want >= 4 && left() >= 5 + SS.CAP_EXTRA) {
-      let ok = true;
-      for (const [i, j, k, orth] of ringAt(3)) if (orth && !build(i, j, k)) ok = false;
-      if (ok && free(i0, jb + 3, k0)) {
-        const c = take(); if (c) { w.setCell(i0, jb + 3, k0, c.sp, c.vr); res.placed++; res.cap = true; }
-        // a second layer over it when there is plenty left: the cap is two cells thick
-        if (res.cap && left() >= 10 && free(i0, jb + 4, k0)) { let ok2 = true; for (const [i, j, k, orth] of ringAt(4)) if (orth && !build(i, j, k)) ok2 = false; if (ok2) { const c2 = take(); if (c2) { w.setCell(i0, jb + 4, k0, c2.sp, c2.vr); res.placed++; } } }
+      // a cap over the head: one cell, and for the bigger slides up to CAP_LAYERS of them while the landed pile allows (CAP_STEP cells for each)
+      const layers = Math.min(SS.CAP_LAYERS[res.cls] || 1, 1 + Math.floor(Math.max(0, res.B - SS.DEPTH[3]) / SS.CAP_STEP));
+      let n = 0;
+      for (let c2 = 0; c2 < layers; c2++) {
+        if (c2 > 0 && left() < 10) break;
+        let ok = true;
+        for (const [i, j, k, orth] of ringAt(3 + c2)) if (orth && !build(i, j, k)) ok = false;
+        if (!ok || !free(i0, jb + 3 + c2, k0)) break;
+        const c = take(); if (!c) break;
+        w.setCell(i0, jb + 3 + c2, k0, c.sp, c.vr); res.placed++; n++;
       }
+      res.cap = n > 0; res.capLayers = n;
     }
     // a slide of this size cannot leave you deeper than `want`: whatever the ground round you already held beyond that rolls off down the slope
     this.trim(a, i0, jb, k0, want, res);
-    res.lvl = this.coverAt(i0, jb, k0).lvl; delete res.cls;
+    // the plush that slumps in round you fits snugly: you end up in the middle of your cell, not wedged against a side (the local player only: a friend's body is theirs)
+    if (t.local && res.placed && this.coverAt(i0, jb, k0).lvl >= 1) { const p = g.player; p.pos.x = cellX(i0); p.pos.z = cellZ(k0); p.vel.set(0, Math.min(0, p.vel.y), 0); }
+    res.lvl = this.coverAt(i0, jb, k0).lvl; res.depth = Math.min(3, res.lvl) + (res.capLayers || 0); delete res.cls;
     if (res.placed) g.fx.dust(t.pos.x, t.pos.y + 0.8, t.pos.z, 8, 0.8, 0.9);
     return res;
   }

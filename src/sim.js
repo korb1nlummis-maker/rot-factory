@@ -5,7 +5,7 @@ import { NEEDLE } from './plushdata.js';
 const RB = 0.3; // loose plush radius
 const G = 15;    // gravity (a little heavier than 9.8 so plush feel like they have weight)
 const MU = 0.72; // friction between plush and the pile
-const MU_SLAB = 0.14; // the same for the bodies of a climbing avalanche (they flow like snow)
+const MU_SLAB = 0.14; // the same for the bodies of a slide (they flow like snow)
 const CAP = 2600;
 const HSIZE = 16384;
 
@@ -71,7 +71,7 @@ export class Sim {
     this.ox = new Float32Array(CAP); this.oz = new Float32Array(CAP);
     this.sq = new Float32Array(CAP); // squash amount, set on hard impacts
     this.nud = new Uint8Array(CAP); // how many times a body that could not settle has been nudged
-    this.tag = new Uint8Array(CAP); // 1 = a body of a climbing avalanche (avalanche.js drives it down the slope and places it in the runout)
+    this.tag = new Uint8Array(CAP); // 1 = a body of a slide (wedge.js drives it down the slope and places it in the runout)
     this.en = new Float32Array(CAP); // slide energy this body carries (decays as the slide spreads)
     this.wx = new Float32Array(CAP); this.wy = new Float32Array(CAP); this.wz = new Float32Array(CAP); // spin
     this.bid = new Uint32Array(CAP); this.own = new Uint8Array(CAP); this.idc = 1; // stable ids for syncing, and who threw it (0 host, 1 guest)
@@ -183,7 +183,7 @@ export class Sim {
         const ts = Math.hypot(tx, ty, tz);
         if (ts > 1e-4) {
           const load = jn + (ny > 0.05 ? G * ny * dt : 0);
-          const fr = Math.min(ts, (this.tag[i] ? MU_SLAB : MU) * load);   // (a body of a climbing avalanche slides on a fluidized sheet: less friction, avalanche.js)
+          const fr = Math.min(ts, (this.tag[i] ? MU_SLAB : MU) * load);   // (a body of a slide flows like loose snow: less friction, wedge.js)
           vx -= tx / ts * fr; vy -= ty / ts * fr; vz -= tz / ts * fr;
         }
         // rolling: the surface drags the spin toward the rolling speed

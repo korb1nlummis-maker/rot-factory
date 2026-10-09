@@ -26,7 +26,7 @@ export default async function (ctx) {
   });
   await T('ui.controls-text-has-no-leftovers-and-matches-this-version', async () => {
     const all = CONTROLS.flatMap((gr) => gr.rows.map((r) => r.keys.join(' ') + ' ' + r.what)).join('\n'); const bad = [];
-    if (/[—–]|undefined|NaN/.test(all)) bad.push('bad characters'); if (CONTROLS.some((gr) => gr.rows.some((r) => (r.keys.includes('F') || r.keys.includes('G')) && /grab/i.test(r.what)))) bad.push('old grab key'); if (!/F.*Flashlight/i.test(CONTROLS.find((gr) => gr.group === 'Hands').rows.map((r) => r.keys.join('') + r.what).join(' '))) bad.push('flashlight');
+    if (/[—–]|undefined|NaN/.test(all)) bad.push('bad characters'); if (CONTROLS.some((gr) => gr.rows.some((r) => r.keys.includes('F') && /grab/i.test(r.what)))) bad.push('old grab key'); if (!/F.*Flashlight/i.test(CONTROLS.find((gr) => gr.group === 'Hands').rows.map((r) => r.keys.join('') + r.what).join(' '))) bad.push('flashlight');
     const html = document.getElementById('pause').innerHTML; if (/Controls<\/summary>/.test(html)) bad.push('the old collapsible list is still there'); return bad.length === 0 || bad.join('; ');
   });
   await T('ui.how-to-play-shows-the-same-controls', async () => { return document.querySelectorAll('#howKeys .ctlrow').length === CONTROLS.reduce((n, gr) => n + gr.rows.length, 0) || 'how to play list differs'; });

@@ -35,7 +35,7 @@ export class Player {
     this.ride = null;   // (player) => true when standing on a lift car (it carries you); installed by transit.js
     this.landSafe = null;   // (player) => true when a fall here does no harm (a Cushion Pad, or a Jump Pad or the plush pile after a launch); installed by transit.js
     this.flight = 0;    // seconds since a Jump Pad threw you (0 = not flying): while it runs your sideways speed is kept, only steered a little
-    this.swept = 0;     // seconds left of being carried by a climbing avalanche (avalanche.js): the flow owns your velocity, the keys only steer a little
+    this.swept = 0;     // seconds left of being carried by a slide (wedge.js): the flow owns your velocity, the keys only steer a little
     this.launched = false; this.launchLock = 0; this.liftId = 0;
   }
 

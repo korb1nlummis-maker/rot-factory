@@ -58,7 +58,7 @@ export default async function (ctx) {
     fresh({}); const { i, k } = spot(); p().pos.set(cellX(i), 14, cellZ(k)); p().onGround = true; p().footCell = { i, j: 50, k }; g.hp = 100; role('guest'); cap();
     const r0 = Math.random; Math.random = () => 0; g._climbT = 5; g.climbRisk(0.1); Math.random = r0;
     const c = sent.find((m) => m.t === 'cmd' && (m.c === 'sslide' || m.c === 'patch'));   // (a slope the sheet can flow on asks for a soft slide; a flat bench only shifts)
-    return (c && g.hp === 100 && !g.avalanche.cur) || `cmd ${c && c.c} hp ${g.hp}`;
+    return (c && g.hp === 100 && !g.wedge.cur) || `cmd ${c && c.c} hp ${g.hp}`;
   });
   await bareTest('mp.hit.plush-hitting-the-guest-hurts-the-guest-not-the-host', async () => {
     fresh({}); g.hp = 100; g.dmgCd = 0; role('host'); cap(); g.onPlayerHit(9, true); const h = ofType('hit')[0]; if (!h || g.hp !== 100) return `hit ${JSON.stringify(h)} host hp ${g.hp}`;

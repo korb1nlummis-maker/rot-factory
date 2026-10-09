@@ -71,7 +71,7 @@ export async function runSelfTest(g, only = '') {
     throw new Error('no slope mouth within 14 lanes of lane ' + lane);
   };
   const newWorld = async () => { await g.startPlay(true); g.mode = 'play'; g.noSave = true; await realSleep(250); };
-  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.', 'island.', 'thincap.', 'netperf.', 'mp.netperf.', 'lag.', 'avalanche.audit.'];
+  const WORLD_TESTS = ['crew.digs', 'crew.bolt', 'render.', 'mining.frame', 'mining.grab', 'mining.tamp', 'mining.dynamite', 'mining.charge-tiers', 'mining.stress', 'mining.slope', 'tunnel.', 'slides.', 'machines.mech', 'machines.borer', 'machines.claw', 'crew.dig', 'crew.bolt', 'crew.belt', 'stack.', 'island.', 'thincap.', 'netperf.', 'mp.netperf.', 'lag.', 'wedge.', 'mp.wedge.'];
   const aimPoint = (x, y, z, back = 2.0) => {
     p().pos.set(x - back, 0, z); p().vel.set(0, 0, 0);
     const e = p().eyePos(new V3()); const dx = x - e.x, dy = y - e.y, dz = z - e.z;
@@ -97,7 +97,7 @@ export async function runSelfTest(g, only = '') {
   // Per-player bags (Wave 12, src/playerinv.js): the co-op tests written before it expect ONE bag, the host's S.items, for a guest's craft, place and spend. Until a test is
   // rewritten for two bags, its friend's bag IS the host's: before every guest command the friend's bag is pointed at the host's maps (the swap in netCmd then swaps nothing).
   // The tests of the feature itself (pinv.*, mp.pinv.*) and the care package tests (mp.care.*, which were rewritten) run with real separate bags.
-  const PINV_OWN = /^(mp\.)?pinv\.|^mp\.care\./;
+  const PINV_OWN = /^(mp\.)?pinv\.|^mp\.care\.|^mp\.supportborer\./;
   const legacyFlag = (name) => { g._pinvLegacy = !PINV_OWN.test(name); };
   if (!g._pinvShim) { g._pinvShim = true; const real = g.netCmd; g.netCmd = function (c, d) { if (g._pinvLegacy) { const b = PIN.curBag(g); b.items = this.S.items; b.mats = this.S.mats; b.hotbar = this.S.hotbar; } return real.call(this, c, d); }; }
   const T = async (name, fn) => {

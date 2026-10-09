@@ -27,7 +27,8 @@ const TABLE = {
   'game.js': [{ thump: 16, step: 1, squeak: 2, stepConcrete: 1, tone: 11, pop: 1, whoosh: 4, soft: 5, chirp: 3, place: 6, coin: 2, creak: 3, cough: 1, wheeze: 1, geiger: 1 },
     { bindWorld: 1, setVolume: 2, init: 4, resume: 3, error: 10, buy: 1, setAmbientMuffle: 1, setMachines: 1, found: 3, ach: 7, dingDong: 2, rumble: 3, exitSfx: 1 }, 35],
   'logistics.js': [{}, {}, 1],
-  'softslide.js': [{ thump: 1 }, {}, 0],   // your own landing thump at the end of a ride
+  'supportborer.js': [{}, { error: 1 }, 0],   // the 'out of supports' error buzz for the player who loads or runs it
+  'burial.js': [{ thump: 1 }, {}, 0],   // your own landing thump at the end of a ride
   'notebook.js': [{}, { ach: 1 }, 0],
   'powerparts.js': [{ tone: 1 }, { error: 1 }, 1],
   'radio.js': [{ noise: 1, tone: 1 }, {}, 0],
@@ -60,7 +61,7 @@ function scan(raw, file) {
   const aa = [...src.matchAll(/\bactSound\(\s*(?:this|g)\b[^)]*\)/g)]; at += aa.length;
   return { own, ui, at, classes, file };
 }
-// any `x.at(a, b, c, 'word')` (the receiver may be an alias of the sound, like `s` in avalanche.js): the word must be a class
+// any `x.at(a, b, c, 'word')` (the receiver may be an alias of the sound, like `s` in wedge.js): the word must be a class
 function atClasses(raw) {
   const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1'), out = [];
   for (const m of src.matchAll(/\b\w+\.at\(/g)) {

@@ -265,7 +265,7 @@ stat('brokenSupports', '💥', [['buckle10', 10, 'Stress Test', 'Lose {n} suppor
 stat('cartCatch', '🏀', [['cartshot500', 500, 'Hoops', 'Land {n} plush in your cart.'], ['cartshot5k', 5e3, 'Dunk Contest', 'Land {n} plush in your cart.']]);
 stat('slides', '⛰️', [['slide50k', 5e4, 'Scree Slope', 'Set off {n} plush slipping.'], ['slide1m', 1e6, 'Mountain on the Move', 'Set off {n} plush slipping.']]);
 stat('bigSlides', '🏔️', [['bigslide25', 25, 'Avalanche Chaser', 'Set off {n} real slides.'], ['bigslide250', 250, 'Avalanche Magnet', 'Set off {n} real slides.']]);
-stat('climbSlabs', '🛷', [['slab1', 1, 'Sheet Slide', 'Climb too high without the gear and ride a real slab avalanche down the pile (a dozen plush or more must really let go).'], ['slab10', 10, 'Slab Rider', 'Ride {n} climbing avalanches down the pile.']]);
+stat('climbSlabs', '🛷', [['slab1', 1, 'Out From Under', 'Have the footing give way high on the pile and ride the widening slide down (a dozen plush or more must really let go).'], ['slab10', 10, 'Slide Rider', 'Ride {n} slides down the pile.']]);
 stat('creaks', '😬', [['creak100', 100, 'Light Sleeper', 'Hear {n} roofs creak.'], ['creak1k', 1e3, 'Haunted Roof', 'Hear {n} roofs creak.']]);
 stat('ropes', '🪢', [['rope1', 1, 'On a Rope', 'Plant a Rope Anchor.'], ['rope25', 25, 'Belay Team', 'Plant {n} Rope Anchors.'], ['rope250', 250, 'Rope Bridge', 'Plant {n} Rope Anchors.']]);
 stat('bulk', '🪧', [['bulk25', 25, 'Wall Builder', 'Build {n} bulkheads.'], ['bulk250', 250, 'Great Wall', 'Build {n} bulkheads.']]);

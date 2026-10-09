@@ -36,7 +36,7 @@ const KIND_CAT = {
   gen: 'power', pole: 'power', switch: 'power', breaker: 'power', meter: 'power', battery: 'power', pswitch: 'power', cable: 'power', fan: 'power', mfan: 'power',
   hlamp: 'power', clamp: 'power', strip: 'power', flood: 'power', wbeacon: 'power',
   mech: 'machines', borer: 'machines', claw: 'machines', excavator: 'machines', dozer: 'machines', wheel: 'machines', truck: 'machines', dock: 'machines', road: 'machines',
-  rail: 'machines', railstn: 'machines', railcar: 'machines', vscan: 'machines', arch: 'machines',
+  rail: 'machines', railstn: 'machines', railcar: 'machines', vscan: 'machines', arch: 'machines', sborer: 'machines',
   bot: 'robots', charger: 'robots',
   marker: 'tools', glow: 'tools', flare: 'tools', lantern: 'tools', rope: 'tools', dynamite: 'tools', charge: 'tools', gear: 'tools',
   cart: 'transit', door: 'transit', plift: 'transit', jump: 'transit', cushion: 'transit',

@@ -10,10 +10,11 @@ export default async function (ctx) {
     await newWorld(); fresh(up); craft('rope', 2); selectTool('rope'); const h = high(); const gx = cellX(h.i), gz = cellZ(h.k);
     // stake it into the pile surface where the climber stands
     const e = { id: g.nextId(), type: 'rope', x: gx, y: 25, z: gz }; S().entities.push(e); g.addEntity(e);
-    g.hp = 100; g.avalanche.clear(); const f0 = S().stats.climbFalls || 0; for (let n = 0; n < 40; n++) { g._climbT = 5; const r0 = Math.random; Math.random = () => 0; try { g.climbRisk(0.1); } finally { Math.random = r0; } } const roped = (S().stats.climbFalls || 0) - f0, slideNear = !!g.avalanche.cur;
+    g.hp = 100; g.wedge.clear(); const f0 = S().stats.climbFalls || 0; for (let n = 0; n < 40; n++) { g._climbT = 5; const r0 = Math.random; Math.random = () => 0; try { g.climbRisk(0.1); } finally { Math.random = r0; } } const roped = (S().stats.climbFalls || 0) - f0, slideNear = !!g.wedge.cur;
     // (nothing hits you any more when the footing gives way: a slide is what the rope prevents)
-    p().pos.set(gx + 9, 25, gz); g.hp = 100; g._climbT = 5; const f1 = S().stats.climbFalls || 0; { const r0 = Math.random; Math.random = () => 0; try { g.climbRisk(0.1); } finally { Math.random = r0; } }
-    const far = (S().stats.climbFalls || 0) - f1, slideFar = !!g.avalanche.cur; g.avalanche.clear();
+    // (9 m down the slope: 9 m the other way the pile top can be flat and at the ceiling, where no slide can start)
+    p().pos.set(gx - 9, 25, gz); g.hp = 100; g._climbT = 5; const f1 = S().stats.climbFalls || 0; { const r0 = Math.random; Math.random = () => 0; try { g.climbRisk(0.1); } finally { Math.random = r0; } }
+    const far = (S().stats.climbFalls || 0) - f1, slideFar = !!g.wedge.cur; g.wedge.clear();
     return (roped === 0 && !slideNear && far === 1 && slideFar) || `falls near the rope ${roped} (slide ${slideNear}), 9 m away ${far} (slide ${slideFar})`;
   });
   await T('rope.steps-barely-loosen-a-roped-slope', async () => {

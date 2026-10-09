@@ -21,8 +21,8 @@ import { Radio } from './radio.js';
 import { Net, RemotePlayer } from './net.js';
 import * as NG from './netgame.js';   // co-op traffic control: send rates and sizes, the guest's body stream, the world in slices, the F3 net numbers (netperf.js has the pipe)
 import { Slides } from './slide.js';
-import { Avalanches } from './avalanche.js';
-import { SoftSlides } from './softslide.js';
+import { Wedge } from './wedge.js';
+import { Burial } from './burial.js';
 import { recipes, craft, craftGear, gearRecipes, MATERIALS } from './crafting.js';
 import { ghostify, frameRay } from './machines.js';
 import { Dust } from './dust.js';
@@ -48,6 +48,7 @@ import * as WS from './worldsound.js';   // where a world sound comes from (sale
 import * as HL from './hanglamp.js';   // powered hanging lanterns (lights them into glowSources)
 import * as DETECTOR from './detector.js';
 import * as VSCAN from './vehiclescan.js';
+import * as SBORER from './supportborer.js';
 import * as ARCH from './arches.js';
 import * as HAUL from './haul.js';   // wave 6: giant arches and the Portal (supports for trucks, the hammer's pick)
 import { parseArch } from './loadtrace.js';
@@ -224,8 +225,8 @@ export class Game {
     this.sim.spawnHook = (sp, vr, x, y, z, vx, vy, vz, flag) => this.spawnHook(sp, vr, x, y, z, vx, vy, vz, flag);
     this.netBodies = new Map();
     this.slide = new Slides(this);
-    this.softslide = new SoftSlides(this);   // small soft slides and how deep they bury (softslide.js)
-    this.avalanche = new Avalanches(this);   // climbing avalanches (avalanche.js): slabs that break high up, carry the climber and settle at the foot
+    this.burial = new Burial(this);   // how deep a slide buries whoever is in its runout (burial.js)
+    this.wedge = new Wedge(this);   // the slide (wedge.js): the footing gives way high on the pile and a widening wedge of plush carries the climber to the foot
     this.sim.hooks = {
       onStale: (sp, vr, x, y, z) => { this.sellAuto(sp, vr, 0.5, undefined, Number.isFinite(x + y + z) ? { x, y, z } : null); },
       onFreeze: (i, j, k, flag, en) => { if (!this.isGuest()) { if (en > 0.3) this.slide.trigger(i, j, k, en * 0.72); } },
@@ -798,7 +799,7 @@ export class Game {
       fwd: locked && !modal && KB.down(k, 'fwd') ? 1 : 0, back: locked && !modal && KB.down(k, 'back') ? 1 : 0, left: locked && !modal && KB.down(k, 'left') ? 1 : 0, right: locked && !modal && KB.down(k, 'right') ? 1 : 0,
       sprint: KB.down(k, 'sprint'), jump: KB.down(k, 'jump') && locked && !modal, crouch: KB.down(k, 'crouch') && locked,   // the keys are the table's (keybinds.js); crouch is C, never Ctrl (Ctrl+W would close the browser tab)
     };
-    const stats = { walk: T.walk * (this.lungSlow ?? 1) * this.softslide.slow(), crouchMul: T.crouchMul, jump: T.jump * this.softslide.jumpMul() };
+    const stats = { walk: T.walk * (this.lungSlow ?? 1) * this.burial.slow(), crouchMul: T.crouchMul, jump: T.jump * this.burial.jumpMul() };
     const pb = p.pos.clone();
     if (this.mode === 'play') p.update(dt, input, stats, this.sim);
     S.stats.walked += Math.hypot(p.pos.x - pb.x, p.pos.z - pb.z);
@@ -812,7 +813,7 @@ export class Game {
     this.shake = Math.max(0, this.shake - dt * 1.8);
     const sh = this.shake * T.shakeMul;
     cam.position.set(eye.x + (Math.random() - 0.5) * sh * 0.12, eye.y + (Math.random() - 0.5) * sh * 0.12, eye.z + (Math.random() - 0.5) * sh * 0.12);
-    cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh * 0.02, p.yaw + Math.PI, this.avalanche ? this.avalanche.roll : 0, 'YXZ');
+    cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh * 0.02, p.yaw + Math.PI, this.wedge ? this.wedge.roll : 0, 'YXZ');
     cam.updateMatrixWorld(true);
     p.forward(_fwd);
     _right.set(-Math.cos(p.yaw) * -1, 0, 0).set(-Math.cos(p.yaw), 0, Math.sin(p.yaw)).multiplyScalar(-1);
@@ -862,7 +863,7 @@ export class Game {
       this.catchInCart();
     } else {
       for (const [id, c] of world.creaking) { c.t -= dt; if (c.t <= 0) world.creaking.delete(id); }
-      this.avalanche.guestUpdate(dt);
+      this.wedge.guestUpdate(dt);
     }
     this.playerGateScan(dt); if (!this.isGuest()) { this.feedGensFromThrows(); this.feedChargersFromThrows(); }
     this.settleT = (this.settleT ?? 10) - dt;
@@ -1817,7 +1818,7 @@ export class Game {
     if (this.netBodies) this.netBodies.clear();
     if (this.net.role === 'guest') { this.S.crew = []; this.crew.clear(); this.crewViews = new Map(); this.S.cart = null; this.cart.clear(); this.S.hcart = null; this.cart2.clear(); }
     if (this.net.role === 'host') PI.guestLeft(this);   // the friend's bag is kept for a rejoin
-    this.guestReady = false; this.hostEco = null;
+    this.guestReady = false; this.hostEco = null; if (this.wedge) this.wedge.netLost();   // (a slide the host was running is not believed any more)
     if (this.dust) this.dust.hostLevel = 0;
     if (this.remote) { this.remote.dispose(this.renderer.scene); this.remote = null; }
     if (this.world) { this.world.onSet = null; this.world.onCreakCell = null; }
@@ -1900,7 +1901,7 @@ export class Game {
       case 'dynb': NG.applyBelts(this, m.belts); break;   // the rest of the belt rows of a dyn that did not fit in one message
       case 'png': NG.ping(this, m); break;
       case 'pog': NG.pong(this, m); break;
-      case 'avwarn': case 'avrun': case 'avend': case 'avride': if (this.guestReady) this.avalanche.guestMsg(m); break;   // the host's climbing avalanche: the crack, the rumble, the end, and the flow that carries me
+      case 'avwarn': case 'avrun': case 'avend': case 'avride': if (this.guestReady) this.wedge.guestMsg(m); break;   // the host's slide: the warning with its wedge, the rumble, the end, and the flow that carries me
       case 'creak': {
         for (let n = 0; n < m.a.length; n += 3) { const i = m.a[n], j = m.a[n + 1], k = m.a[n + 2]; this.world.creaking.set((j * NZ + k) * NX + i, { i, j, k, t: 2.5 }); }
         if (m.a.length) this.onCreak(cellX(m.a[0]), cellY(m.a[1]), cellZ(m.a[2]), m.a.length / 3);
@@ -2023,6 +2024,7 @@ export class Game {
       case 'cfg': EXT.runCfgCmd(this, d); break;
       case 'bplan': BP.runCmd(this, d); break;   // a guest's planned belt line: the host validates every tile and lays it
       case 'rail': RAIL.runCmd(this, d); break;   // a guest's Mine Rail command: rush, sit, leave, load (rail.js re-checks everything)
+      case 'sborer': SBORER.guestCmd(this, d); break;   // a friend pressed E (or crouch + E) on a Support Borer: the host loads from the friend's own bag, nothing in the command is a count (supportborer.js)
       case 'vscan': VSCAN.guestTake(this, d); break;   // a friend pressed E on a Vehicle Scanner that holds The One (vehiclescan.js re-checks they stand there)
       case 'arch': DETECTOR.guestCross(this, d); break;   // a friend walked through a detector arch (detector.js re-checks they stand there)
       case 'cable': { const why = this.cables.guestWhy(d); this.cables.report(why ? { ok: false, why } : this.cables.connect(d.a, d.b), false); break; }   // (ids, reach, length, sockets and the cable item are all checked on the host)
@@ -2070,9 +2072,8 @@ export class Game {
       }
       case 'pay': { const n = Math.max(0, Math.min(1e9, Math.round(+d.n || 0))); if (S.money >= n) S.money -= n; break; }
       case 'tread': if (this.world.get(d.i, d.j, d.k) !== 0) this.slide.trigger(d.i, d.j, d.k, Math.min(3, +d.e || 0)); break;   // the guest's footing loads the face under it exactly as the host's would
-      case 'avclimb': this.avalanche.fromGuest(d); break;   // the guest climbed too high without gear: the host judges the slope and runs the slab
       case 'patch': this.slide.triggerPatch(d.i, d.k, Math.min(6, +d.e || 0), 3); break;
-      case 'sslide': this.softslide.fromGuest(d); break;   // the guest's footing gave way: the host judges where it is and how high, then runs the soft slide
+      case 'sslide': this.wedge.fromGuest(d); break;   // the guest's footing gave way: the host judges where it is and how high, then runs the slide
       case 'fuse': {
         // a Razzo the guest let go of keeps burning here, where the bodies live: the host tracks it from the guest's hands
         this.fuses = this.fuses || [];
@@ -3876,20 +3877,18 @@ export class Game {
   climbRisk(dt) {
     const p = this.player, fc = p.footCell;
     if (this.dead || this.blacking || !fc || p.pos.y < 8 || !p.onGround) { this._climbT = 0; return; }
-    if (this.avalanche && (this.avalanche.cur || this.avalanche.rideT > 0 || this.softslide.resting())) { this._climbT = 0; return; }   // a slide is carrying you (or just ended, or is burying you): the footing is already gone
+    if (this.wedge && (this.wedge.cur || this.wedge.rideT > 0 || this.burial.resting())) { this._climbT = 0; return; }   // a slide is carrying you (or just ended, or is burying you): the footing is already gone
     if (this.ropedIn(p.pos)) { this._climbT = 0; if (!this._ropeHint) { this._ropeHint = true; this.ui.hint('Roped in: the slope holds here.', 3); } return; }
     const climb = this.T.climb || 0, h = p.pos.y;
     this._climbT = (this._climbT || 0) + dt; if (this._climbT < 1.5) return; this._climbT = 0;
-    const odds = Math.min(0.6, (h - 6) / 45) * (1 - 0.25 * climb) * (1 + this.S.carry.length * 0.03);
-    if (!this._climbHint) { this._climbHint = true; this.ui.hint('<b>Loose footing up here.</b> The pile can flow out from under your boots and carry you downhill, and the higher you climb the more of it comes. It may bury you: legs, waist, chest or all of you, by how much lands on you. Climbing Gear in the terminal helps. Better yet: dig, do not climb.', 8); }
+    const odds = Math.min(0.6, (h - 6) / 45) * (1 - 0.25 * climb) * (1 + this.S.carry.length * 0.03) * (this.wedge ? this.wedge.oddsMul() : 1);
+    if (!this._climbHint) { this._climbHint = true; this.ui.hint('<b>Loose footing up here.</b> The pile can slide out from under your boots, a widening wedge of plush that carries you downhill and may bury you: legs, waist, chest or all of you, by how much lands on you. The higher, the steeper and the heavier you are, the bigger it is. Climbing Gear in the terminal helps. Better yet: dig, do not climb.', 8); }
     const r = Math.random();
-    if (this.avalanche) this.avalanche.advise(p.pos, this.S.carry.length);   // above 19 m: why it is safe (gear, rope) or why it is not
-    if (r > odds) { if (r > 0.75) { this.sound.thump(0.12, 70); this.shake = Math.max(this.shake, 0.08); } return; }
-    // high up, with the wrong gear, the whole sheet lets go: a real avalanche carries you down (avalanche.js). Anything else is the small patch below.
-    if (this.avalanche && this.avalanche.onClimbHit(p.pos, fc, this.S.carry.length)) { this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1; return; }
-    // the footing gives way: the plush under and around your boots flow downhill as a small sheet and carry you with it (softslide.js). It never hurts by itself.
-    if (this.softslide.onClimbHit(p.pos, this.S.carry.length)) { this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1; return; }
-    // nothing can flow here (a flat bench, everything held by frames or ropes): the footing only shifts a little
+    if (this.wedge) this.wedge.advise(p.pos);   // above 19 m: why it is safe (gear, rope) or why it is not
+    if (r > odds) { if (h >= 19 && this.wedge) this.wedge.holdUp(p.pos); if (r > 0.75) { this.sound.thump(0.12, 70); this.shake = Math.max(this.shake, 0.08); } return; }
+    // the footing gives way: the slide starts at your own spot (wedge.js). It never hurts by itself.
+    if (this.wedge.onClimbHit(p.pos, this.S.carry.length)) { this.S.stats.climbFalls = (this.S.stats.climbFalls || 0) + 1; return; }
+    // nothing can flow here (a flat bench, everything held by frames or ropes, or the slope is resting): the footing only shifts a little
     if (this.isGuest()) this.cmd('patch', { i: fc.i, k: fc.k, e: +(2.6 + h * 0.03).toFixed(3) }); else this.slide.triggerPatch(fc.i, fc.k, 2.6 + h * 0.03, 3);
     this.sound.thump(0.3, 80); this.shake = Math.max(this.shake, 0.25);
     this.ui.hint('<b>The pile shifts under you.</b> Stay low, or get Climbing Gear.', 3);
@@ -4080,7 +4079,7 @@ export class Game {
 
   hurtPlayer(n, why) {
     if (this.mode !== 'play' || this.dead) return;
-    if (this.avalanche) { const m = this.avalanche.shield(n, why); if (m < n && m <= 0) return; n = m; }   // riding a slide: a slide alone never kills (avalanche.js)
+    if (this.wedge) { const m = this.wedge.shield(n, why); if (m < n && m <= 0) return; n = m; }   // riding a slide: a slide alone never kills (avalanche.js)
     n *= 1 - Math.min(0.6, this.T.dmgCut || 0);
     this.hp = Math.max(0, this.hp - n);
     this.hurtT = 0;
@@ -4193,7 +4192,7 @@ export class Game {
     if (buried && !this.lastBuried) S.stats.buried++;
     this.lastBuried = buried;
     // trapped: a pulsing countdown to dig out before the air runs out
-    this.softslide.update(dt);   // how deep a soft slide has you (reads the cells round you, sets p.buried for the trapped system below)
+    this.burial.update(dt);   // how deep a slide has you (reads the cells round you, sets p.buried for the trapped system below)
     this.updateTrapped(dt);
     this.updateVitals(dt);
     this.depthCheck(dt); this.climbRisk(dt); this.updateLoads(dt);
