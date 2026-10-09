@@ -29,7 +29,7 @@ const ROWS = [
   ['Moving', 'jump', 'Jump', 'Also climbs a ladder. When buried under plush, hold it to punch upward.', ['Space'], 'any'],
   ['Moving', 'crouch', 'Crouch', 'Hold to fit low tunnels.', ['KeyC'], 'any', 'hold'],
   ['Moving', 'look', 'Look around', 'Mouse movement. Click the game once to capture the mouse.', ['Mouse move'], 'any', 'locked'],
-  ['Hands', 'grab', 'Grab plush', 'Hold to keep grabbing until your hands or cart are full. Click while holding plush to throw one.', ['Mouse0'], 'hands', 'hold'],
+  ['Hands', 'grab', 'Grab plush', 'Hold to keep grabbing until your hands or cart are full. Click while holding plush to throw one.', ['Mouse0', 'KeyG'], 'hands', 'hold'],
   ['Hands', 'throw', 'Throw one plush', 'From your hands or your cart.', ['KeyZ'], 'any'],
   ['Hands', 'punch', 'Punch', 'Knocks loose the plush in front of you, or punches you out of a hole.', ['Mouse2', 'KeyR', 'KeyP'], 'hands'],
   ['Hands', 'use', 'Use what you aim at', 'Terminal, crafting bench, generators, doors, bots, crates, scanners, lifts, lanterns, switches.', ['KeyE'], 'any'],

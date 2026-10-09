@@ -17,7 +17,7 @@ import { CONTROLS } from '../controls.js';
 const PAGE = [
   ['fwd', ['KeyW'], 'any', ''], ['left', ['KeyA'], 'any', ''], ['back', ['KeyS'], 'any', ''], ['right', ['KeyD'], 'any', ''], ['sprint', ['ShiftLeft'], 'any', 'hold'],
   ['jump', ['Space'], 'any', ''], ['crouch', ['KeyC'], 'any', 'hold'], ['look', ['Mouse move'], 'any', 'locked'],
-  ['grab', ['Mouse0'], 'hands', 'hold'], ['throw', ['KeyZ'], 'any', ''], ['punch', ['Mouse2', 'KeyR', 'KeyP'], 'hands', ''], ['use', ['KeyE'], 'any', ''],
+  ['grab', ['Mouse0', 'KeyG'], 'hands', 'hold'], ['throw', ['KeyZ'], 'any', ''], ['punch', ['Mouse2', 'KeyR', 'KeyP'], 'hands', ''], ['use', ['KeyE'], 'any', ''],
   ['copycfg', ['Shift+KeyE'], 'any', ''], ['bin', ['Semicolon'], 'any', ''], ['copybin', ['Shift+Semicolon'], 'any', ''], ['flash', ['KeyF', 'KeyO'], 'any', ''],
   ['medkit', ['KeyK'], 'any', ''], ['cart', ['KeyU'], 'any', ''], ['recall', ['KeyH'], 'any', 'hold'], ['give', ['Slash'], 'any', ''],
   ['hb1', ['Digit1'], 'any', ''], ['hb2', ['Digit2'], 'any', ''], ['hb3', ['Digit3'], 'any', ''], ['hb4', ['Digit4'], 'any', ''], ['hb5', ['Digit5'], 'any', ''],
@@ -125,6 +125,7 @@ export default async function (ctx) {
   await TT('keys.hands-click-grabs-z-throws-three-keys-punch-f-and-o-light-k-heals', async () => {
     fresh({ bag: 3, gloves: 3, reach: 3 }); inPlay(); g.holdBlock = false; g.grabCd = 0; g.throwCd = 0; plushWall(40); standBeforeWall(); adv(0.2); const bad = [];
     const n0 = S().carry.length; chord('Mouse0'); adv(0.05); if (S().carry.length !== n0 + 1) bad.push('left click did not grab');
+    S().carry.length = 0; g.grabCd = 0; chord('KeyG'); adv(0.05); if (S().carry.length < 1) bad.push('G did not grab (it grabs like the left button)');
     // hold the grab button: keeps grabbing
     S().carry.length = 0; g.grabCd = 0; const up = chord('Mouse0', true); g.gDownAt = 0; for (let n = 0; n < 160; n++) { g.grabCd = Math.max(0, g.grabCd - 0.02); adv(0.02); } up(); if (S().carry.length < 5) bad.push('holding left click did not keep grabbing: ' + S().carry.length);
     // throw: Z, and a left click while holding plush; Alt+Z and Ctrl+Z do not
