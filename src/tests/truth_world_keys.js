@@ -1,5 +1,5 @@
 // "Every button that says it does something must do it" (in-world keys, part 1): movement, hands, cart, recall, hotbar, screens.
-// Each test presses the real key (a KeyboardEvent on window) or mouse button and checks the effect the controls table / hint / chalkboard claims.
+// Each test presses the real key (a KeyboardEvent on window) or mouse button and checks the effect the controls table / hint / Field Guide claims.
 import { makeIO, WORLD_UP } from './truth_world_lib.js';
 import { CONTROLS } from '../controls.js';
 import { recipes } from '../crafting.js';
@@ -61,7 +61,7 @@ export default async function (ctx) {
     fresh(WORLD_UP()); craft('cart:1'); p().pos.set(0, 0, 2); p().yaw = Math.PI; p().pitch = 0; g.useCart(); const c = S().cart; c.mode = 'stay'; c.x = p().pos.x + 1.8; c.z = p().pos.z + 0.4; c.y = 0; adv(0.1); const bad = [];
     c.load.push({ sp: 2, vr: 0 }); io.clearHint(); io.tap('KeyX'); if (!S().cart) bad.push('X stowed a cart that still had plush in it'); if (!/Empty the cart first/.test(io.hint())) bad.push('no "Empty the cart first" message: ' + io.hint());
     c.load.length = 0; io.tap('KeyX'); if (S().cart || S().items['cart:1'] !== 1) bad.push('X next to the empty cart (looking away from it) did not stow it');
-    g.useCart(); const c2 = S().cart; c2.mode = 'stay'; c2.x = p().pos.x + 1.8; c2.z = p().pos.z; adv(0.1); io.tap('KeyU'); io.tap('KeyU'); io.tap('KeyU'); if (!S().cart) bad.push('U stowed the cart (the chalkboard says "cart out / stow")');
+    g.useCart(); const c2 = S().cart; c2.mode = 'stay'; c2.x = p().pos.x + 1.8; c2.z = p().pos.z; adv(0.1); io.tap('KeyU'); io.tap('KeyU'); io.tap('KeyU'); if (!S().cart) bad.push('U stowed the cart (the Field Guide says "cart out / stow")');
     return bad.length === 0 || bad.join('; ');
   });
 

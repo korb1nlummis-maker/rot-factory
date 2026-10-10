@@ -532,11 +532,10 @@ export async function runSelfTest(g, only = '') {
   });
   await T('tools.hammer-takes-down-bulkhead', async () => { fresh(mkUp()); craft('bulk'); selectTool('bulk'); aimPoint(0, 0, 6.5, 2.2); const pl = await plan(); if (!pl.ok) return pl.why; placeNow(); const e = pl.ent; selectTool('hammer'); g.stowed = false; aimPoint(cellX(e.i), cellY(e.j), cellZ(e.k), 1.4); adv(0.15); const ref = g.hammerTarget(); if (!ref || ref.kind !== 'bulk') return 'no bulk target'; g.hammerHit(); return (w().get(e.i, e.j, e.k) === 0) || 'bulk still there'; });
 
-  // ================================================================== HALL: signs and chalkboard
-  await T('hall.signs-and-chalkboard-exist', async () => {
+  // ================================================================== HALL: signs (the rules moved to the Field Guide, F1: src/tests/guide.js)
+  await T('hall.signs-exist-and-no-chalkboards-stand-in-the-hall', async () => {
     const sc = g.renderer.scene; const count = (n) => { let c = 0; sc.traverse((o) => { if (o.name === n) c++; }); return c; };
-    const cb = sc.getObjectByName('chalkboard'); if (!cb) return 'no chalkboard'; let textured = false; cb.traverse((o) => { if (o.material && o.material.map && o.material.map.image) textured = true; });
-    return (count('exitSign') === 1 && count('climbSign') >= 4 && textured) || `exit ${count('exitSign')} climb ${count('climbSign')} chalk ${textured}`;
+    return (count('exitSign') === 1 && count('climbSign') >= 4 && count('chalkboard') === 0) || `exit ${count('exitSign')} climb ${count('climbSign')} chalkboards ${count('chalkboard')}`;
   });
 
   // ================================================================== AUDIO: no random noises

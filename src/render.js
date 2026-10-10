@@ -161,7 +161,7 @@ export class Renderer {
 
     // chunks
     this.chunks = new Map();
-    this.pending = [];
+    this.pending = []; this._pset = new Set(); this._pkey = new Map();
     this.instDirty = true;
     this.lastRebuild = 0;
     this.lastRebuildPos = new THREE.Vector3(1e9, 0, 0);
@@ -173,7 +173,7 @@ export class Renderer {
   setWorld(w) {
     this.world = w;
     this.chunks.clear();
-    this.pending = [];
+    this.pending = []; this._pset = new Set();
     this.instDirty = true;
     this.lastHx = undefined;
   }
@@ -347,6 +347,10 @@ export class Renderer {
   // An edit in a chunk that is not loaded (the mouth of a shaft in the pile 40 m over your head, beyond the render radius) has no chunk record to cascade from, yet opening or
   // capping it changes the light of the loaded chunks under it. Look at it the way a remesh would: a hole in the window of that chunk now, or a loaded chunk of its stack
   // that had hole light before. Then the loaded chunks of the stack and their neighbours are scanned again.
+  // a chunk waits in `pending` once, however often it is dirtied or spilled to while it waits (a dig front re-dirties the same chunks every frame and a hole spills to 44 more
+  // each time: with duplicates the queue grew without bound, the per frame sort ate the budget and chunks that had never been scanned stayed empty)
+  queue(ci) { if (!this._pset.has(ci)) { this._pset.add(ci); this.pending.push(ci); } }
+
   farEdit(ci) {
     const cx = ci % CX, cz = Math.floor(ci / CX) % CZ, cy = Math.floor(ci / (CX * CZ)), ids = [];
     for (let ny = 0; ny < CY; ny++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
@@ -356,7 +360,7 @@ export class Renderer {
     if (!ids.length) return;
     let near = false; for (const ni of ids) if (this.chunks.get(ni).hole) { near = true; break; }
     if (!near) { const hl = HL.windowFor(this.world, cx * CS, cy * CS, cz * CS, this._hl2 || (this._hl2 = HL.makeScratch())); near = hl.on && hl.holes > 0; }
-    if (near) for (const ni of ids) this.pending.push(ni);
+    if (near) for (const ni of ids) this.queue(ni);
   }
 
   updateChunks(cam, budgetMs = 5) {
@@ -371,7 +375,7 @@ export class Renderer {
       const list = [...w.dirtyChunks];
       w.dirtyChunks.clear();
       this.editRev = (this.editRev | 0) + 1;
-      for (const ci of list) { const ch = this.chunks.get(ci); if (ch) { ch.casc = true; this.pending.push(ci); } else this.farEdit(ci); }
+      for (const ci of list) { const ch = this.chunks.get(ci); if (ch) { ch.casc = true; this.queue(ci); } else this.farEdit(ci); }
     }
     // missing chunks
     if (this.lastHx !== hx || this.lastHy !== hy || this.lastHz !== hz || this.q !== this.lastQ) {
@@ -383,12 +387,12 @@ export class Renderer {
         const ddx = Math.max(bx - cam.x, 0, cam.x - (bx + cs)), ddy = Math.max(by - cam.y, 0, cam.y - (by + cs)), ddz = Math.max(bz - cam.z, 0, cam.z - (bz + cs));
         if (ddx * ddx + ddy * ddy + ddz * ddz > R * R) continue;
         const ci = (cy * CZ + cz) * CX + cx;
-        if (!this.chunks.has(ci)) { this.chunks.set(ci, { cx, cy, cz, n: 0, data: null, cold: true }); this.pending.push(ci); }
+        if (!this.chunks.has(ci)) { this.chunks.set(ci, { cx, cy, cz, n: 0, data: null, cold: true }); this.queue(ci); }
       }
       for (const [ci2, ch2] of this.chunks) {
         if (ch2.cold || ch2.deep) continue;
         const bx = ch2.cx * cs - (NX * C) / 2 + cs / 2 - cam.x, by = ch2.cy * cs + cs / 2 - cam.y, bz = ch2.cz * cs - (NZ * C) / 2 + cs / 2 - cam.z;
-        if (bx * bx + by * by + bz * bz < 22 * 22) this.pending.push(ci2);
+        if (bx * bx + by * by + bz * bz < 22 * 22) this.queue(ci2);
       }
       // unload far
       for (const [ci, ch] of this.chunks) {
@@ -397,45 +401,58 @@ export class Renderer {
         if (ddx * ddx + ddy * ddy + ddz * ddz > (R + 5) * (R + 5)) { this.chunks.delete(ci); this.instDirty = true; }
       }
     }
-    if (this.pending.length) {
-      // nearest first
-      const px = cam.x, py = cam.y, pz = cam.z;
-      const dist = (ci) => {
+    if (this._pset.size !== this.pending.length) this._pset = new Set(this.pending);   // (something else wrote to the array)
+    const list = this.pending;
+    if (list.length) {
+      // never scanned chunks first (an empty hole in the world), then the chunks you just edited, then the rest (a spill of light), each nearest first (the distance counts 1, 1.4 and 2.4 times as far for the three kinds)
+      const px = cam.x, py = cam.y, pz = cam.z, K = this._pkey; K.clear();
+      for (const ci of list) {
         const ch = this.chunks.get(ci);
-        if (!ch) return 1e9;
+        if (!ch) { K.set(ci, -1); continue; }
         const cx = ch.cx * cs - (NX * C) / 2 + cs / 2, cy = ch.cy * cs + cs / 2, cz = ch.cz * cs - (NZ * C) / 2 + cs / 2;
-        return (cx - px) ** 2 + (cy - py) ** 2 + (cz - pz) ** 2;
-      };
-      this.pending.sort((a, b) => dist(a) - dist(b));
-      const seen = new Set();
-      while (this.pending.length && performance.now() - t0 < budgetMs) {
-        const ci = this.pending.shift();
-        if (seen.has(ci)) continue;
-        seen.add(ci);
+        K.set(ci, ((cx - px) ** 2 + (cy - py) ** 2 + (cz - pz) ** 2) * (ch.cold ? 1 : ch.casc ? 2 : 6));
+      }
+      if (list.length > 1) list.sort((a, b) => K.get(a) - K.get(b));
+      let u = 0, coldDone = false;
+      // (at least one per frame, so a slow sort or a slow chunk cannot starve the queue)
+      while (u < list.length && (u === 0 || performance.now() - t0 < budgetMs)) {
+        const ci = list[u++];
+        this._pset.delete(ci);
         const ch = this.chunks.get(ci);
         if (!ch) continue;
-        const ccx = ch.cx * cs - (NX * C) / 2 + cs / 2 - cam.x, ccy = ch.cy * cs + cs / 2 - cam.y, ccz = ch.cz * cs - (NZ * C) / 2 + cs / 2 - cam.z;
-        ch.deep = ccx * ccx + ccy * ccy + ccz * ccz < 26 * 26;
-        const res = this.scanChunk(ch.cx, ch.cy, ch.cz, ch.deep);
-        ch.n = res.n; ch.data = res.data; ch.cold = false;
-        this.instDirty = true;
-        // an edit changes the light of the chunks round it as far as a hole spills (6 cells), which is further than the two cell border markDirty re-meshes:
-        // an edited chunk with a hole in reach (or that just lost one) sends the chunks next to it round again, once. Up and down it sends every level: opening or capping
-        // the mouth of a shaft (or raising its rim) changes the light at its foot however many chunk levels lower that lies (the column tops decide the hole and its strength)
-        if (ch.casc) {
-          ch.casc = false;
-          if (res.hole || ch.hole) for (let ny = 0; ny < CY; ny++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-            if (!dx && ny === ch.cy && !dz) continue;
-            const nx = ch.cx + dx, nz = ch.cz + dz;
-            if (nx < 0 || ny < 0 || nz < 0 || nx >= CX || ny >= CY || nz >= CZ) continue;
-            const ni = (ny * CZ + nz) * CX + nx;
-            if (this.chunks.has(ni)) (this.spill || (this.spill = [])).push(ni);
-          }
-        }
-        ch.hole = !!res.hole;
+        if (ch.cold) coldDone = true;
+        this.scanOne(ch, cam, cs);
       }
-      if (this.spill && this.spill.length) { for (const ni of this.spill) this.pending.push(ni); this.spill.length = 0; }
+      // a dig front must not keep a never scanned chunk waiting for good: one of them is scanned every frame
+      if (!coldDone) for (let q = u; q < list.length; q++) {
+        const ch = this.chunks.get(list[q]);
+        if (ch && ch.cold) { this._pset.delete(list[q]); list[q] = -1; this.scanOne(ch, cam, cs); break; }
+      }
+      this.pending = u >= list.length ? [] : list.slice(u).filter((ci) => ci >= 0);
+      if (this.spill && this.spill.length) { for (const ni of this.spill) this.queue(ni); this.spill.length = 0; }
     }
+  }
+
+  scanOne(ch, cam, cs) {
+    const ccx = ch.cx * cs - (NX * C) / 2 + cs / 2 - cam.x, ccy = ch.cy * cs + cs / 2 - cam.y, ccz = ch.cz * cs - (NZ * C) / 2 + cs / 2 - cam.z;
+    ch.deep = ccx * ccx + ccy * ccy + ccz * ccz < 26 * 26;
+    const res = this.scanChunk(ch.cx, ch.cy, ch.cz, ch.deep);
+    ch.n = res.n; ch.data = res.data; ch.cold = false;
+    this.instDirty = true;
+    // an edit changes the light of the chunks round it as far as a hole spills (6 cells), which is further than the two cell border markDirty re-meshes:
+    // an edited chunk with a hole in reach (or that just lost one) sends the chunks next to it round again, once. Up and down it sends every level: opening or capping
+    // the mouth of a shaft (or raising its rim) changes the light at its foot however many chunk levels lower that lies (the column tops decide the hole and its strength)
+    if (ch.casc) {
+      ch.casc = false;
+      if (res.hole || ch.hole) for (let ny = 0; ny < CY; ny++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && ny === ch.cy && !dz) continue;
+        const nx = ch.cx + dx, nz = ch.cz + dz;
+        if (nx < 0 || nz < 0 || nx >= CX || nz >= CZ) continue;
+        const ni = (ny * CZ + nz) * CX + nx;
+        if (this.chunks.has(ni)) (this.spill || (this.spill = [])).push(ni);
+      }
+    }
+    ch.hole = !!res.hole;
   }
 
   rebuildInstances(cam, force = false) {

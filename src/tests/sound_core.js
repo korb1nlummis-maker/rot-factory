@@ -9,7 +9,7 @@ const SRC = import.meta.glob('../*.js', { query: '?raw', import: 'default', eage
 // file: [own methods, ui methods, positional count]
 const TABLE = {
   'beltintake.js': [{}, {}, 1],
-  'beltplan.js': [{ tone: 3, place: 1 }, { error: 5 }, 2],
+  'beltplan.js': [{ tone: 4, place: 1 }, { error: 5 }, 2],
   'bench.js': [{}, { error: 4 }, 0],
   'binspanel.js': [{ place: 4, tone: 1 }, { error: 5 }, 0],
   'botfuel.js': [{}, {}, 1],
@@ -35,7 +35,7 @@ const TABLE = {
   'rail.js': [{ place: 1, thump: 1 }, {}, 0],
   'splitpanel.js': [{ tone: 1 }, { error: 2 }, 0],
   'transit.js': [{ tone: 8, place: 1 }, { error: 10 }, 6],
-  'ui.js': [{}, { error: 1 }, 0],
+  'ui.js': [{}, { error: 1, init: 1 }, 0],   // (init: the Field Guide title button unlocks the audio context, no sound of its own)
   'vehiclescan.js': [{ place: 1 }, { found: 1 }, 2],
   'worldsound.js': [{}, {}, 7],
 };

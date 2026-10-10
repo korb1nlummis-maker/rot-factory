@@ -220,8 +220,8 @@ export default async function (ctx) {
   await T('hlamp.glass-brightens-and-dims-with-power', async () => {
     reset(); const { ls } = line(1); adv(2); const it = g.machines.items.get(ls[0].id), gl = it.obj.getObjectByName('glass'); const bad = [];
     for (let n = 0; n < 20; n++) adv(0.1);
-    const full = gl.material.emissiveIntensity; if (full < 1 || full > 1.6) bad.push('full ' + full + ' (a modest lamp: bright enough to read, never a blinding orb)');   // 1.35: under the bloom threshold with the glass colour
-    g.power.dirty = false; g.power.t = 5; ls[0].pw = 0.5; adv(0.3); const half = gl.material.emissiveIntensity; if (!(half < full * 0.7 && half > 0.4)) bad.push('half ' + half);
+    const full = gl.material.emissiveIntensity; if (full < 0.6 || full > 1.2) bad.push('full ' + full + ' (a modest lamp: bright enough to read, never a blinding orb)');   // 0.8: well under the bloom threshold with the glass colour
+    g.power.dirty = false; g.power.t = 5; ls[0].pw = 0.5; adv(0.3); const half = gl.material.emissiveIntensity; if (!(half < full * 0.7 && half > 0.25)) bad.push('half ' + half);
     g.setCfg(ls[0], { on: false }); adv(0.3); if (gl.material.emissiveIntensity !== 0) bad.push('off ' + gl.material.emissiveIntensity);
     return bad.length === 0 || bad.join('; ');
   });

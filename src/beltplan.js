@@ -206,8 +206,9 @@ const nearBin = (g, a) => { const bp = g.hall && g.hall.binPos; return bp ? Math
 const faceDir = (fx, fz) => (Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 0 : 2) : (fz > 0 ? 1 : 3));
 
 // the start: the open end of a line (carry on from it), the mouth of a sorter or a mech, else where you aim. belt: it carries on a belt or hose (the new piece is fed by it)
-export function snapStart(g, a, eye, dir) {
-  const L = g.logi, t = L.tileAt(a.i, a.j, a.k) || L.pick(eye, dir, 4.5);   // the cell you aim at first: the first tile along the ray is often one in front of it
+export function snapStart(g, a, eye, dir, tool) {
+  const L = g.logi, t = (a && L.tileAt(a.i, a.j, a.k)) || L.pick(eye, dir, 4.5);   // the cell you aim at first: the first tile along the ray is often one in front of it
+  if (tool) { const x = extendInfo(g, a && L.tileAt(a.i, a.j, a.k), isHoseTool(tool)); if (x) return { i: x.i, j: x.j, k: x.k, dir: x.dir, ext: x, note: 'extends the open start of a line' }; }   // the loose start of a line: the route grows from there, upstream
   if (t && t.type === 'belt' && !t.lift && !(t.ug && t.ug.role === 'in' && t.ug.pair != null) && !L.nextOf(t) && !t.detector) {
     const c = { i: t.i + DX[t.dir], j: t.j + (t.rise || 0), k: t.k + DZ[t.dir], dir: t.dir };
     return { ...c, belt: true, note: 'continues the open end of a line' };
@@ -248,6 +249,86 @@ export function snapEnd(g, a, start, eye, dir) {
   }
   void w;
   return { i: a.i, j: a.j, k: a.k, note: null };
+}
+
+// ---------------------------------------------------------------- extending a line upstream
+// The loose START of a line (the piece nothing feeds; for a hose its mouth) can be extended: the new pieces are laid from where you aim to the cell beside the old start and face
+// into it, so the old start becomes a plain joint and the far end of the new stretch is the new start (the new mouth). Same pieces, same mark, same price and rules as any line.
+// Returns { i, j, k, dir, id, hose, tier, flat } (flat: a ramp or an underground entry takes its feed from straight behind only) or null when t is not such a start.
+export function extendInfo(g, t, hose) {
+  const L = g.logi;
+  if (!t || t.type !== 'belt' || t.standIn || t.detector || t.splitter || t.merger || t.smart || (t.ug && t.ug.role !== 'in')) return null;
+  if (!!t.hose !== !!hose || !isInt(t.i) || !isInt(t.j) || !isInt(t.k) || L.tiles.get(idx(t.i, t.j, t.k)) !== t) return null;
+  if (!L.nextOf(t) || t.fed || L.isFed(t)) return null;   // a line of one piece, or a piece something already feeds, is not a loose start (a loose END is carried on as ever)
+  return { i: t.i, j: t.j, k: t.k, dir: t.dir, id: t.id, hose: !!t.hose, tier: t.hose ? 0 : tierOf(t), flat: !!(t.rise || t.ug || t.lift) };
+}
+// the cells a stretch may end on: straight behind the start first, then each side (never in front of it: that is head on). cell + dir faces the start.
+function joinCells(x) {
+  const out = [{ i: x.i - DX[x.dir], j: x.j, k: x.k - DZ[x.dir], dir: x.dir }];
+  if (!x.flat) for (const q of [(x.dir + 1) & 3, (x.dir + 3) & 3]) out.push({ i: x.i + DX[q], j: x.j, k: x.k + DZ[q], dir: (q + 2) & 3 });
+  return out;
+}
+// how many pieces from the start's end of the stretch the pack covers (the far pieces are the ones cut)
+function cordLimitExt(g, tiles, tier, hose) {
+  const have = g.S.items || {}, used = {}; let n = 0;
+  for (let m = tiles.length - 1; m >= 0; m--) {
+    const t = tiles[m], id = hose ? 'hose' : t.u ? ugId(tier) : t.rise ? RAMP_ID : beltId(tier), take = t.u === 2 ? 2 : 1;
+    if ((used[id] || 0) + take > (have[id] || 0)) break;
+    used[id] = (used[id] || 0) + take; n += take; if (t.u === 2) m--;
+  }
+  return n;
+}
+// the route from `far` (where the new start goes) to a cell beside the old start, trying the join cells nearest to far first and each shape
+function routeExt(g, s, far, tier, hose, nVar) {
+  const x = s.start.ext;
+  if (far.i === x.i && far.j === x.j && far.k === x.k) return { r: { ok: false, why: 'Aim where the new opening should be: deeper in, past the old one', tiles: [], blocked: [] }, v: 0 };
+  const joins = joinCells(x).map((c, n) => ({ c, n, d: Math.abs(c.i - far.i) + Math.abs(c.k - far.k) + Math.abs(c.j - far.j) })).sort((p, q) => p.d - q.d || p.n - q.n);
+  const dx = Math.abs(far.i - x.i), dz = Math.abs(far.k - x.k), first = dx >= dz ? 0 : 1;
+  const vars = s.manual || !s.click ? [((s.variant % nVar) + nVar) % nVar] : [first, 1 - first, 2].filter((v) => v < nVar);
+  let firstR = null;
+  for (const { c } of joins) for (const v of vars) {
+    const r = route(g, far, { i: c.i, j: c.j, k: c.k, dir: c.dir }, v, tier, hose);
+    if (!firstR) firstR = { r, v };
+    if (r.ok) return { r, v };
+  }
+  return firstR;
+}
+// aim step with the stretch anchored at a loose start
+function planExt(g, tool, s, a) {
+  const x = s.start.ext, tier = x.tier, hose = x.hose, L = g.logi;
+  if (!a) return { plan: { ok: false, why: 'Aim at the floor', planner: true }, cost: 0 };
+  const key = `x${s.start.i},${s.start.j},${s.start.k},${s.start.dir}|${a.i},${a.j},${a.k}|${s.variant}|${s.click ? (s.manual ? 'm' : 'a') : 'p'}|${tier}|${hose ? 'h' : ''}|${L.tiles.size}`;
+  let rr = s._r && s._rk === key ? s._r : null;
+  if (!rr) { rr = routeExt(g, s, a, tier, hose, nVariants(tool)); s._r = rr; s._rk = key; }
+  let r = rr.r; s.shown = rr.v;
+  if (s.hold && (a.i !== x.i || a.j !== x.j || a.k !== x.k)) s.hold.moved = true;   // the aim has left the cell the press began on: this is a drag
+  if (s.click && (s.hold || s.cord) && r.tiles.length) {   // the cord: the pieces you hold reach from the old start outward, the far ones are cut
+    const n = cordLimitExt(g, r.tiles, tier, hose);
+    if (n < r.tiles.length) r = { ...r, tiles: r.tiles.slice(r.tiles.length - n), cut: r.tiles.length - n, ok: n > 0 && r.ok, why: n > 0 ? r.why : `You hold none of ${hose ? 'the hose' : 'this belt'}: craft some (a click, not a drag, buys what you do not hold)` };
+  }
+  const cost = costOf(g, r.tiles, tier, hose);
+  let why = r.ok ? null : r.why;
+  if (r.ok && !markOn(g.T, tier)) why = 'That belt mark is not unlocked';
+  if (r.ok && hose && !(g.T.vac > 0)) why = 'The Vacuum Hose is not unlocked yet';
+  if (r.ok && !cost.ok) why = `Not enough money: ◈ ${fmtN(cost.money)} for what you do not hold`;
+  const ok = !why, p = { ok, why, planner: true, ext: x, route: r, cut: r.cut || 0, tier, hose, variant: rr.v, gold: false, end: null, ent: r.tiles[0] ? { type: 'belt', ...r.tiles[0] } : { type: 'belt', i: a.i, j: a.j, k: a.k, dir: 0, rise: 0 } };
+  p.hintText = ok ? extHint(g, tool, tier, r, cost, p) : null;
+  return { plan: p, cost: cost.money };
+}
+function extHint(g, tool, tier, r, cost, p) {
+  const s = state(g), n = r.tiles.length, hose = p.hose, rate = rateOf(g.T, tier) * (hose ? 2 : 1), cord = s.click && (s.hold || s.cord);
+  const stock = cost.bought ? `uses ${cost.held} you hold, buys ${cost.bought} more for ◈ ${fmtN(cost.money)}` : `uses ${cost.held} you hold`;
+  const what = hose ? 'Vacuum Hose' : TIER_NAMES[tier] + ' belt (the line\'s own mark)', unit = hose ? (n === 1 ? 'piece' : 'pieces') : 'tiles';
+  const shape = s.click && !s.manual ? `Auto (${VARIANTS[p.variant]})` : VARIANTS[p.variant];
+  const cut = p.cut ? ` · <b>You hold ${n} ${unit}: the cord stops here, ${p.cut} short of where you aim.</b>` : '';
+  const ramps = r.tiles.filter((t) => t.rise).length, ug = r.tiles.filter((t) => t.u === 1).length;
+  return `<kbd>${cord ? 'Let go' : s.click ? 'Click' : 'B'}</kbd> extend the line: ${what}, ${n} ${unit} (${(n * C).toFixed(1)} m)${ug ? `, ${ug} underground` : ''}${ramps ? `, ${ramps} ramp${ramps > 1 ? 's' : ''} (Mk1)` : ''}, ${fmtN(rate)} plush per min, ${stock} · the old ${hose ? 'opening' : 'start'} becomes a joint and ${hose ? 'the new opening is' : 'the line now starts'} where you aim${cut} · <kbd>R</kbd> shape: ${shape} · <kbd>Q</kbd> cancel`;
+}
+// hovering a loose start with no route anchored: its outline and a hint (the click anchors the extension, as it does at an open end)
+function extAimPlan(g, tool, a, eye, dir) {
+  const L = g.logi, x = a ? extendInfo(g, L.tileAt(a.i, a.j, a.k), isHoseTool(tool)) : null; if (!x) return null;   // (the cell under the crosshair only: a ray that passes through a start to the cell beside it is for the next piece)
+  const what = x.hose ? 'the opening of this Vacuum Hose' : `the start of this ${TIER_NAMES[x.tier]} belt line`;
+  return { plan: { ok: true, extAim: x, hintText: `<kbd>Click</kbd> to extend: lay ${x.hose ? 'more hose' : 'more belt'} from ${what} deeper in, and the new far end becomes ${x.hose ? 'the opening' : 'the start'} (it uses the line's own ${x.hose ? 'kind' : 'mark'}) · <kbd>Q</kbd> cancel` }, cost: 0 };
 }
 
 // ---------------------------------------------------------------- the game side
@@ -302,11 +383,12 @@ export function plan(g, tool, eye, dir, yaw) {
   if (plannerOn(g, tool)) {
     if (!a) return { plan: { ok: false, why: 'Aim at the floor', planner: true }, cost: 0 };
     if (!s.start) {
-      const sp = snapStart(g, a, eye, dir), d = sp.dir != null ? sp.dir : dirOfYaw(yaw);
-      const why = L.canPlace(sp.i, sp.j, sp.k);
+      const sp = snapStart(g, a, eye, dir, tool), d = sp.dir != null ? sp.dir : dirOfYaw(yaw);
+      const why = sp.ext ? null : L.canPlace(sp.i, sp.j, sp.k);   // (a loose start being extended stands in its own cell)
       const bad = why && why !== 'Too close' ? why : null;
-      return { plan: { ok: !bad, why: bad, planner: true, startCell: { i: sp.i, j: sp.j, k: sp.k, dir: d, cont: !!sp.belt }, ent: { type: 'belt', i: sp.i, j: sp.j, k: sp.k, dir: d, rise: 0 }, hintText: bad ? null : `Line planner: <kbd>B</kbd> sets the start${sp.note ? ' (' + sp.note + ')' : ''}, then aim the end. <kbd>.</kbd> leaves the planner` }, cost: 0 };
+      return { plan: { ok: !bad, why: bad, planner: true, startCell: { i: sp.i, j: sp.j, k: sp.k, dir: d, cont: !!sp.belt, ext: sp.ext || null }, ent: { type: 'belt', i: sp.i, j: sp.j, k: sp.k, dir: d, rise: 0 }, hintText: bad ? null : `Line planner: <kbd>B</kbd> sets the start${sp.note ? ' (' + sp.note + ')' : ''}, then aim the end. <kbd>.</kbd> leaves the planner` }, cost: 0 };
     }
+    if (s.start.ext) return planExt(g, tool, s, a);   // a stretch anchored at a loose start grows upstream from there
     const en = snapEnd(g, a, s.start, eye, dir), nVar = nVariants(tool);
     const key = `${s.start.i},${s.start.j},${s.start.k},${s.start.dir}|${en.i},${en.j},${en.k},${en.dir}|${s.variant}|${s.click ? (s.manual ? 'm' : 'a') : 'p'}|${tier}|${hose ? 'h' : ''}|${L.tiles.size}`;
     let rr = s._r && s._rk === key ? s._r : null;
@@ -335,6 +417,7 @@ export function plan(g, tool, eye, dir, yaw) {
       return { plan: { ok, why: ok ? null : 'That belt mark is not unlocked', ent: { type: 'tierbelt', id: t.id, i: t.i, j: t.j, k: t.k, dir: t.dir, rise: 0, tier }, hintText: ok ? `<kbd>B</kbd> upgrade this belt from ${TIER_NAMES[tierOf(t)]} to ${TIER_NAMES[tier]} (the old belt comes back to you)` : null }, cost: 0 };
     }
   }
+  if (!(s.start && s.on)) return extAimPlan(g, tool, a, eye, dir);   // aiming at a loose start with nothing anchored: outline it and say a click extends it
   return null;
 }
 
@@ -344,10 +427,22 @@ export function plan(g, tool, eye, dir, yaw) {
 const GEOS = new Map();
 const geoOf = (key, make) => { let v = GEOS.get(key); if (!v) { v = make(); GEOS.set(key, v); } return v; };
 const boxOf = (a, b, c) => geoOf(`box${a},${b},${c}`, () => new THREE.BoxGeometry(a, b, c));
+// the outline of a loose start that a click extends: a ring around its open side and a plate on its cell (the style of the gold end ring)
+function extMark(grp, x, mat) {
+  const yawOf = [Math.PI / 2, 0, -Math.PI / 2, Math.PI];
+  const ring = new THREE.Mesh(geoOf('torus', () => new THREE.TorusGeometry(0.3, 0.04, 8, 20)), mat); ring.position.set(cellX(x.i), x.j * C + 0.2, cellZ(x.k)); ring.rotation.y = yawOf[x.dir]; grp.add(ring);
+  const plate = new THREE.Mesh(boxOf(0.5, 0.03, 0.58), mat); plate.position.set(cellX(x.i), x.j * C + 0.1, cellZ(x.k)); plate.rotation.y = yawOf[x.dir]; grp.add(plate);
+}
 export function ghost(g, tool, p) {
+  if (p && p.extAim) {
+    const x = p.extAim, key = `bx${x.i},${x.j},${x.k},${x.dir}`;
+    if (g.machines.ghostKey !== key) { const grp = new THREE.Group(); extMark(grp, x, new THREE.MeshBasicMaterial({ color: 0xffc928, transparent: true, opacity: 0.62, depthWrite: false })); g.machines.setGhost(grp, key); }
+    if (g.machines.ghost) g.machines.ghost.position.set(0, 0, 0);
+    return true;
+  }
   if (!p || !p.route) return false;
   const r = p.route, hose = !!p.hose, st = state(g).start, cont = st && st.cont ? st.dir : null, gold = !!p.gold;
-  const key = `bp${p.ok}${gold ? 'g' : ''}${hose ? 'h' : ''}${cont}${p.cut ? 'c' + p.cut : ''}|${r.tiles.map((t) => `${t.i},${t.j},${t.k},${t.dir},${t.rise},${t.u}`).join(';')}|${r.blocked.length}`;
+  const key = `bp${p.ok}${gold ? 'g' : ''}${hose ? 'h' : ''}${cont}${p.cut ? 'c' + p.cut : ''}${p.ext ? 'x' + p.ext.i + ',' + p.ext.j + ',' + p.ext.k : ''}|${r.tiles.map((t) => `${t.i},${t.j},${t.k},${t.dir},${t.rise},${t.u}`).join(';')}|${r.blocked.length}`;
   if (g.machines.ghostKey !== key) {
     const grp = new THREE.Group();
     const col = gold ? 0xffc928 : p.ok ? 0x5dffa0 : 0xff5a4a;
@@ -389,6 +484,7 @@ export function ghost(g, tool, p) {
       if (gold && lt) { const plate = new THREE.Mesh(boxOf(0.5, 0.03, 0.58), mat); plate.position.set(cellX(lt.i), lt.j * C + 0.1, cellZ(lt.k)); plate.rotation.y = yawOf[lt.dir]; grp.add(plate); }
     }
     if (p.cut && r.tiles.length) { const lt = r.tiles[r.tiles.length - 1], stop = new THREE.Mesh(boxOf(0.56, 0.05, 0.56), new THREE.MeshBasicMaterial({ color: 0xff9a2a, transparent: true, opacity: 0.55, depthWrite: false })); stop.position.set(cellX(lt.i + DX[lt.dir]), (lt.j + (lt.rise || 0)) * C + 0.04, cellZ(lt.k + DZ[lt.dir])); grp.add(stop); }   // the cell the cord would have gone on to: it stops short of it
+    if (p.ext) extMark(grp, p.ext, new THREE.MeshBasicMaterial({ color: 0xffc928, transparent: true, opacity: 0.55, depthWrite: false }));   // the old start the stretch joins
     for (const b of r.blocked) { const m = new THREE.Mesh(boxOf(0.58, 0.58, 0.58), bad); m.position.set(cellX(b.i), b.j * C + 0.29, cellZ(b.k)); grp.add(m); }
     g.machines.setGhost(grp, key);
   }
@@ -399,6 +495,12 @@ export function ghost(g, tool, p) {
 // ---------------------------------------------------------------- placing
 // after a route is laid in the laying mode: carry on from its open end (the next click lays the next stretch), unless it ended at a bin, a sorter, a vault or a generator
 function carryOn(g, s, p) {
+  if (p.ext) {   // an extension goes on from its new far end (the new start): the next stretch grows from there
+    const f = p.route && p.route.tiles[0]; s._r = null; s.manual = false;
+    if (s.click && f) { s.start = { i: f.i, j: f.j, k: f.k, dir: f.dir, cont: false, ext: { i: f.i, j: f.j, k: f.k, dir: f.dir, id: null, hose: p.hose, tier: p.tier, flat: !!(f.rise || f.u) } }; return true; }
+    s.start = null; s.cord = false; s.hold = null; if (s.click) { s.on = false; s.click = false; }
+    return false;
+  }
   const last = p.route && p.route.tiles[p.route.tiles.length - 1];
   const endsThere = p.gold || (p.end && p.end.note && /feeds the/.test(p.end.note)) || !last || last.u;
   s._r = null; s.manual = false;
@@ -420,12 +522,21 @@ export function clickLay(g, tool) {
   const e = g._bEye, d = g._bDir; if (!e || !d) return false;
   const L = g.logi, a = L.aimCell(e, d);
   if (!a) { g.sound.error(); g.ui.hint('Aim at the floor to start a route.', 2); return true; }
-  const sp = snapStart(g, a, e, d), dr = sp.dir != null ? sp.dir : dirOfYaw(g.player.yaw), why = L.canPlace(sp.i, sp.j, sp.k);
+  const sp = snapStart(g, a, e, d, tool), dr = sp.dir != null ? sp.dir : dirOfYaw(g.player.yaw), why = sp.ext ? null : L.canPlace(sp.i, sp.j, sp.k);
   if (why && why !== 'Too close') { g.sound.error(); g.ui.hint(why, 2); return true; }
-  const s = state(g); Object.assign(s, { on: true, click: true, manual: false, id: tool.id, slot: tool.slot, start: { i: sp.i, j: sp.j, k: sp.k, dir: dr, cont: !!sp.belt }, _r: null, variant: 0, hold: { moved: false, t: g.time }, cord: false });   // (the press may be the start of a draw: see dragTick) g.machines.setGhost(null);
+  const s = state(g); Object.assign(s, { on: true, click: true, manual: false, id: tool.id, slot: tool.slot, start: { i: sp.i, j: sp.j, k: sp.k, dir: dr, cont: !!sp.belt, ext: sp.ext || null }, _r: null, variant: 0, hold: { moved: false, t: g.time }, cord: false });   // (the press may be the start of a draw: see dragTick) g.machines.setGhost(null);
   g.sound.tone('triangle', 520, 700, 0.07, 0.06);
+  if (sp.ext) { g.ui.hint(`Extending the ${sp.ext.hose ? 'opening' : 'start'}. Aim where the new ${sp.ext.hose ? 'opening' : 'start'} should be, deeper in: the preview shows the stretch with its length and cost, <kbd>click</kbd> lays it (or drag from here and let go). <kbd>R</kbd> changes its shape, <kbd>Q</kbd> or right click cancels.`, 4); return true; }
   g.ui.hint(`Route started${sp.note ? ' (' + sp.note + ')' : ''}. Aim where it should end: the preview shows the whole route with its length and cost, <kbd>click</kbd> lays it. <kbd>R</kbd> changes its shape, <kbd>Q</kbd> or right click cancels.`, 4);
   return true;
+}
+
+// anchor an extension at a loose start (the click, or B on the outlined start)
+function anchorExt(g, tool, x) {
+  const s = state(g);
+  Object.assign(s, { on: true, click: true, manual: false, id: tool.id, slot: tool.slot, start: { i: x.i, j: x.j, k: x.k, dir: x.dir, cont: false, ext: x }, _r: null, variant: 0, hold: { moved: false, t: g.time }, cord: false });
+  g.sound.tone('triangle', 520, 700, 0.07, 0.06);
+  g.ui.hint(`Extending the ${x.hose ? 'opening' : 'start'}. Aim where the new ${x.hose ? 'opening' : 'start'} should be, deeper in: the preview shows the stretch with its length and cost, <kbd>click</kbd> lays it (or drag from here and let go). <kbd>R</kbd> changes its shape, <kbd>Q</kbd> or right click cancels.`, 4);
 }
 
 // Q or right click: put the route (or the planner's start) down. Returns true when it cancelled something, so the key does not stow the tool or punch.
@@ -457,20 +568,29 @@ export function dragTick(g, tool) {
 // placeCurrent step 0. In planner mode a click sets the start or lays the line. Returns true when it handled the click.
 export function handle(g, tool) {
   if (g._forGuest) return false;   // the host is running a guest's place command: that is not this player's planner click
+  if (g.plan && g.plan.extAim && !plannerOn(g, tool)) { const x = g.plan.extAim; g.plan = null; anchorExt(g, tool, x); return true; }   // B at a loose start anchors its extension, as a click does
   if (!plannerOn(g, tool)) return false;
   const s = g.bplan;
   const p = g.plan; g.plan = null;
   if (!p || !p.planner || !p.ok) { g.sound.error(); if (p && p.why) g.ui.hint(p.why, 2.5); return true; }
   if (!s.start) { s.start = { ...p.startCell }; s._r = null; g.sound.tone('triangle', 520, 700, 0.07, 0.06); g.ui.hint(`Start set. Aim at the end and press <kbd>B</kbd>. <kbd>R</kbd> changes the shape of the line.`, 3); return true; }
   const tiles = p.route.tiles.map((t) => [t.i, t.j, t.k, t.dir, t.rise, t.u]);
-  if (g.isGuest()) { g.cmd('bplan', { tier: p.tier, tiles, hose: !!p.hose }); g.sound.place(); carryOn(g, s, p); return true; }
-  const r = lay(g, p.tier, tiles, p.hose);
-  if (!r.ok) { g.sound.error(); g.ui.hint(r.why, 3); } else { g.ui.hint(`${r.n} ${p.hose ? (r.n === 1 ? 'hose piece' : 'hose pieces') : 'tiles'} laid.${carryOn(g, s, p) ? ' It carries on from the end: aim the next stretch, <kbd>Q</kbd> to stop.' : ''}`, 2.5); }
+  const ext = p.ext ? { i: p.ext.i, j: p.ext.j, k: p.ext.k } : null;
+  if (g.isGuest()) { g.cmd('bplan', ext ? { tier: p.tier, tiles, hose: !!p.hose, ext } : { tier: p.tier, tiles, hose: !!p.hose }); g.sound.place(); carryOn(g, s, p); return true; }
+  const r = lay(g, p.tier, tiles, p.hose, ext);
+  if (!r.ok) { g.sound.error(); g.ui.hint(r.why, 3); } else if (ext) { g.ui.hint(`${r.n} ${p.hose ? (r.n === 1 ? 'hose piece' : 'hose pieces') : 'tiles'} added: the line now ${p.hose ? 'opens' : 'starts'} deeper in.${carryOn(g, s, p) ? ' Aim the next stretch to go on from there, <kbd>Q</kbd> to stop.' : ''}`, 2.5); } else { g.ui.hint(`${r.n} ${p.hose ? (r.n === 1 ? 'hose piece' : 'hose pieces') : 'tiles'} laid.${carryOn(g, s, p) ? ' It carries on from the end: aim the next stretch, <kbd>Q</kbd> to stop.' : ''}`, 2.5); }
   return true;
 }
 
 // the host's check of a list of [i, j, k, dir, rise, u] tiles: contiguous, free, unlocked, affordable. Returns { ok, why, tiles, cost }.
-export function validate(g, tier, raw, hose) {
+export function validate(g, tier, raw, hose, extRaw) {
+  let st = null;
+  if (extRaw != null) {   // an extension: the loose start it joins must exist, be open, and be of the same kind and mark (the line's own mark is the one that is laid)
+    if (typeof extRaw !== 'object' || ![extRaw.i, extRaw.j, extRaw.k].every(isInt)) return { ok: false, why: 'Bad line' };
+    const t = g.logi.tiles.get(idx(extRaw.i, extRaw.j, extRaw.k)); st = extendInfo(g, t, !!hose);
+    if (!st) return { ok: false, why: t ? 'That is not a loose start of this kind of line' : 'That piece is gone' };
+    if (tier !== st.tier) return { ok: false, why: 'A line is extended with its own mark' };
+  }
   if (!isInt(tier) || tier < 0 || tier >= TIER_NAMES.length) return { ok: false, why: 'Bad belt mark' };
   if (!markOn(g.T, tier)) return { ok: false, why: 'That belt mark is not unlocked yet' };
   if (hose && (tier !== 0 || !(g.T.vac > 0))) return { ok: false, why: 'The Vacuum Hose is not unlocked yet' };
@@ -500,14 +620,18 @@ export function validate(g, tier, raw, hose) {
   // the tile after an underground exit must follow it
   for (let m = 0; m < tiles.length - 1; m++) { const t = tiles[m]; if (t.u === 2) { const nx = tiles[m + 1]; if (nx.i !== t.i + DX[t.dir] || nx.j !== t.j || nx.k !== t.k + DZ[t.dir]) return { ok: false, why: 'The line is not connected' }; } }
   if (tiles.length > 1) { const a = tiles[tiles.length - 2], b = tiles[tiles.length - 1]; if (a.u !== 1 && ((b.dir + 2) & 3) === a.dir) return { ok: false, why: 'The last piece would face back into the line' }; }   // (as route() refuses it: a head on pair passes nothing)
+  if (st) {   // the last piece stands beside the old start and faces it (never from in front of it), straight behind a ramp or an underground entry
+    const lt = tiles[tiles.length - 1];
+    if (lt.rise || lt.j !== st.j || lt.i + DX[lt.dir] !== st.i || lt.k + DZ[lt.dir] !== st.k || (lt.i === st.i + DX[st.dir] && lt.k === st.k + DZ[st.dir]) || (st.flat && lt.dir !== st.dir)) return { ok: false, why: 'The extension must end beside the open start and face into it' };
+  }
   const cost = costOf(g, tiles, tier, hose);
   if (!cost.ok) return { ok: false, why: `Not enough money: ◈ ${fmtN(cost.money)} for what you do not hold` };
   return { ok: true, tiles, cost };
 }
 
 // host: lay a validated line. Takes the items you hold, buys the shortfall, links the underground pairs.
-export function lay(g, tier, raw, hose) {
-  const v = validate(g, tier, raw, hose); if (!v.ok) return v;
+export function lay(g, tier, raw, hose, ext) {
+  const v = validate(g, tier, raw, hose, ext); if (!v.ok) return v;
   const S = g.S, need = v.cost.need;
   for (const [id, n] of Object.entries(need)) { const have = S.items[id] || 0, use = Math.min(have, n); if (use) { S.items[id] = have - use; if (S.items[id] <= 0) delete S.items[id]; } }
   if (v.cost.money) { S.money -= v.cost.money; g.ui.setMoney(S.money); }
@@ -532,7 +656,7 @@ export function lay(g, tier, raw, hose) {
 // guest command 'bplan'
 export function runCmd(g, d) {
   if (!d || typeof d !== 'object') return;
-  const r = lay(g, d.tier, d.tiles, !!d.hose);
+  const r = lay(g, d.tier, d.tiles, !!d.hose, d.ext == null ? null : d.ext);
   if (!r.ok) g.netSend({ t: 'toast', icon: '⚠️', title: 'Could not lay that line', text: String(r.why || 'Refused').slice(0, 80) });
 }
 

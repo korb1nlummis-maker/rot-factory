@@ -67,12 +67,12 @@ export function makeHalo(rgb = [1, 0.62, 0.28], size = 0.7) {
   const s = new THREE.Sprite(m); s.scale.set(size, size, 1); s.name = 'halo'; s.userData.base = HALO_BASE; s.userData.size = size; s.renderOrder = 3;
   return s;
 }
-export const HALO_BASE = 0.8;
+export const HALO_BASE = 0.5;
 // close up the halo thins out to a hint (it would be a haze over the glass); from far away it is what you see, a warm dot that grows a little with distance so it stays readable across a long tunnel
 export function haloFade(halo, dist, level = 1) {
   if (!halo) return;
-  const t = Math.min(1, Math.max(0, (dist - 0.4) / 3.2)), size = halo.userData.size || 0.7;
-  halo.material.opacity = (halo.userData.base || HALO_BASE) * level * (0.1 + 0.9 * t * t * (3 - 2 * t));
+  const t = Math.min(1, Math.max(0, (dist - 0.5) / 6)), size = halo.userData.size || 0.7;
+  halo.material.opacity = (halo.userData.base || HALO_BASE) * level * (0.04 + 0.96 * t * t * (3 - 2 * t));
   const grow = 1 + Math.min(1.6, Math.max(0, (dist - 5) / 12));
   halo.scale.set(size * grow, size * grow, 1);
   halo.visible = level > 0.02;

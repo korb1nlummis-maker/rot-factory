@@ -270,13 +270,13 @@ export default async function (ctx) {
   });
 
   // ---------------------------------------------------------------- text: controls, bench card, docs
-  await T('vscan.the-controls-the-bench-card-and-the-chalkboard-tell-the-rule', async () => {
+  await T('vscan.the-controls-the-bench-card-and-the-field-guide-tell-the-rule', async () => {
     const bad = []; const rows = CONTROLS.flatMap((grp) => grp.rows), E = rows.find((r) => r.codes && r.codes.includes('KeyE'));
     if (!E || !/Vehicle Scanner/.test(E.what) || !/takes it out/.test(E.what) || /[–—]/.test(E.what)) bad.push('the E row does not mention the scanner');
     fresh(UP); g.T = g.tune(); const r = recipes(g).find((x) => x.id === 'vscan'); for (const t of [r.desc, r.use]) if (!/The One/.test(t) || BAD.test(t) || /[–—]/.test(t)) bad.push('card text: ' + t);
-    // the earth mover chalkboard and the bench cards tell the new rule instead of "they leave The One alone"
-    const b = g.hall.boards.find((x) => /EARTH MOVERS/.test(x.title)); const txt = b ? [b.title, ...b.rows.map((q) => (Array.isArray(q) ? q.join(' ') : q)), b.foot].join('\n') : '';
-    if (!/Vehicle Scanner/.test(txt) || /leave The One where it is/.test(txt) || b.overflow) bad.push('earth board: ' + txt);
+    // the earth mover guide page and the bench cards tell the new rule instead of "they leave The One alone"
+    const b = (await import('../guide.js')).guidePages().find((x) => /EARTH MOVERS/.test(x.title)); const txt = b ? [b.title, ...b.rows.map((q) => (Array.isArray(q) ? q.join(' ') : q)), b.foot].join('\n') : '';
+    if (!/Vehicle Scanner/.test(txt) || /leave The One where it is/.test(txt) || b.overflow) bad.push('earth page: ' + txt);
     fresh({ ...UP, excavator: 1, dozer: 1, wheel: 1, truck: 1, borer: 1, beltSpeed: 6 }); g.T = g.tune();
     for (const [id, re] of [['excavator', /scoops The One/], ['dozer', /scoops The One/], ['wheel', /scoops The One/], ['truck', /Vehicle Scanner/], ['borer', /never eats The One/]]) {
       const c = recipes(g).find((x) => x.id === id); if (!c) { bad.push('no card ' + id); continue; }

@@ -5,7 +5,7 @@ import { capacityOf, loadOn, totalLoad } from './loadtrace.js';
 import { archTaken } from './arches.js';
 import { noteTall } from './stack.js';
 import { sellValue, NEEDLE, BULK, REMAINS, isSpecialCell } from './plushdata.js';
-import { compaction } from './util.js';
+import { compaction, fmt } from './util.js';
 import { buildMountFan, MOUNT_FAN } from './mountfan.js';
 import { catalogType } from './catalog.js';
 import { furnishLights, LIGHT_CAP } from './furnish.js';
@@ -613,7 +613,7 @@ export class Machines {
   makeLantern() {   // a small lantern (0.3 m) standing on its base: modest warm glass in a dark cage, a ring to carry it. The glow around it is the light it casts (lanternlight.js), not the glass
     const g = new THREE.Group();
     const iron = new THREE.MeshStandardMaterial({ color: 0x24211d, metalness: 0.8, roughness: 0.45 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x35260f, emissive: new THREE.Color(LL.BULB[0], LL.BULB[1], LL.BULB[2]), emissiveIntensity: 1.35, roughness: 0.4, metalness: 0 }); glass.userData.lamp = true;
+    const glass = new THREE.MeshStandardMaterial({ color: 0x35260f, emissive: new THREE.Color(LL.BULB[0], LL.BULB[1], LL.BULB[2]), emissiveIntensity: 0.8, roughness: 0.4, metalness: 0 }); glass.userData.lamp = true;
     const G = LL.lanternGeometry(), body = new THREE.Mesh(G.iron, iron), gl = new THREE.Mesh(G.glass, glass); gl.position.y = 0.11; gl.name = 'glass';   // two meshes for every lantern, geometry shared (lanternlight.js)
     g.add(body, gl);
     return g;
@@ -989,6 +989,7 @@ export class Machines {
     e.i = nx; e.k = nk;
     e.x = cellX(e.i); e.z = cellZ(e.k);
     e.steps = (e.steps || 0) + 1;
+    if (e.earnNote > 0 && !(game.time < (e.earnAt || 0))) { e.earnAt = game.time + 30; game.ui.toast({ icon: '🚇', title: 'Tunnel Borer earned', text: `◈ ${fmt(e.earnNote)} since the last note (◈ ${fmt(e.earned || 0)} from ${e.eatN || 0} plush so far).` }); e.earnNote = 0; }   // the money does arrive (sold at its bin as it cuts) but nothing rings down there: say so every half minute
     game.fx.dust(cellX(nx) + e.dx * 0.8, e.j * C + 0.8, cellZ(nk) + e.dz * 0.8, 6, 0.8, 1);
     if (e.steps % FRAME_N === 0) {
       // lining behind the cutter: one 4x4x4 cube per 4 cells bored. Concrete where it holds, a stronger (paid) tier where the mountain presses too hard,
@@ -1011,7 +1012,7 @@ export class Machines {
       }
       if (chosen && chosen.skip) return;
       if (!chosen) { e.done = true; game.ui.toast({ icon: '🚇', title: 'Borer stopped', text: `The mountain presses too hard: ${why || 'no lining it has would hold'}. Better supports, or a narrower bore.` }); return; }
-      for (const [ci, cj, ck] of chosen.taken) w.stabQueue.push({ i: ci, j: cj, k: ck });
+      for (const [ci, cj, ck, tsp, tvr] of chosen.taken) { w.stabQueue.push({ i: ci, j: cj, k: ck }); if (tsp !== NEEDLE && !isSpecialCell(tsp)) game.borerEat({ sp: tsp, vr: tvr }, cellX(ci), cellY(cj), cellZ(ck), e); }   // the plush the cube's pillars and beams displace is cut and sold too, not lost
       if (chosen.cost) { game.S.money -= chosen.cost; game.ui.setMoney(game.S.money); }
       game.S.entities.push(chosen.ent);
       this.add(chosen.ent);

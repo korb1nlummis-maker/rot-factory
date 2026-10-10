@@ -278,6 +278,7 @@ export class Game {
     if (p) { this.player.pos.set(p.x, p.y, p.z); this.player.yaw = p.yaw; this.player.pitch = p.pitch; } else {
       this.player.pos.set(START_POS[0], 0.0, START_POS[2]); this.player.yaw = Math.PI / 2; this.player.pitch = -0.05;
     }
+    this.burial.afterLoad();   // no slide or burial survives a save; a player saved inside plush is set on top of the pile
     this.ui.setMoney(S.money, true);
     this.rebuildTools();
     this.tool = 0;
@@ -449,7 +450,7 @@ export class Game {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) { if (down && this.mode === 'play' && this.ui.isModalOpen() && KB.resolve(e) === 'pause') { e.target.blur(); this.ui.closeModals(); } return; } // typing in a box (Esc still closes the window it is in)
     const play = this.mode === 'play', modal = this.ui.isModalOpen();
     const cands = KB.candidates(e, this.keyCtx(e, modal));
-    if (cands.length && ((play && !modal) || cands.includes('fps') || cands.includes('terminal')) && e.preventDefault) e.preventDefault();   // a key the game uses is never also the browser's (Tab, the F3 find bar, Backspace)
+    if (cands.length && ((play && !modal) || cands.includes('fps') || cands.includes('terminal') || cands.includes('guide')) && e.preventDefault) e.preventDefault();   // a key the game uses is never also the browser's (Tab, the F3 find bar, Backspace)
     if (e.repeat && down) return;
     this.keys[e.code] = down;
     // Alt and Ctrl are tracked from the flags of every key event too, so a missed Alt keydown or keyup (alt-tab) cannot leave a bare key action working with Alt held (keybinds.js down())
@@ -457,6 +458,7 @@ export class Game {
     if (e.ctrlKey === true && !this.keys.ControlRight) this.keys.ControlLeft = true; else if (e.ctrlKey === false) this.keys.ControlLeft = this.keys.ControlRight = false;
     if (!down) return;
     if (cands.includes('fps')) { this.toggleFps(); return; }
+    if (cands.includes('guide')) { if (this.ui.openModal === 'guide') this.ui.closeModals(); else if ((this.mode === 'play' || this.mode === 'title') && !this.dead && !this.blacking) this.openModal('guide'); return; }   // the Field Guide: on the title screen, in play and over another window; it never pauses the world (co-op included)
     if (this.mode === 'title' && modal && cands.includes('pause')) { this.ui.closeModals(); return; }   // How to Play and Play Together, opened from the title
     if (!play) return;
     if (modal) {
@@ -511,7 +513,7 @@ export class Game {
       case 'use': this.useKey('use'); return;
       case 'railUse': if (RAIL.seatedCar(this)) return; return this.useKey('railUse') === false ? false : undefined;   // seated: hopping off is read from the key state (rail.js keyEdges)
       case 'copycfg': return EXT.copyKey(this) ? undefined : false;   // Shift+E copies a machine's settings (catalog), E pastes them
-      case 'bin': BINPANEL.destKey(this, false); return;   // the bins panel for what you aim at, see binspanel.js
+      case 'bin': if (this.curTool().kind === 'cart') { this.useCart(); return; } BINPANEL.destKey(this, false); return;   // a cart in hand: the key rolls it out or parks it, as the hint says (bins for a cart: aim at it with bare hands and press the key)   // the bins panel for what you aim at, see binspanel.js
       case 'copybin': BINPANEL.destKey(this, true); return;
       case 'place': this.bPress(); return;
       case 'stow':
@@ -1243,12 +1245,12 @@ export class Game {
     const rate = this.vacNow(), share = T.vacRate > 0 ? Math.min(1, rate / T.vacRate) : 0;   // the VACUUM dial: the suction in use and its share of the most you own
     this.vacAcc = (this.vacAcc || 0) + dt * rate;
     if (this.dustCd <= 0) { this.dustCd = 0.08; this.sound.whoosh(0.03); }
-    // The Cyclone Vacuum (more than 18 a second) opens the cone and lengthens it so the faster suction has plush to draw on. The dial narrows all of it in proportion to the setting (the cone
+    // The dial narrows all of it in proportion to the setting (the cone
     // never narrows past VAC_MIN_HALF, so the plush you aim at is always inside it), and limits how far past the first plush on your aim line one aim may dig (vacDepth): a gentle setting takes
     // the face layer where you point and goes deeper only as you keep pointing, so it cannot bore through a tunnel roof in one breath. At 100% there is no limit, as before.
-    const wide = Math.max(0, T.vacRate - 18), cosFull = wide ? Math.max(0.7, 0.95 - 0.0025 * wide) : 0.95, fullHalf = Math.acos(cosFull);
+    const fullHalf = Math.acos(0.95);   // the full cone (about 18 degrees)
     const cosMin = Math.cos(Math.min(fullHalf, Math.max(VAC_MIN_HALF, fullHalf * share)));
-    const reach = T.reach + 1.2 + Math.min(2.5, wide / 40) * share;
+    const reach = T.reach + 1.2;
     const rc = Math.ceil(reach / C);
     const ci = toI(eye.x), cj = toJ(eye.y), ck = toK(eye.z);
     const exposed = (i, j, k) => !(w.solid(i + 1, j, k) && w.solid(i - 1, j, k) && w.solid(i, j + 1, k) && w.solid(i, j - 1, k) && w.solid(i, j, k + 1) && w.solid(i, j, k - 1));
@@ -2615,6 +2617,7 @@ export class Game {
     this.contracts.onSale(sp, vr);
     this.ui.setMoney(S.money); this.ui.gain(v);
     WS.saleCoin(this, bin === undefined && at ? at : WS.binSpot(this, bin));   // the coin rings from the bin (or the machine); a rig selling deep in a tunnel is silent up here, and the friend hears it from their own spot (worldsound.js)
+    return v;   // what it paid (a machine keeps its own tally)
   }
 
   // ======================= fliers =======================
@@ -2672,7 +2675,9 @@ export class Game {
     this.registerDex(taken.sp, true);
     const pk = BINS.pickHall(this, ent && ent.dest);   // the SORT bin unless the borer has a bin of its own that works
     if (pk.why && ent) BINS.fallback(this, { k: 'ent', o: ent }, pk.why, pk.named ? pk.named.name : '');
-    this.sellAuto(taken.sp, taken.vr, 1, pk.bin.id);
+    const v = this.sellAuto(taken.sp, taken.vr, 1, pk.bin.id);
+    if (ent && v > 0) { ent.earned = (ent.earned || 0) + v; ent.eatN = (ent.eatN || 0) + 1; ent.earnNote = (ent.earnNote || 0) + v; }   // a borer works deep in the mountain where no coin rings: it keeps count of what it paid, for its readout and a now and then toast
+    return v;
   }
 
   // ======================= building =======================
@@ -2686,7 +2691,7 @@ export class Game {
     BP.guard(this, tool); BP.dragTick(this, tool);   // (a button let go after a drag lays the cord, beltplan.js)
     if (tool.kind === 'cart' || tool.kind === 'supply') {
       this.plan = null; this.machines.setGhost(null); this.machines.showPreview(null, null); this.ui.setCross(false);
-      this.ui.hint(tool.kind === 'cart' ? '<kbd>B</kbd> roll the cart out / park it · <kbd>Q</kbd> put away' : (tool.id === 'medkit' ? '<kbd>B</kbd> use a medkit · <kbd>Q</kbd> put away' : tool.id === 'doorkey' ? 'Door Key: automatic, keep it in your pack · <kbd>Q</kbd> put away' : tool.id === 'chargepack' ? 'Charge Pack: press <kbd>E</kbd> on a Haul Truck that ran out of battery · <kbd>Q</kbd> put away' : 'Air canister: automatic · <kbd>Q</kbd> put away'), 0.4);
+      this.ui.hint(tool.kind === 'cart' ? '<kbd>B</kbd> roll the cart out · <kbd>U</kbd> park it or call it back · <kbd>Q</kbd> put away' : (tool.id === 'medkit' ? '<kbd>B</kbd> use a medkit · <kbd>Q</kbd> put away' : tool.id === 'doorkey' ? 'Door Key: automatic, keep it in your pack · <kbd>Q</kbd> put away' : tool.id === 'chargepack' ? 'Charge Pack: press <kbd>E</kbd> on a Haul Truck that ran out of battery · <kbd>Q</kbd> put away' : 'Air canister: automatic · <kbd>Q</kbd> put away'), 0.4);
       return;
     }
     if (tool.kind === 'hammer') {
@@ -2731,7 +2736,7 @@ export class Game {
     if (catPlan) EXT.previewTool(this, tool, plan);
     else if (['belt', 'sorter', 'vault', 'mech', 'bulk', 'gen', 'charger', 'pole', 'fan', 'gate', 'splitter'].includes(tool.kind)) this.showCellGhost(tool, plan);
     else if (plan && plan.ent) this.machines.showPreview(tool, plan); else this.machines.showPreview(null, null);
-    if (plan && plan.ok && KB.down(this.keys, 'place') && (tool.kind === 'belt' || tool.kind === 'bulk' || tool.kind === 'rail' || tool.kind === 'road') && !BP.plannerOn(this, tool)) {
+    if (plan && plan.ok && KB.down(this.keys, 'place') && (tool.kind === 'belt' || tool.kind === 'bulk' || tool.kind === 'rail' || tool.kind === 'road') && !BP.plannerOn(this, tool) && !plan.extAim) {
       const key = tool.kind === 'road' ? `${plan.ent.i0},${plan.ent.j},${plan.ent.k0}` : `${plan.ent.i},${plan.ent.j},${plan.ent.k}`;
       if (key !== this.lastPaint) { this.lastPaint = key; if (!(tool.kind === 'belt' && this.bridgeFrom(tool, plan, true))) this.placeCurrent(tool); }
     }

@@ -17,6 +17,7 @@ import * as CARE from './carepackage.js';   // the Care Package log on the achie
 import * as PI from './playerinv.js';   // per-player bags: the gift click
 import * as NB from './notebook.js';   // the Notes tab of the journal, the crew panel's finds
 import { KINDS, clueLine as NOTES_LINE } from './notes.js';
+import { CATEGORIES, guidePages } from './guide.js';   // the Field Guide: the pages as data, the menu is drawn here
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,11 +39,13 @@ export class UI {
     for (const b of document.querySelectorAll('[data-ptab]')) b.addEventListener('click', () => this.pauseTab(b.dataset.ptab));
     for (const b of document.querySelectorAll('[data-jtab]')) b.addEventListener('click', () => this.journalTab(b.dataset.jtab));
     this.renderControls();
+    this.guideCat = null; this.initGuide();
     for (const m of document.querySelectorAll('.modal')) m.addEventListener('mousedown', (e) => { if (e.target === m) this.closeModals(); });
   }
 
   bind(game) {
     this.game = game;
+    for (const id of ['btnGuide', 'btnGuide2', 'btnGuide3']) { const b = $(id); if (b) b.onclick = () => { if (id === 'btnGuide' && game.sound && game.sound.init) game.sound.init(); this.open('guide'); }; }
     // a click on a dial (the cursor is free, so its tooltip can show) must still take the mouse back for the game
     $('belt').addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.dial') && game.mode === 'play' && !this.isModalOpen() && document.pointerLockElement !== game.canvas) game.requestLock(); });
   }
@@ -86,6 +89,7 @@ export class UI {
       if (this.deltaTimer <= 0) { $('moneyDelta').classList.remove('show'); this.deltaAcc = 0; }
     }
     this._beltT = (this._beltT || 0) - dt; if (this._beltT <= 0) { this._beltT = 1; if (this.syncBelt) this.syncBelt(); }   // a page that is not being drawn gets no resize callbacks
+    this.guideHintTick();
     if (this.hintTimer > 0) {
       this.hintTimer -= dt;
       if (this.hintTimer <= 0) $('hint').style.opacity = 0;
@@ -140,6 +144,7 @@ export class UI {
     const key = items.map((i) => (i ? i.id + (i.count ?? '') + (i.have === 0 ? 'x' : '') : '-')).join('|') + '#' + sel;
     if (key === this.hotbarKey) return;
     this.hotbarKey = key;
+    const hb = $('hotbar'); if (hb && !hb.ondragstart) hb.ondragstart = (e) => e.preventDefault();   // the HUD bar is not a drag source: dragging it can only select text, and only the inventory window moves items
     const hh = $('hotbarHint'); if (hh) hh.innerHTML = sel < 0 ? '<kbd>Q</kbd> or a number: take a tool out · <kbd>I</kbd> inventory' : '<kbd>Q</kbd> put away · same number again also puts it away · <kbd>I</kbd> inventory';
     // nine slots, always shown: an empty slot is a faint number
     $('hotbar').innerHTML = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => {
@@ -162,7 +167,7 @@ export class UI {
       el.className = 'islot' + (it ? '' : ' empty') + (it && it.id === this.invSel ? ' sel' : '') + (it && it.kind === 'mat' ? ' mat' : '');
       if (it) {
         el.innerHTML = `${it.icon}${it.count != null ? `<span class="c">${typeof it.count === 'number' ? it.count : it.count}</span>` : ''}${it.slot >= 0 ? `<span class="b">${it.slot + 1}</span>` : ''}`;
-        el.title = it.name;
+        el.title = it.name; el.dataset.id = it.id;
         el.onclick = (e) => { if (e && e.shiftKey && it.tool && it.id !== 'hammer' && g.net && g.net.open) { PI.giveKey(g, it.id, 1); this.renderInventory(); return; } this.invSel = it.id; this.renderInventory(); };   // Shift+click hands one to your friend (within 3 m, playerinv.js)
         if (it.tool) { el.draggable = true; el.ondragstart = (e) => { this.invSel = it.id; e.dataTransfer.setData('text/plain', it.id); }; }
       }
@@ -179,7 +184,9 @@ export class UI {
       el.ondragover = (e) => e.preventDefault();
       el.ondrop = (e) => {
         e.preventDefault(); const dragged = e.dataTransfer.getData('text/plain'), from = e.dataTransfer.getData('application/x-slot');
+        if (e.stopPropagation) e.stopPropagation();   // a bar slot handles its own drop (the window's put-back below must not also run)
         if (!dragged) return;
+        if (!g.inventoryList().some((x) => x.id === dragged && x.tool)) { this.hint('That cannot go on the hotbar.', 1.5); return; }
         if (from !== '' && from !== undefined && +from !== i) { const f = +from, other = S.hotbar[i]; g.clearHotbarSlot(f); g.assignHotbar(dragged, i); if (other) g.assignHotbar(other, f); }   // slot to slot swaps
         else if (from === '' || from === undefined) g.assignHotbar(dragged, i);
         this.invSel = dragged; this.renderInventory();
@@ -194,7 +201,15 @@ export class UI {
     }
     // dropping a belt item anywhere on the pack puts it back
     grid.ondragover = (e) => e.preventDefault();
-    grid.ondrop = (e) => { e.preventDefault(); const from = e.dataTransfer.getData('application/x-slot'); if (from !== '' && from !== undefined) { g.clearHotbarSlot(+from); this.renderInventory(); } };
+    // (the window: the pack, the info side, the title and the empty panel all take it; the dark outside of the window does not, so a stray drop leaves the item on the bar)
+    const putBack = (e) => {
+      e.preventDefault(); e.stopPropagation(); const from = e.dataTransfer.getData('application/x-slot'); if (from === '' || from === undefined) return;
+      const slot = +from, id = S.hotbar[slot]; if (!id) return;
+      if (!g.inventoryList().some((x) => x.id === id)) { this.hint('Nothing of that left to put in the pack. Double click the slot to clear it.', 2.5); return; }   // never a silent disappearance
+      g.clearHotbarSlot(slot); this.invSel = id; this.renderInventory();
+    };
+    const panel = grid.closest('.panel') || grid;
+    panel.ondragover = grid.ondragover; panel.ondrop = putBack; grid.ondrop = putBack;
     // detail
     const it = list.find((x) => x.id === this.invSel);
     $('invInfo').innerHTML = it
@@ -265,7 +280,7 @@ export class UI {
   setVacuum(rate, max, pct) {
     if (!(max > 0)) { this.dials.set('vacuum', { on: false }); return; }
     const r = Number.isFinite(rate) ? Math.max(0, Math.min(max, rate)) : 0, pc = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
-    this.dials.set('vacuum', { on: true, frac: Math.min(1, r / max), val: rateText(r), unit: '/ ' + rateText(max), sub: '', state: pc >= 100 && max > 18 ? 'warn' : 'ok', dim: pc === 0, canDn: pc > 0, canUp: pc < 100, text: pc === 0 ? `vacuum off, 0 of ${rateText(max)} plush per second; a click grabs like plain hands` : `vacuum ${rateText(r)} of ${rateText(max)} plush per second, ${pc} percent of its suction; the minus and plus buttons (or [ and ] with bare hands) change it by ten percent` });
+    this.dials.set('vacuum', { on: true, frac: Math.min(1, r / max), val: rateText(r), unit: '/ ' + rateText(max), sub: '', state: 'ok', dim: pc === 0, canDn: pc > 0, canUp: pc < 100, text: pc === 0 ? `vacuum off, 0 of ${rateText(max)} plush per second; a click grabs like plain hands` : `vacuum ${rateText(r)} of ${rateText(max)} plush per second, ${pc} percent of its suction; the minus and plus buttons (or [ and ] with bare hands) change it by ten percent` });
   }
   blackout(on) { $('blackout').style.opacity = on ? 1 : 0; }
   setCartLine(n, cap, mode) {
@@ -413,6 +428,56 @@ export class UI {
       text: none ? 'no signal' : `signal ${Math.round(level * 100)} percent${distTxt ? ', ' + distTxt : ''}` });
   }
 
+  // ---------------- the Field Guide ----------------
+  // The menu is drawn from guide.js (the pages as data) and the How to Play text of index.html. Categories on the left, every page of the chosen one on the right.
+  initGuide() {
+    const cats = $('guideCats'), search = $('guideSearch'); if (!cats || !search) return;
+    cats.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-gcat]'); if (b) this.guideSelect(b.dataset.gcat); });
+    search.addEventListener('input', () => this.renderGuide());
+    window.addEventListener('keydown', (e) => {
+      if (this.openModal !== 'guide') return;
+      if (e.code === 'Escape' && e.target === search) { search.blur(); this.closeModals(); return; }   // (the game ignores keys typed in a box)
+      if (e.code === 'ArrowDown' || e.code === 'ArrowUp') { e.preventDefault(); this.guideStep(e.code === 'ArrowDown' ? 1 : -1); return; }
+      if (e.code === 'Slash' && e.target !== search) { e.preventDefault(); search.focus(); }
+    });
+  }
+  // the How to Play sections of index.html as guide pages (the Controls list in it is the Controls category here)
+  howPages() {
+    const out = []; for (const sec of document.querySelectorAll('#howBody section')) {
+      if (sec.querySelector('#howKeys')) continue; const h = sec.querySelector('h3'), c = sec.cloneNode(true); const h3 = c.querySelector('h3'); if (h3) h3.remove();
+      out.push({ title: h ? h.textContent : '', html: c.innerHTML, text: (h ? h.textContent : '') + ' ' + c.textContent });
+    } return out;
+  }
+  guideCats() {
+    const pages = guidePages();
+    return CATEGORIES.map((name) => ({ name, pages: name === 'How to Play' ? this.howPages() : pages.filter((p) => p.cat === name).map((p) => ({ ...p, text: [p.title, ...p.rows.map((r) => (Array.isArray(r) ? r.join(' ') : r)), p.foot].join(' ') })) }));
+  }
+  guideRowHtml(r) {
+    if (Array.isArray(r)) return `<div class="gr"><span class="gl">${escHtml(r[0])}</span><span class="gv">${escHtml(r[1])}</span></div>`;
+    return r.startsWith('#') ? `<div class="gh">${escHtml(r.slice(1))}</div>` : `<div class="gs">${escHtml(r)}</div>`;
+  }
+  guideVisible() {
+    const q = ($('guideSearch').value || '').trim().toLowerCase();
+    return this.guideCats().map((c) => ({ ...c, shown: q ? c.pages.filter((p) => p.text.toLowerCase().includes(q)) : c.pages, q })).filter((c) => c.shown.length);
+  }
+  renderGuide() {
+    const cats = this.guideVisible(), q = ($('guideSearch').value || '').trim();
+    if (!cats.some((c) => c.name === this.guideCat)) this.guideCat = cats.length ? cats[0].name : null;
+    $('guideCats').innerHTML = cats.map((c) => `<button role="tab" data-gcat="${escHtml(c.name)}" class="${c.name === this.guideCat ? 'on' : ''}" aria-selected="${c.name === this.guideCat}" tabindex="${c.name === this.guideCat ? 0 : -1}">${escHtml(c.name)}${q ? `<i>${c.shown.length}</i>` : ''}</button>`).join('');
+    const cur = cats.find((c) => c.name === this.guideCat), box = $('guidePage'); box.scrollTop = 0;
+    box.innerHTML = cur ? cur.shown.map((p) => `<section class="gpage"><h3>${escHtml(p.title)}</h3>${p.html !== undefined ? p.html : p.rows.map((r) => this.guideRowHtml(r)).join('') + (p.foot ? `<div class="gf">${p.foot.split('\n').map(escHtml).join('<br>')}</div>` : '')}</section>`).join('') : '<div class="gnone">Nothing in the guide matches that.</div>';
+  }
+  guideSelect(name) { this.guideCat = name; this.renderGuide(); const on = $('guideCats').querySelector('.on'); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' }); }
+  guideStep(d) { const cats = this.guideVisible(); if (!cats.length) return; const at = Math.max(0, cats.findIndex((c) => c.name === this.guideCat)); this.guideSelect(cats[(at + d + cats.length) % cats.length].name); }
+  openGuide(cat) { $('guideSearch').value = ''; if (cat) this.guideCat = cat; this.renderGuide(); }
+  // the first game of a new player: one small hint, once, never in the test pages (they do not save)
+  guideHintTick() {
+    const g = this.game; if (this._guideHinted || !g || g.mode !== 'play' || g.noSave || this.openModal || !g.S || !g.S.stats || g.S.stats.playSecs < 5) return;
+    this._guideHinted = true; if (g.S.stats.playSecs > 900) return;
+    try { if (localStorage.getItem('rotfactory.guideHint')) return; localStorage.setItem('rotfactory.guideHint', '1'); } catch (e) { /* no storage: the hint shows each session */ }
+    this.hint('Press {guide} for the Field Guide', 8);
+  }
+
   // ---------------- modals ----------------
   isModalOpen() { return !!this.openModal; }
   justClosed() { return performance.now() - (this._closedAt || -1e9) < 80; }
@@ -435,6 +500,7 @@ export class UI {
     if (id === 'travel') this.game.renderTravel();
     if (id === 'journal') this.renderJournal();
     if (id === 'craft') { BENCH.installKeys(this); this.renderCraft({ open: true, fresh: true }); }
+    if (id === 'guide') this.openGuide();
     if (id === 'inv') { this.invSel = this.invSel || null; this.renderInventory(); }
     if (id === 'crew') { this.renderCrew(); clearInterval(this._crewT); this._crewT = setInterval(() => { if (this.openModal === 'crew') this.renderCrew(); else clearInterval(this._crewT); }, 1000); }
   }

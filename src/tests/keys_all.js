@@ -30,6 +30,7 @@ const PAGE = [
   ['railUse', ['KeyE', 'Space'], 'rail', ''], ['inv', ['KeyI'], 'any', ''], ['crew', ['KeyV'], 'any', ''], ['crewDig', ['KeyT'], 'any', ''], ['crewHome', ['KeyY'], 'any', ''],
   ['botRelease', ['Escape'], 'bot', ''], ['terminal', ['Tab'], 'any', ''], ['dex', ['KeyN'], 'any', ''], ['journal', ['KeyL'], 'any', ''], ['ach', ['KeyJ'], 'any', ''],
   ['pause', ['Escape'], 'menu', ''], ['chat', ['Enter'], 'any', ''], ['fps', ['F3'], 'any', ''], ['meter', ['KeyM'], 'any', ''],
+  ['guide', ['F1'], 'any', ''],   // not on the page: added later for the Field Guide
 ];
 // the four changes the player made on that page
 const EDITS = { bin: ['KeyB'], chat: ['Backquote'], vacLess: ['BracketLeft'], vacMore: ['BracketRight'] };
@@ -145,6 +146,13 @@ export default async function (ctx) {
     g.keys = {}; return bad.length === 0 || bad.join('; ');
   });
 
+  await TT('keys.b-with-the-cart-in-hand-rolls-it-out', async () => {
+    fresh(WORLD_UP()); inPlay(); craft('cart:1'); selectTool('cart:1'); p().pos.set(0, 0, 2); p().yaw = 0; g.holdBlock = false; const bad = [];
+    chord('KeyB'); const c = S().cart; if (!c) return 'B with the cart in hand did not roll it out';
+    chord('KeyU'); if (c.mode !== 'stay') bad.push('U did not park the cart B rolled out');   // (the cart item is used up when it rolls out: U parks it and calls it back)
+    return bad.length === 0 || bad.join('; ');
+  });
+
   await TT('keys.u-rolls-the-cart-out-and-parks-it-and-hold-h-recalls', async () => {
     fresh(WORLD_UP()); inPlay(); craft('cart:1'); p().pos.set(0, 0, 2); p().yaw = 0; const bad = [];
     chord('Alt+KeyU'); chord('Ctrl+KeyU'); if (S().cart) bad.push('Alt or Ctrl with U rolled the cart out');
@@ -216,7 +224,7 @@ export default async function (ctx) {
   });
 
   await TT('keys.minus-equal-turn-the-scoop-and-brackets-the-vacuum-and-the-old-alt-keys-do-nothing', async () => {
-    own({ scoop: 4, vac: 5, cyclone: 4 }); inPlay(); const bad = []; const st = []; const cyc = g.cycleTool; g.cycleTool = (d) => { st.push(d); };
+    own({ scoop: 4, vac: 5 }); inPlay(); const bad = []; const st = []; const cyc = g.cycleTool; g.cycleTool = (d) => { st.push(d); };
     try {
       const state = () => `${g.scoopNow()}/${g.vacPct()}`;
       let s0 = state(); chord('Equal'); if (g.scoopNow() !== 6 || g.vacPct() !== 30) bad.push('= should scoop 3 more: ' + state());
@@ -343,6 +351,9 @@ export default async function (ctx) {
     // F3 frame rate, M load meter
     const fps = document.getElementById('fps'); g.showFps = false; fps.classList.add('hidden'); chord('Alt+F3'); g.perf(16); if (!fps.classList.contains('hidden')) bad.push('Alt+F3 showed the frame rate'); chord('F3'); g.perf(16); if (fps.classList.contains('hidden')) bad.push('F3 did not show the frame rate'); chord('F3'); g.perf(16); if (!fps.classList.contains('hidden')) bad.push('F3 did not hide it again');
     g._pwHud = false; chord('Alt+KeyM'); chord('Ctrl+KeyM'); if (g._pwHud) bad.push('Alt or Ctrl with M turned the meter on'); chord('KeyM'); if (!g._pwHud) bad.push('M did not turn the load meter on'); chord('KeyM'); if (g._pwHud) bad.push('M again did not turn it off');
+    // F1 the Field Guide: opens on the title screen and in play, again closes it, Alt+F1 does nothing, and it leaves the mode, the pointer and the held keys alone
+    shut(); g.keys = { KeyW: true }; chord('Alt+F1'); if (g.ui.openModal) bad.push('Alt+F1 opened a window: ' + g.ui.openModal); chord('F1'); if (g.ui.openModal !== 'guide') bad.push('F1 did not open the Field Guide: ' + g.ui.openModal); if (g.keys.KeyW) bad.push('F1 left a held key on'); if (g.mode !== 'play') bad.push('F1 changed the mode: ' + g.mode);
+    chord('F1'); if (g.ui.openModal) bad.push('F1 again did not close the Field Guide: ' + g.ui.openModal);
     g.keys = {}; return bad.length === 0 || bad.join('; ');
   });
 
@@ -374,7 +385,7 @@ export default async function (ctx) {
     // the ids pressed above, by their test: a new action added to the table without a test here fails this
     const covered = new Set(['fwd', 'left', 'back', 'right', 'sprint', 'jump', 'crouch', 'grab', 'throw', 'punch', 'use', 'copycfg', 'bin', 'copybin', 'flash', 'medkit', 'cart', 'recall', 'give',
       'hb1', 'hb2', 'hb3', 'hb4', 'hb5', 'hb6', 'hb7', 'hb8', 'hb9', 'hbprev', 'hbnext', 'stow', 'place', 'cable', 'align', 'planner', 'shape', 'rotate', 'nudge', 'frameL', 'frameR', 'frameGrid', 'dismantle',
-      'scoopLess', 'scoopMore', 'vacLess', 'vacMore', 'railHome', 'railUse', 'inv', 'crew', 'crewDig', 'crewHome', 'botRelease', 'terminal', 'dex', 'journal', 'ach', 'pause', 'chat', 'fps', 'meter']);
+      'scoopLess', 'scoopMore', 'vacLess', 'vacMore', 'railHome', 'railUse', 'inv', 'crew', 'crewDig', 'crewHome', 'botRelease', 'terminal', 'dex', 'journal', 'ach', 'pause', 'chat', 'fps', 'meter', 'guide']);
     const driven = new Set(['look', 'hbwheel']);   // look is the mouse position (not a key press), the wheel is driven in the hotbar test through the real wheel event
     const missing = KB.ACTIONS.filter((a) => !covered.has(a.id) && !driven.has(a.id)).map((a) => a.id);
     return missing.length === 0 || 'actions with no test in keys_all.js: ' + missing.join(' ');

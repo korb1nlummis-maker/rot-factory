@@ -6,8 +6,8 @@ export default async function (ctx) {
     key('KeyF', true); key('KeyF', false); const off = g.lampOn === false; key('KeyF', true); key('KeyF', false); const on = g.lampOn === true;
     return (off && on && S().carry.length === n0 && !g.keys.Mouse0) || `lamp off ${off}, back on ${on}, carry ${S().carry.length} vs ${n0}, grab flag ${g.keys.Mouse0}`;
   });
-  await T('hands.o-still-toggles-the-flashlight-and-g-does-nothing', async () => {
-    fresh({}); g.lampOn = true; key('KeyO', true); key('KeyO', false); const a = g.lampOn === false; key('KeyO', true); key('KeyO', false); const b = g.lampOn === true; const before = JSON.stringify([g.lampOn, S().carry.length]); key('KeyG', true); key('KeyG', false); const after = JSON.stringify([g.lampOn, S().carry.length]);
+  await T('hands.o-still-toggles-the-flashlight-and-g-leaves-it-alone', async () => {
+    fresh({}); g.lampOn = true; key('KeyO', true); key('KeyO', false); const a = g.lampOn === false; key('KeyO', true); key('KeyO', false); const b = g.lampOn === true; const before = JSON.stringify([g.lampOn]); key('KeyG', true); key('KeyG', false); const after = JSON.stringify([g.lampOn]);   // (G grabs now, so only the lamp is compared)
     return (a && b && before === after) || `O off ${a}, O on ${b}, G changed ${before} -> ${after}`;
   });
   await T('hands.left-click-still-grabs', async () => {

@@ -27,7 +27,7 @@ export default async function (ctx) {
     if (!(size.y > 0.2 && size.y < 0.42 && size.x < 0.25 && size.z < 0.25)) bad.push('the lantern is ' + JSON.stringify(size));
     const glass = lan.getObjectByName('glass'); if (!glass) bad.push('no glass'); else {
       const e = glass.material.emissive, k = glass.material.emissiveIntensity, peak = Math.max(e.r, e.g, e.b) * k, l = lum(e) * k;
-      if (!(peak >= 0.8 && peak <= 1.6 && l >= 0.7 && l <= 1.3)) bad.push(`the glass peaks at ${peak.toFixed(2)} (luminance ${l.toFixed(2)}): modest is 0.8 to 1.6, the old orb was 4`);
+      if (!(peak >= 0.6 && peak <= 1.2 && l >= 0.45 && l <= 1.0)) bad.push(`the glass peaks at ${peak.toFixed(2)} (luminance ${l.toFixed(2)}): modest is 0.6 to 1.2, the old orb was 4`);
     }
     for (const [name, o] of [['lantern', lan], ['flare', fl], ['glow stick', gs]]) for (const m of meshes(o)) {
       const c = m.material && m.material.isMeshBasicMaterial ? m.material.color : null;
@@ -38,7 +38,7 @@ export default async function (ctx) {
       const hc = halo.material.color, peak = Math.max(hc.r, hc.g, hc.b) * LL.HALO_BASE * 0.9;
       if (!(halo.userData.size <= 0.8 && LL.HALO_BASE <= 0.9 && lum(hc) * LL.HALO_BASE < 0.7 && peak < 0.95)) bad.push('the halo is big or strong: ' + halo.userData.size + ' / ' + LL.HALO_BASE + ' / ' + peak.toFixed(2));
       LL.haloFade(halo, 0.5); const close = halo.material.opacity, cs = halo.scale.x; LL.haloFade(halo, 20); const far = halo.material.opacity, fs = halo.scale.x;
-      if (!(far > close * 4 && far > 0.5)) bad.push(`the halo reads ${far.toFixed(2)} from 20 m but ${close.toFixed(2)} at 0.5 m: it must be a clear dot far off and thin up close`);
+      if (!(far > close * 4 && far > 0.4)) bad.push(`the halo reads ${far.toFixed(2)} from 20 m but ${close.toFixed(2)} at 0.5 m: it must be a clear dot far off and thin up close`);
       if (!(fs > cs * 1.5 && fs < 2.2)) bad.push(`the halo does not grow a little with distance: ${cs} then ${fs}`);
     }
     return bad.length === 0 || bad.join(' || ');
@@ -168,6 +168,6 @@ export default async function (ctx) {
     // the bloom pass starts at 0.92 after the tone curve; the glass at full level must not be many times that
     const g1 = (() => { const grp = HL.buildLamp({ x: 0, y: 1, z: 0 }); HL.paint(grp, 1, null); return grp.getObjectByName('glass').material; })();
     const peak = Math.max(g1.emissive.r, g1.emissive.g, g1.emissive.b) * g1.emissiveIntensity;
-    return (peak > 0.8 && peak < 1.7) || 'hanging lantern glass peaks at ' + peak.toFixed(2);
+    return (peak > 0.6 && peak < 1.2) || 'hanging lantern glass peaks at ' + peak.toFixed(2);
   });
 }

@@ -30,7 +30,7 @@ const GENERAL = [
   'A splitter is just a belt that cannot make up its mind. Use it.',
   'Frames snap on every side. The tunnel does not care how pretty it is, only how long.',
   'Hammer is on slot one. It is not a toy. It is also a toy.',
-  'The chalkboard by the bin is correct. It has been correct since the first shift.',
+  'The Field Guide is correct. It has been correct since the first shift.',
   'Everything that rolls out of the pile goes through a gate. Everything. Even the interns.',
   'Reminder: the pile is well over a thousand kinds of plush. Please stop trying to name the last one.',
   'Wood is for the first hundred meters. Past that the wood starts to talk. You do not want to hear what it says.',

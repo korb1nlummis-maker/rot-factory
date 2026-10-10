@@ -142,7 +142,7 @@ export default async function (ctx) {
     const real = () => { const q = pool().find((x) => Math.abs(x.position.x - l.x) < 0.05 && Math.abs(x.position.z - l.z) < 0.05); return q ? q.intensity : 0; };
     const setLevel = (v) => { for (let n = 0; n < 14; n++) { l.pw = v; g.time += 0.1; HL.tick(g, 0.1, false); LL.update(g, g.glowSources(g.renderer.camera.position, 8), 0.1); } return { real: real(), em: glass.material.emissiveIntensity }; };
     const full = setLevel(1), half = setLevel(0.5), q = setLevel(0.25), dark = setLevel(0);
-    if (!(full.real > 1 && full.em > 0.8)) bad.push('full ' + JSON.stringify(full));
+    if (!(full.real > 1 && full.em > 0.6)) bad.push('full ' + JSON.stringify(full));
     if (!(half.real < full.real * 0.7 && half.real > full.real * 0.3)) bad.push('half power real light ' + half.real + ' against ' + full.real);
     if (!(q.real < half.real && q.em < half.em)) bad.push('a quarter is not dimmer than half: ' + JSON.stringify([half, q]));
     if (!(dark.real < 0.05 && dark.em === 0)) bad.push('no power: ' + JSON.stringify(dark));

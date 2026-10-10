@@ -2,6 +2,7 @@
 import * as KB from './keybinds.js';
 import { FRAME_TYPES, STRUT_DEPTH, supportDepth, upgradeById } from './upgrades.js';
 import { RARITY, species } from './plushdata.js';
+import { fmt } from './util.js';
 import { capacityOf } from './loadtrace.js';
 import { FAN_R, VENT_R } from './dust.js';
 import { CART_NAMES, CART_CAP } from './cart.js';
@@ -115,7 +116,7 @@ function infoBase(g, ref) {
     if (e.type === 'rope') return { title: 'ROPE ANCHOR', lit: true, lines: ['Everything within 6 m is roped in: the slope will not give way under you.'] };
     if (e.type === 'charge') return { title: e.dyn ? 'DYNAMITE' : 'BLASTING CHARGE', lit: false, lines: [`Fuse: ${Math.max(0, e.fuse || 0).toFixed(1)} s`, 'RUN.'] };
     if (e.type === 'claw') return { title: 'CLAW RIG', lit: (e.pw ?? 0) > 0.05, lines: [powerLine(e), `${PI.ownedCount(g, 'claw')} of ${T.rigMax} rigs placed${g.net && g.net.open ? ' by you' : ''}`, 'Plucks the highest plush in reach and sells it.'] };
-    if (e.type === 'borer') return { title: 'TUNNEL BORER', lit: (e.pw ?? 0) > 0.05 && !e.done, lines: [e.done ? 'Finished or halted' : e.hold ? `Stopped short: ${e.hold}` : powerLine(e), `${e.steps || 0} steps bored, ${e.w}x${e.h} wide`, 'Lines the tunnel behind it with the strongest frame that holds at that depth.'] };
+    if (e.type === 'borer') return { title: 'TUNNEL BORER', lit: (e.pw ?? 0) > 0.05 && !e.done, lines: [e.done ? 'Finished or halted' : e.hold ? `Stopped short: ${e.hold}` : powerLine(e), `${e.steps || 0} steps bored, ${e.w}x${e.h} wide`, e.eatN ? `Sold ${e.eatN} plush for ◈ ${fmt(e.earned || 0)} so far` : 'Sells what it cuts at its bin as it goes', 'Lines the tunnel behind it with the strongest frame that holds at that depth.'] };
     if (isEarth(e.type)) return earthInfo(g, e);
     if (e.type === 'beacon') return { title: 'DEPOT BEACON', lit: (e.pw ?? 0) > 0.05, lines: ['Sorts and sells what you carry, fast travel and recall point.', 'E opens the travel menu.'] };
     return { title: String(e.type).toUpperCase(), lit: true, lines: [] };

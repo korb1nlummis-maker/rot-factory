@@ -277,11 +277,11 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  await T('wire.the-hall-power-board-and-the-docs-teach-wires-with-the-real-numbers', async () => {
-    reset(UP, false); const bad = [], b = g.hall.boards.find((x) => /POWER NEEDS WIRES/.test(x.title)); if (!b) return 'no power board in the hall';
+  await T('wire.the-guide-power-page-and-the-docs-teach-wires-with-the-real-numbers', async () => {
+    reset(UP, false); const bad = [], b = (await import('../guide.js')).guidePages().find((x) => /POWER NEEDS WIRES/.test(x.title)); if (!b) return 'no power page in the guide';
     const t = JSON.stringify([b.title, b.rows, b.foot]);
-    if (!/cable/i.test(t) || !/pole/i.test(t) || !/generator/i.test(t) || !new RegExp(String(g.T.cableLen) + ' m').test(t)) bad.push('board text: ' + t.slice(0, 200));
-    if (!/two generators/i.test(t) || /reach|range link|plug-in/i.test(t)) bad.push('board says something about range or misses the generators adding: ' + t.slice(0, 200));
+    if (!/cable/i.test(t) || !/pole/i.test(t) || !/generator/i.test(t) || !new RegExp(String(g.T.cableLen) + ' m').test(t)) bad.push('page text: ' + t.slice(0, 200));
+    if (!/two generators/i.test(t) || /reach|range link|plug-in/i.test(t)) bad.push('page says something about range or misses the generators adding: ' + t.slice(0, 200));
     g.ui.open('howto'); const how = document.getElementById('howto').textContent; g.ui.closeModals(); if (!/Power travels only through cables/.test(how) || /Out of pole reach/.test(how)) bad.push('how to play');
     const rows = JSON.stringify(ctx.recipes(g).filter((r) => ['pole', 'cable', 'gen'].includes(r.id)).map((r) => r.desc + ' ' + (r.use || '')));
     if (/reach 25|within reach|pole reach|links generators/i.test(rows)) bad.push('a bench description still talks about range power: ' + rows.slice(0, 160));

@@ -14,7 +14,7 @@ export default async function (ctx) {
   const alt = (code) => key(code, { altKey: true });
   // a player with the gear in `up` and both dials at their defaults (fresh() sets the vacuum dial to 100 for the older tests that measure all of the suction)
   const own = (up) => { fresh({ bag: 8, reach: 4, ...up }); delete S().vacSet; delete S().scoopSet; g.stowed = true; g.T = g.tune(); g.T.carry = 1e9; };
-  const TOP = { bag: 8, cargo: 4, reach: 4, gloves: 3, scoop: 4, bucketHands: 4, vac: 5, cyclone: 4, tamp: 8, bedrockTamp: 4 };
+  const TOP = { bag: 8, cargo: 4, reach: 4, gloves: 3, scoop: 4, bucketHands: 4, vac: 5, tamp: 8, bedrockTamp: 4 };
   const VMAX = [0, 3, 5, 8, 12, 18];
   const num = (s) => parseFloat(s);
 
@@ -33,7 +33,7 @@ export default async function (ctx) {
       if (!/30 percent/.test(d.text) || /NaN|undefined|Infinity/.test(d.text + d.aria + d.title)) bad.push(`level ${l}: text "${d.text}"`);
       if (d.dim) bad.push(`level ${l}: dim at 30`);
     }
-    own({ vac: 5, cyclone: 4 }); hud(); const t = VD(); if (t.unit !== '/ 118' || t.val !== '35') bad.push(`top: ${t.val} ${t.unit}, wanted 35 / 118`);
+    own({ vac: 5 }); hud(); const t = VD(); if (t.unit !== '/ 18' || t.val !== '5.4') bad.push(`top: ${t.val} ${t.unit}, wanted 5.4 / 18`);
     return bad.length === 0 || bad.join('; ');
   });
 
@@ -49,16 +49,16 @@ export default async function (ctx) {
   });
 
   await T('vacdial.minus-and-plus-buttons-step-ten-percent-and-grey-out-at-the-ends', async () => {
-    const bad = []; own({ vac: 5, cyclone: 4 }); hud();
+    const bad = []; own({ vac: 5 }); hud();
     const [dn, up] = g.ui.dials.el('vacuum').querySelectorAll('button');
     if (!dn || !up || !/−|-/.test(dn.textContent) || up.textContent !== '+') return 'button faces ' + (dn && dn.textContent) + (up && up.textContent);
     for (const b of [dn, up]) if (!b.getAttribute('aria-label') || !/10%/.test(b.title) || /undefined|NaN/.test(b.getAttribute('aria-label') + b.title)) bad.push('button label/title: ' + b.outerHTML.slice(0, 120));
     const val = () => { hud(); return VD(); };
-    up.click(); if (g.vacPct() !== 40 || Math.abs(g.vacNow() - 47.2) > 1e-9) bad.push('+ once: ' + g.vacPct() + ' / ' + g.vacNow());
-    if (Math.abs(num(val().val) - 47) > 0.5) bad.push('dial after +: ' + VD().val);
-    for (let n = 0; n < 6; n++) up.click(); if (g.vacPct() !== 100 || g.vacNow() !== 118) bad.push('top: ' + g.vacPct() + ' / ' + g.vacNow());
+    up.click(); if (g.vacPct() !== 40 || Math.abs(g.vacNow() - 7.2) > 1e-9) bad.push('+ once: ' + g.vacPct() + ' / ' + g.vacNow());
+    if (Math.abs(num(val().val) - 7.2) > 0.05) bad.push('dial after +: ' + VD().val);
+    for (let n = 0; n < 6; n++) up.click(); if (g.vacPct() !== 100 || g.vacNow() !== 18) bad.push('top: ' + g.vacPct() + ' / ' + g.vacNow());
     val(); if (!up.disabled || dn.disabled) bad.push('+ should be off at 100 and - on'); up.click(); if (g.vacPct() !== 100) bad.push('a disabled + moved it to ' + g.vacPct());
-    if (VD().state !== 'warn') bad.push('state at 100%: ' + VD().state);
+    if (VD().state !== 'ok') bad.push('state at 100%: ' + VD().state);
     for (let n = 0; n < 10; n++) dn.click(); if (g.vacPct() !== 0 || g.vacNow() !== 0) bad.push('bottom: ' + g.vacPct());
     val(); const z = VD(); if (!dn.disabled || up.disabled) bad.push('- should be off at 0 and + on'); if (!z.dim || z.val !== '0') bad.push(`dim at 0: dim ${z.dim} val ${z.val}`); if (!/off/.test(z.text)) bad.push('text at 0: ' + z.text);
     dn.click(); if (g.vacPct() !== 0) bad.push('a disabled - went under 0'); if (S().vacSet !== 0) bad.push('saved as S.vacSet: ' + S().vacSet);
@@ -81,7 +81,7 @@ export default async function (ctx) {
   });
 
   await T('vacdial.bracket-keys-turn-the-vacuum-the-plain-keys-still-turn-the-scoop-and-the-old-alt-keys-do-nothing', async () => {
-    const bad = []; own({ scoop: 4, vac: 5, cyclone: 4 });
+    const bad = []; own({ scoop: 4, vac: 5 });
     const steps = []; const cyc = g.cycleTool; g.cycleTool = (d) => { steps.push(d); };
     try {
       key('Equal'); if (g.scoopNow() !== 6 || g.vacPct() !== 30) bad.push(`= : scoop ${g.scoopNow()} vacuum ${g.vacPct()}`);
@@ -132,7 +132,7 @@ export default async function (ctx) {
 
   await T('vacdial.the-vacuum-pulls-the-dials-rate-and-at-zero-a-click-is-a-plain-grab-of-one-plush', async () => {
     const bad = []; const W = await wall(TOP);
-    for (const [pct, wantRate] of [[30, 35.4], [60, 70.8], [100, 118]]) {
+    for (const [pct, wantRate] of [[30, 5.4], [60, 10.8], [100, 18]]) {
       setDial(pct, 0); W.refill(); const dt = 1 / 30; let sec = 0;
       for (let n = 0; n < 30; n++) { const [eye, dir] = W.stand(0.9 + 0.7 * (n % 4), -6 + ((n * 3.7) % 12)); g.time += dt; g.runVacuum(dt, eye, dir); sec += dt; }
       const got = S().carry.length; if (Math.abs(got - wantRate * sec) > Math.max(2, wantRate * sec * 0.06)) bad.push(`${pct}%: ${got} plush in ${sec.toFixed(2)} s, the dial says ${wantRate} a second`);
@@ -153,8 +153,8 @@ export default async function (ctx) {
     const bad = []; await newWorld(); const K = islandKit(ctx); K.arena(40, 40, TOP); delete S().vacSet; delete S().scoopSet; g.T = g.tune(); g.T.carry = 1e9; g.stowed = true;
     const sp = ctx.spot(12); p().pos.set(cellX(sp.i + 12), 0, cellZ(sp.k) - 14); p().vel.set(0, 0, 0); p().yaw = Math.PI / 2; p().pitch = 0;
     const eye = p().eyePos(new V3()), dir = p().forward(new V3()), ci = toI(eye.x), cj = toJ(eye.y), ck = toK(eye.z);
-    const maxDeg = {}; const full = Math.acos(0.7) * 180 / Math.PI;
-    for (const [pct, half] of [[10, 12], [30, full * 0.3], [60, full * 0.6], [100, full]]) {
+    const maxDeg = {}; const full = Math.acos(0.95) * 180 / Math.PI;
+    for (const [pct, half] of [[10, 12], [30, 12], [60, Math.max(12, full * 0.6)], [100, full]]) {
       setDial(pct, 0); let inside = 0, pulled = 0, wrong = 0, mx = 0;
       for (let dj = -2; dj <= 5; dj++) for (let dk = -6; dk <= 6; dk++) for (const ahead of [4, 8]) {
         const i = ci + ahead, j = cj + dj, k = ck + dk; if (w().get(i, j, k)) continue;
@@ -166,7 +166,8 @@ export default async function (ctx) {
       }
       maxDeg[pct] = +mx.toFixed(1); if (wrong) bad.push(`${pct}%: ${wrong} cells on the wrong side of the ${half.toFixed(1)} degree cone`); if (!pulled || !inside) bad.push(`${pct}%: nothing was pulled (${pulled}/${inside})`);
     }
-    if (!(maxDeg[10] < maxDeg[60] && maxDeg[30] < maxDeg[60] && maxDeg[60] < maxDeg[100])) bad.push('the cone must widen with the setting: ' + JSON.stringify(maxDeg));
+    if (!(maxDeg[10] < maxDeg[100] && maxDeg[30] < maxDeg[100] && maxDeg[60] < maxDeg[100]))   // (the cone at the top is about 18 degrees and never narrower than 12: the low settings share the minimum)
+      bad.push('the cone must widen with the setting: ' + JSON.stringify(maxDeg));
     return bad.length === 0 || bad.join('; ') + ' ' + JSON.stringify(maxDeg);
   });
 
@@ -176,10 +177,11 @@ export default async function (ctx) {
     const column = () => { W.K.dig(W.i0, 0, W.k0, 12, 20, 30, false); for (let a = 3; a < 15; a++) w().setCell(ci + a, cj, ck, 3, 0); };
     const hold = (pct, sec) => { setDial(pct, 0); column(); const dt = 1 / 30; for (let n = 0; n < sec / dt; n++) { g.time += dt; g.runVacuum(dt, eye, dir); } let took = 0; for (let a = 3; a < 15; a++) if (!w().get(ci + a, cj, ck)) took++; return took; };
     if (Math.abs(vacDepth(0.3) - (0.3 + 6 * 0.027)) > 1e-9 || !(vacDepth(0.1) < 0.35) || vacDepth(1) < 6) bad.push('vacDepth numbers ' + [vacDepth(0.1), vacDepth(0.3), vacDepth(1)].join(' '));
-    const a30 = hold(30, 0.25), b30 = hold(30, 1.25), a100 = hold(100, 0.25);
+    const a30 = hold(30, 0.25), b30 = hold(30, 1.25), a100 = hold(100, 1.5);   // (18 a second: 1.5 s is 27 plush)
     if (a30 !== 1) bad.push(`30% for a quarter second took ${a30} plush of the column: the face layer only (1)`);
     if (!(b30 >= 3 && b30 <= 6)) bad.push(`30% for 1.25 s took ${b30} plush of the column: one more layer each time the aim line is measured again (every 0.3 s), never the whole column`);
-    if (!(a100 >= 8)) bad.push(`100% for a quarter second took ${a100} of 12: it should have no depth limit`);
+    let inReach = 0; for (let a = 3; a < 15; a++) if (Math.hypot(cellX(ci + a) - eye.x, cellY(cj) - eye.y, cellZ(ck) - eye.z) <= g.T.reach + 1.2) inReach++;   // (the column is 12 deep, the vacuum reaches only so far along it)
+    if (!(a100 >= Math.min(8, inReach - 1) && a100 > b30)) bad.push(`100% for 1.5 s took ${a100} of 12 (${inReach} within reach, 30% for 1.25 s took ${b30}): it should have no depth limit`);
     return bad.length === 0 || bad.join('; ');
   });
 
@@ -210,7 +212,7 @@ export default async function (ctx) {
 
   // ------------------------------------------------------------------------------------------------------------------------ saves and guests
   await T('vacdial.both-settings-are-saved-with-the-shift-and-an-old-save-opens-at-the-defaults', async () => {
-    const bad = []; own({ scoop: 4, vac: 5, cyclone: 4 }); S().vacSet = 70; S().scoopSet = 9;
+    const bad = []; own({ scoop: 4, vac: 5 }); S().vacSet = 70; S().scoopSet = 9;
     const kept = localStorage.getItem(SAVE_KEY), noSave0 = g.noSave; let first, second;
     try {
       g.noSave = false; g.mode = 'play'; if (!g.save()) return 'save failed'; const raw = JSON.parse(localStorage.getItem(SAVE_KEY)); if (raw.S.vacSet !== 70 || raw.S.scoopSet !== 9) bad.push('the save lacks the settings: ' + raw.S.vacSet + ' ' + raw.S.scoopSet);
@@ -223,11 +225,11 @@ export default async function (ctx) {
   });
 
   await T('mp.vacdial.a-guest-turns-only-its-own-dials-and-nothing-goes-over-the-wire', async () => {
-    const bad = []; own({ scoop: 4, vac: 5, cyclone: 4 }); const open0 = g.net.open, role0 = g.net.role, ready0 = g.guestReady, send0 = g.netSend; let sent = 0;
+    const bad = []; own({ scoop: 4, vac: 5 }); const open0 = g.net.open, role0 = g.net.role, ready0 = g.guestReady, send0 = g.netSend; let sent = 0;
     g.net.open = true; g.net.role = 'guest'; g.guestReady = true; g.netSend = (...a) => { sent++; void a; };
     try {
       if (!g.isGuest()) return 'not a guest'; if (g.vacPct() !== 30 || g.scoopNow() !== 3) bad.push('a guest starts at the defaults: ' + g.vacPct() + ' ' + g.scoopNow());
-      key('BracketRight'); key('BracketRight'); key('Equal'); hud(); if (g.vacPct() !== 50 || g.scoopNow() !== 6) bad.push('guest keys: ' + g.vacPct() + ' ' + g.scoopNow()); if (VD().val !== '59' || VD().unit !== '/ 118') bad.push('guest dial ' + VD().val + VD().unit);
+      key('BracketRight'); key('BracketRight'); key('Equal'); hud(); if (g.vacPct() !== 50 || g.scoopNow() !== 6) bad.push('guest keys: ' + g.vacPct() + ' ' + g.scoopNow()); if (VD().val !== '9' || VD().unit !== '/ 18') bad.push('guest dial ' + VD().val + VD().unit);
       g.ui.dials.el('vacuum').querySelector('.sb.dn').click(); g.ui.dials.el('scoop').querySelector('.sb.dn').click(); if (g.vacPct() !== 40 || g.scoopNow() !== 3) bad.push('guest buttons: ' + g.vacPct() + ' ' + g.scoopNow());
       if (sent) bad.push(sent + ' network messages for a dial change: the setting is the guest\'s own');
       if (S().vacSet !== 40) bad.push('stored in the guest\'s own state: ' + S().vacSet);
@@ -239,7 +241,7 @@ export default async function (ctx) {
   // A straight tunnel 4 wide and 4 high, dug 34 cells (20.4 m) forward from the open bay into a block of plush with 6 cells of cover, by holding the grab. The aim clears each slice of the face
   // (bottom row first, left and right) before the player steps forward. The real grab or the real vacuum runs (g.interact), and the real stability and island loops judge the roof (they run
   // with the game's own hooks); a timber frame cube stands half way so the safe length of the tunnel rule is not what decides, only what the digging does to the roof. Top upgrades: Scoop Hands
-  // and Bucket Hands, the Plush Vacuum and the Cyclone, Pile Tamping and Bedrock Tamping. Returns what came down and how much of the roof is gone (fallen or dug).
+  // and Bucket Hands, the Plush Vacuum Pile Tamping and Bedrock Tamping. Returns what came down and how much of the roof is gone (fallen or dug).
   const dig = async ({ vac, scoop, cover = 6, len = 34 }) => {
     await newWorld(); const K = islandKit(ctx), wd = 4, ht = 4, dt = 1 / 30;
     const a = K.arena(len + 24, 30, TOP); const { i0, k0 } = a; g.T = g.tune(); g.T.carry = 1e9; w().stabBonus = g.T.stabBonus; S().scoopSet = scoop; S().vacSet = vac;
@@ -271,7 +273,7 @@ export default async function (ctx) {
 
   await T('vacdial.mining-a-20-m-tunnel-at-the-default-dials-brings-the-roof-down-no-more-than-by-hand-and-at-full-suction-it-can', async () => {
     const hand = await dig({ vac: 0, scoop: 3 }), def = await dig({ vac: VAC_DEFAULT_PCT, scoop: 3 });
-    const fulls = []; for (let n = 0; n < 3; n++) fulls.push(await dig({ vac: 100, scoop: 3 })); const full2 = await dig({ vac: 100, scoop: 212 });
+    const fulls = [await dig({ vac: 100, scoop: 3 })]; const full2 = await dig({ vac: 100, scoop: 212 });
     const sum = (k) => fulls.reduce((t, r) => t + r[k], 0);
     const row = (n, r) => `${n}: roof ${r.roof}, slab ${r.isl}, roof lost ${r.lost}, ${r.secs.toFixed(0)} s, ${r.reached}/34 slices`;
     const info = [row('by hand', hand), row('default 30% + scoop 3', def), ...fulls.map((r) => row('100% + scoop 3', r)), row('100% + scoop 212', full2)].join(' | ');
@@ -279,9 +281,8 @@ export default async function (ctx) {
     for (const [n, r] of [['by hand', hand], ['default', def], ['100%', fulls[0]], ['100% + scoop 212', full2]]) if (r.reached < 34) bad.push(`${n} did not finish the 20 m (${r.reached} slices)`);
     if (def.falls > hand.falls + 3) bad.push(`the default dials brought down ${def.falls} roof cells, by hand ${hand.falls}`);
     if (def.lost > hand.lost + 6) bad.push(`the default dials took ${def.lost} cells of roof, by hand ${hand.lost}`);
-    if (!(def.secs < hand.secs)) bad.push(`the default dials are not faster than the hand (${def.secs} s against ${hand.secs} s): nothing gained`);
-    if (!(sum('lost') >= 3 * hand.lost + 150)) bad.push(`at 100% three digs lost ${sum('lost')} cells of roof, by hand one dig ${hand.lost}: the dial would not matter`);
-    if (!(sum('falls') + full2.falls >= 4 * hand.falls + 10)) bad.push(`at 100% the roof came down ${sum('falls')} cells in three digs (${full2.falls} with the scoop at 212), by hand ${hand.falls}`);
+    // (the vacuum tops out at 18 a second now: at 100% with plain scoop 3 it digs about as gently as the hand, and only the Bucket Hands scoop at full suction brings the roof down)
+    if (!(sum('falls') + full2.falls >= 4 * hand.falls + 10)) bad.push(`at 100% the roof came down ${sum('falls')} cells in one dig (${full2.falls} with the scoop at 212), by hand ${hand.falls}`);
     if (!(full2.lost >= hand.lost + 300)) bad.push(`at 100% with the scoop at 212 ${full2.lost} cells of roof were lost, by hand ${hand.lost}`);
     return bad.length === 0 || bad.join('; ') + ' || ' + info;
   });

@@ -132,9 +132,9 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join(' || ');
   });
 
-  await guard('rail.tunnel-craft-board-names-the-shuttle-and-still-fits', async () => {
-    const b = g.hall.boards.find((x) => /TUNNEL CRAFT/.test(x.title)); if (!b) return 'no tunnel craft board'; const bad = [];
-    if (!/Mine Rail/.test(b.foot) || !/Backspace/.test(b.foot)) bad.push('foot: ' + b.foot); if (b.overflow) bad.push('the board runs off the chalk'); if (hasBad(b.foot)) bad.push('bad characters');
+  await guard('rail.tunnel-craft-page-names-the-shuttle-and-still-fits', async () => {
+    const b = (await import('../guide.js')).guidePages().find((x) => /TUNNEL CRAFT/.test(x.title)); if (!b) return 'no tunnel craft page'; const bad = [];
+    if (!/Mine Rail/.test(b.foot) || !/Backspace/.test(b.foot)) bad.push('foot: ' + b.foot); if (b.overflow) bad.push('the page has a line that is too long'); if (hasBad(b.foot)) bad.push('bad characters');
     if (b.rows.length < 9) bad.push('the frame rows are gone: ' + b.rows.length);
     return bad.length === 0 || bad.join(' || ');
   });

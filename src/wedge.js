@@ -260,7 +260,7 @@ export class Wedge {
       x: pos.x, y: pos.y, z: pos.z, cx: pos.x, cy: pos.y, cz: pos.z, seeds, D0, nSeed: 0,
       front: new Map(), freed: new Set(), bad: new Set(), ef: new Map(), ef2: new Map(), cnt: new Map(), cost: new Map(), slow: new Map(),
       cols: [], growing: false, spent: 0, drv: 1, released: 0, skipped: 0, placed: 0, frozen: 0, forced: 0, peakLive: 0, tFirst: 0, tLast: 0, fxT: 0, sndT: 0, netT: 0, rideNetT: 0, bbox,
-      maxTravel: Math.min(sz.travel, f.path * 1.2 + 6), foot: f, acc: P.ACC, ride: P.RIDE, rider: false, counted: false,
+      maxTravel: Math.min(sz.travel, f.path * 1.2 + 6), foot: f, acc: P.ACC, ride: P.RIDE, rider: false, carried: false, counted: false,
     };
     this.perf = { n: 0, ms: 0, max: 0, relMs: 0, flowMs: 0 };
     this.last = null; this.shieldLeft = 6; this.dMin = 1e9; this.botWatch = a.hard + 30;
@@ -475,7 +475,7 @@ export class Wedge {
     a.placed += placed; this.live = live; a.peakLive = Math.max(a.peakLive, live);
     this.dMin = Math.sqrt(dMin); a.uMax = live ? uMax : a.uMax;
     a.cx = cn ? cx / cn : a.cx; a.cy = cn ? cy / cn : a.cy; a.cz = cn ? cz / cn : a.cz; a.cn = cn;
-    if (g.dead) a.rider = false;
+    if (g.dead || (a.rider && !this.inRider(a))) a.rider = false;   // (a player who walked or jumped out of the flow is no rider any more, however the slide began)
     if (nA >= 3) this.applyRide(ax / nA, ay / nA, az / nA, nA, dt);
     else if (a.rider && a.released > 0 && live > 0 && pl.y > 1.5 && !g.dead) this.applyRide(0, 0, 0, 0, dt);   // no plush within reach: the slope still carries the rider (while it is behind the front of the flow)
     if (rp && nB >= 3) {
@@ -560,6 +560,7 @@ export class Wedge {
   noteRide(speed, dt) {
     if (this.rideT <= 0) this.shieldLeft = 6;   // the damage budget of one ride
     this.rideT = 0.7; this.rideV = Math.max(speed, this.rideV * Math.exp(-dt / 0.3));
+    if (this.cur) { this.cur.carried = true; this.cur.carriedAt = this.cur.t; }   // the flow really took this player (burial.js: only the carried are put under the pile)
     this.roll = Math.sin(this.g.time * 3.3) * 0.1 * Math.min(1, speed / 8);
     this.g.shake = Math.max(this.g.shake, 0.28 * this.g.T.shakeMul);
   }

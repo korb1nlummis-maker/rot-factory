@@ -93,7 +93,7 @@ kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2
 @media (max-width: 430px) { :root { --dial: 44px; } }
 @media (max-width: 380px), (max-height: 680px) and (max-width: 430px) { :root { --dial: 38px; } }   /* a phone shows a lot of dials (air, oxygen, suffocation, dust, depth ...): keep them to about three rows */
 @media (min-width: 2400px) { :root { --dial: 116px; --slot: 92px; --sgap: 12px; --gutter: 24px; } #hint { font-size: 19px; } #hotbarHint { font-size: 15px; } }
-#hotbar { display: flex; gap: var(--sgap); }
+#hotbar { display: flex; gap: var(--sgap); user-select: none; -webkit-user-drag: none; }
 .slot { width: var(--slot); height: var(--slot); border-radius: 14px; background: var(--bg); backdrop-filter: blur(8px); border: 1px solid var(--line); display: grid; place-items: center; position: relative; font-size: calc(var(--slot) * 0.355); }
 .slot.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 20px rgba(215,242,106,0.3); background: var(--bg2); }
 .slot .k { position: absolute; left: 6px; top: 3px; font-size: 10px; color: var(--dim); font-weight: 700; }
@@ -216,7 +216,7 @@ button.danger { padding: 10px; border-radius: 10px; border: 1px solid rgba(255,9
 #chat { position: fixed; left: 22px; top: 190px; max-width: min(360px, 60vw); max-height: 64px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; overflow: hidden; font-size: 13px; text-shadow: 0 1px 6px #000; pointer-events: none; z-index: 3; }
 #chat div { background: rgba(0,0,0,0.45); padding: 4px 10px; border-radius: 8px; margin-top: 4px; }
 
-#multi, #howto { z-index: 40; }
+#multi, #howto, #guide { z-index: 40; }
 #chatIn { position: fixed; left: 50%; top: 118px; transform: translateX(-50%); width: min(340px, calc(100vw - 28px)); z-index: 50; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(10,12,8,0.85); color: var(--ink); font: inherit; user-select: text; -webkit-user-select: text; }
 
 #trap { position: fixed; inset: 0; pointer-events: none; z-index: 30; --p: 0; --f: 0; }
@@ -494,3 +494,32 @@ body:has(.modal:not(.hidden)) #belt { visibility: hidden; }
 #noteDocs small, .nflav { color: var(--dim); font-size: 11.5px; display: block; }
 .nbadge { background: #ffd36a; color: #2a2417; border-radius: 4px; font-size: 10px; padding: 1px 5px; letter-spacing: 0.1em; vertical-align: middle; }
 @media (max-width: 760px) { #journalNotes { grid-template-columns: 1fr; } #journalNotes .nsum-box { position: static; } }
+
+/* the Field Guide: categories on the left, the pages of the chosen one on the right */
+.guidebody { display: flex; flex: 1; min-height: 0; }
+#guideSearch { width: min(260px, 36vw); min-width: 0; background: rgba(255,255,255,0.08); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; }
+#guideCats { flex: none; width: 236px; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--line); }
+#guideCats button { display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--dim); font-weight: 800; font-size: 13px; letter-spacing: 0.03em; cursor: pointer; }
+#guideCats button:hover { background: rgba(255,255,255,0.07); color: var(--ink); }
+#guideCats button.on { background: rgba(214,255,100,0.12); color: var(--accent); border-color: var(--line); }
+#guideCats button i { font-style: normal; font-size: 11px; opacity: 0.7; }
+#guidePage { flex: 1; min-width: 0; overflow: auto; padding: 6px 26px 24px; line-height: 1.55; font-size: 14px; outline: none; }
+.gpage { padding: 14px 0 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.gpage h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
+.gpage p, .gpage li { color: var(--ink); }
+.gpage ol, .gpage ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.gh { margin: 12px 0 4px; font-size: 12px; font-weight: 900; letter-spacing: 0.18em; text-transform: uppercase; color: #ffe9a8; }
+.gr { display: grid; grid-template-columns: minmax(140px, 38%) 1fr; gap: 14px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.gl { color: var(--ink); font-weight: 700; overflow-wrap: anywhere; }
+.gv { color: #dcd8c4; overflow-wrap: anywhere; }
+.gs { padding: 3px 0; white-space: pre-wrap; }
+.gf { margin-top: 12px; color: #ffd98a; font-size: 13px; }
+.gnone { padding: 24px 0; color: var(--dim); }
+@media (max-width: 700px) {
+  .guidebody { flex-direction: column; }
+  #guideCats { width: auto; flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
+  #guideCats button { flex: none; white-space: nowrap; padding: 8px 10px; }
+  #guidePage { padding: 4px 14px 18px; }
+  .gr { grid-template-columns: 1fr; gap: 2px; }
+  .panel.guidepanel header { gap: 10px; padding: 12px 14px; }
+}

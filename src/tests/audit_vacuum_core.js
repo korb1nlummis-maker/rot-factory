@@ -5,7 +5,7 @@ import { loadSaved } from '../state.js';
 
 export default async function (ctx) {
   const { T, g, S, w, p, sim, fresh, cellX, cellY, cellZ, toI, toJ, toK, V3, clearBodies, newWorld } = ctx;
-  const TOP = { bag: 8, cargo: 4, reach: 4, gloves: 3, scoop: 4, bucketHands: 4, vac: 5, cyclone: 4, tamp: 8, bedrockTamp: 4 };
+  const TOP = { bag: 8, cargo: 4, reach: 4, gloves: 3, scoop: 4, bucketHands: 4, vac: 5, tamp: 8, bedrockTamp: 4 };
   const setDial = (vac, scoop) => { S().vacSet = vac; S().scoopSet = scoop; g.T = g.tune(); g.T.carry = 1e9; S().carry = []; g.vacAcc = 0; g._vacRef = null; };
   // a wall of plush `deep` cells thick, 20 high and 30 wide in a cleared bay, the player 2.4 m from its west face
   const wall = async (up, deep = 10) => {

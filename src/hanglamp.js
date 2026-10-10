@@ -98,7 +98,7 @@ export function paint(obj, lvl, cam) {
   const halo = obj.getObjectByName('halo'); if (halo) haloFade(halo, cam && cam.distanceTo ? cam.distanceTo(obj.position) : 6, lvl);
   const m = glass.material, k = Math.round(lvl * 40) / 40;
   if (m.userData.k === k) return; m.userData.k = k;
-  m.emissiveIntensity = k * 1.35; m.color.setRGB(0.22 + 0.55 * k, 0.21 + 0.45 * k, 0.17 + 0.2 * k);   // modest glass: under the bloom threshold, it never flares to a white blob
+  m.emissiveIntensity = k * 0.8; m.color.setRGB(0.22 + 0.55 * k, 0.21 + 0.45 * k, 0.17 + 0.2 * k);   // modest glass: under the bloom threshold, it never flares to a white blob
 }
 
 // ---------------------------------------------------------------- light on the plush: game.glowSources() asks for the nearest lit lanterns

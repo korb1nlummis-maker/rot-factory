@@ -1,11 +1,11 @@
-// Levels audit: Hands. The lines added above the old maxes (Exo Gauntlets, Cargo Hold, Crane Arms, Bucket Hands, Cyclone Vacuum, Rail Arm, Gravity Well).
+// Levels audit: Hands. The lines added above the old maxes (Exo Gauntlets, Cargo Hold, Crane Arms, Bucket Hands, Rail Arm, Gravity Well).
 // Each is bought through g.buy at every level and measured in what the game does with it.
 import { basics, numbers, reqUp } from './levels_common.js';
 
 export default async function (ctx) {
   const { g, S, w, p, sim, T, fresh, adv, near, V3, toI, toJ, toK, cellX, cellY, cellZ, UPGRADES, clearBodies } = ctx;
   const U = (id) => UPGRADES.find((u) => u.id === id);
-  const ids = ['exo', 'cargo', 'crane', 'bucketHands', 'cyclone', 'railArm', 'gravWell'];
+  const ids = ['exo', 'cargo', 'crane', 'bucketHands', 'railArm', 'gravWell'];
   for (const id of ids) await basics(ctx, 'hands', id);
 
   const placed = [];
@@ -29,7 +29,6 @@ export default async function (ctx) {
   await numbers(ctx, 'hands', 'cargo', (t) => t.carry, (l) => 120 + [0, 60, 160, 400, 1000][l]);
   await numbers(ctx, 'hands', 'crane', (t) => t.reach, (l, b) => b + 2 * l);   // (base: the old top Gantry Arms, 2.4 + 4.5 m)
   await numbers(ctx, 'hands', 'bucketHands', (t) => t.scoop, (l) => 12 + [0, 16, 40, 90, 200][l]);
-  await numbers(ctx, 'hands', 'cyclone', (t) => t.vacRate, (l) => 18 + [0, 12, 28, 55, 100][l]);
   await numbers(ctx, 'hands', 'railArm', (t) => t.throwPower, (l, b) => b + 6 * l);
   await numbers(ctx, 'hands', 'gravWell', (t) => t.scavRange, (l) => 10 + [0, 12, 30, 70][l]);
 
@@ -93,23 +92,6 @@ export default async function (ctx) {
       if (l === 0 && n !== 13) { finish(); return 'old scoop changed: ' + n; }   // Scoop Hands at the top: the target and 12 more
     }
     finish(); return prev >= 100 || 'the top level took only ' + prev + ': ' + got;
-  });
-
-  // ---------------------------------------------------------------- cyclone vacuum: more plush in one burst, the cone opens with it
-  await T('levels.hands.cyclone.effect', async () => {
-    fresh({ ...reqUp(UPGRADES, U('cyclone')), bag: 8, cargo: 4, reach: 4 }); clearBay(); let prev = 0; const got = [];   // room for the biggest burst
-    for (let l = 0; l <= 4; l++) {
-      S().up.cyclone = l; g.T = g.tune(); const rate = 18 + [0, 12, 28, 55, 100][l];
-      block(1.5, 16, 11, 1.5, true); S().carry = []; g.grabCd = 0; const tg = target(); if (!tg) { finish(); return 'no target'; }
-      g.curTargetRef = tg; g.gPress(); if (S().carry.length !== 0 || !(g.vacT > 0)) { finish(); return 'tap did not start the vacuum'; }
-      for (let q = 0; q < 130; q++) { const [e, d] = eyeDir(); g.interact(0.016, e, d); }
-      const n = S().carry.length, exp = Math.floor(1.8 * rate); got.push(n);
-      if (n > exp + 1) { finish(); return `level ${l} inhaled ${n}, more than the rate allows (${exp})`; }
-      if (!(n > prev)) { finish(); return `level ${l} inhaled ${n}, not more than the level before (${prev}): ${got}`; }
-      if (l === 0 && Math.abs(n - exp) > 1) { finish(); return `the old top level changed: ${n} vs ${exp}`; }
-      prev = n;
-    }
-    finish(); return prev >= 100 || 'the top level inhaled only ' + prev + ': ' + got;
   });
 
   // ---------------------------------------------------------------- rail arm: faster throws, real launch speed

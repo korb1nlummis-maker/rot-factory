@@ -34,7 +34,7 @@ const ROWS = [
   ['Hands', 'punch', 'Punch', 'Knocks loose the plush in front of you, or punches you out of a hole.', ['Mouse2', 'KeyR', 'KeyP'], 'hands'],
   ['Hands', 'use', 'Use what you aim at', 'Terminal, crafting bench, generators, doors, bots, crates, scanners, lifts, lanterns, switches.', ['KeyE'], 'any'],
   ['Hands', 'copycfg', 'Copy machine settings', 'Then use the Use key on another machine to paste.', ['Shift+KeyE'], 'any'],
-  ['Hands', 'bin', 'Assign a bin', 'Aim at a machine, truck, digger, rig, mech, Portal, Rail Station or cart. With a building item in hand this key sets it down instead.', ['KeyB'], 'any'],
+  ['Hands', 'bin', 'Assign a bin', 'Aim at a machine, truck, digger, rig, mech, Portal, Rail Station or cart. With a building item in hand this key sets it down instead; with a cart in hand it rolls the cart out or parks it.', ['KeyB'], 'any'],
   ['Hands', 'copybin', 'Copy the bin of what you aim at', 'Or of the selected bot.', ['Shift+Semicolon'], 'any'],
   ['Hands', 'flash', 'Flashlight', 'On or off.', ['KeyF', 'KeyO'], 'any'],
   ['Hands', 'medkit', 'Use a medkit', 'Heals 50.', ['KeyK'], 'any'],
@@ -84,6 +84,7 @@ const ROWS = [
   ['Screens', 'chat', 'Chat', 'Co-op only.', ['Backquote'], 'any'],
   ['Screens', 'fps', 'Show or hide the frame rate', 'Frame rate readout.', ['F3'], 'any'],
   ['Screens', 'meter', 'Load meter', 'Supply, demand and storage of the grid you stand in.', ['KeyM'], 'any'],
+  ['Screens', 'guide', 'Field Guide', 'How to play, and a page for every part of the game. Works on the title screen too.', ['F1'], 'any'],
 ];
 
 // What the player changed in the editable page, applied over the page's own defaults. These are the shipped bindings.

@@ -33,6 +33,7 @@ export const BU = {
   SLOW: [1, 0.6, 0.35, 0.15, 0.05], // walking speed at each depth
   REST: 4,                // s after a slide that the footing is not rolled again
   WAIT: 2.5,              // s a landing waits for the player to come to rest
+  RIDE_FRESH: 1,          // s before the end of the flow that the player must still have been carried to count as having ridden it
   ARM: 14,                // s after a slide that your own burial is watched
 };
 const SS = BU;
@@ -62,6 +63,19 @@ export class Burial {
     for (let k = 0; k < ht; k++) for (let i = 0; i < wd; i++) top[k * wd + i] = w.topAt(i0 + i, k0 + k);
     a.snap = { i0, k0, wd, ht, top };
     this.log = [];
+  }
+
+  // a world was just loaded: nothing of a slide or a burial survives a save (no landing is pending, nobody is watched), and a player saved with the
+  // body inside plush (a save made while a slide was running or right after one) is set on top of it instead of being loaded into the pile
+  afterLoad() {
+    this.clear();
+    const g = this.g, w = g.world, p = g.player; if (!p || !w) return;
+    const i = toI(p.pos.x), k = toK(p.pos.z), y0 = p.pos.y;
+    const inPile = () => { const jb = toJ(p.pos.y + 0.05); return w.solid(i, jb, k) || w.solid(i, jb + 1, k); };
+    if (!inPile()) return;
+    for (let n = 0; n < 60 && inPile(); n++) p.pos.y = (toJ(p.pos.y + 0.05) + 1) * C;
+    if (inPile()) { p.pos.y = y0; return; }
+    p.vel.set(0, 0, 0); p.onGround = false;
   }
 
   // ======================= landing =======================
@@ -104,7 +118,7 @@ export class Burial {
     const i0 = pockets[self].i, k0 = pockets[self].k, jb = pockets[self].j;
     if (!w.inside(i0, jb, k0) || (!t.bot && !t.local && t.pos.y > w.topAt(i0, k0) * C + 2.5)) return null;   // (a friend up in the air is not on the pile; the one who rode it is, wherever it threw them)       // up in the air, not on the pile
     // the one who rode the sheet was in the middle of it: what came to rest within RIDER_R round them fell on them; anybody else is reached by what lands within POOL_R
-    const rode = (t.local && a.rider) || (t.who === 'guest' && a.by === 'guest'); let PR = rode ? SS.RIDER_R : SS.POOL_R;
+    const rode = (t.local && a.carried && a.t - (a.carriedAt || 0) <= SS.RIDE_FRESH) || (t.who === 'guest' && a.by === 'guest'); let PR = rode ? SS.RIDER_R : SS.POOL_R;   // (carried at some point is not enough: a player who touched the flow and then got clear of it is a bystander)
     const cols = []; let pool = 0;   // pool: landed within PR (what fell on you); cols: everything that can slump in from POOL_FAR
     for (let dk = -SS.POOL_FAR; dk <= SS.POOL_FAR; dk++) for (let di = -SS.POOL_FAR; di <= SS.POOL_FAR; di++) {
       if (Math.abs(di) <= 1 && Math.abs(dk) <= 1) continue;

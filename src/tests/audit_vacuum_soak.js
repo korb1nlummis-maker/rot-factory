@@ -4,7 +4,7 @@ import { CONTROLS } from '../controls.js';
 
 export default async function (ctx) {
   const { T, g, S, w, p, fresh, cellX, cellZ, V3, clearBodies, newWorld } = ctx;
-  const TOP = { bag: 8, cargo: 4, reach: 4, gloves: 3, scoop: 4, bucketHands: 4, vac: 5, cyclone: 4, tamp: 8, bedrockTamp: 4 };
+  const TOP = { bag: 8, cargo: 4, reach: 4, gloves: 3, scoop: 4, bucketHands: 4, vac: 5, tamp: 8, bedrockTamp: 4 };
   const VD = () => g.ui.dials.read('vacuum');
   const hud = () => { g.hudT = 0; g.updateHud(0.1); };
   const key = (code, o = {}) => window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, ...o }));
@@ -30,7 +30,7 @@ export default async function (ctx) {
         if (a === 0) g.adjustVac(1);
         else if (a === 1) g.adjustVac(-1);
         else if (a === 2) S().vacSet = junk[Math.floor(rnd() * junk.length)];
-        else if (a === 3) { const vac = Math.floor(rnd() * 6); S().up = { ...TOP, vac, cyclone: vac === 5 ? Math.floor(rnd() * 5) : 0 }; g.T = g.tune(); g.T.carry = 1e9; }
+        else if (a === 3) { const vac = Math.floor(rnd() * 6); S().up = { ...TOP, vac }; g.T = g.tune(); g.T.carry = 1e9; }
         else if (a === 4) key(rnd() < 0.5 ? 'BracketLeft' : 'BracketRight');
         else if (a === 5) { const b = g.ui.dials.el('vacuum').querySelector(rnd() < 0.5 ? '.sb.up' : '.sb.dn'); if (b) b.click(); }
         else if (a === 6) { W.refill(); const [eye, dir] = W.stand(0.8 + rnd() * 1.6, (rnd() - 0.5) * 14); g.vacT = 1; g.time += 0.1; S().carry = []; g.runVacuum(0.1, eye, dir); }
@@ -94,7 +94,7 @@ export default async function (ctx) {
     try {
       g.net.open = true; g.net.role = 'guest'; g.guestReady = true; g.netSend = (m) => { sent.push(m && m.t); };
       if (!g.isGuest()) return 'not a guest';
-      for (const [pct, rate] of [[30, 35.4], [60, 70.8]]) {
+      for (const [pct, rate] of [[30, 5.4], [60, 10.8]]) {
         setDial(pct, 0); W.refill(); g.vacT = 5; sent.length = 0; const dt = 1 / 30; let sec = 0;
         for (let n = 0; n < 30; n++) { const [eye, dir] = W.stand(0.9 + 0.7 * (n % 4), -6 + ((n * 3.7) % 12)); g.time += dt; g.runVacuum(dt, eye, dir); sec += dt; }
         const got = S().carry.length; if (Math.abs(got - rate * sec) > Math.max(3, rate * sec * 0.1)) bad.push(`guest at ${pct}%: ${got} plush in ${sec.toFixed(2)} s, wanted about ${rate * sec}`);

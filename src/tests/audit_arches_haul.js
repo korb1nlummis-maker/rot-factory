@@ -84,7 +84,7 @@ export default async function (ctx) {
     return bad.length === 0 || bad.join('; ');
   });
 
-  // the unlock, the chalkboard and the readme all say 220,000 at the bench: the bench rounded the price per K first and sold it for 219,999
+  // the unlock, the Field Guide and the readme all say 220,000 at the bench: the bench rounded the price per K first and sold it for 219,999
   await T('audit_arches.haul.the-truck-dock-costs-exactly-what-the-unlock-says-and-roads-and-packs-too', async () => {
     await world(); const bad = [], rows = recipes(g), price = (id) => { const r = rows.find((x) => x.id === id); return r ? r.price : null; };
     if (price('dock') !== 220000) bad.push('dock ' + price('dock')); if (price('road') !== 24) bad.push('road ' + price('road')); if (price('chargepack') !== 3000) bad.push('pack ' + price('chargepack'));
