@@ -951,6 +951,15 @@ export class Machines {
   updateBorer(it, dt, time) {
     const game = this.game, w = game.world, T = game.T, e = it.ent;
     const b = it.borer;
+    // upgrades reach the borers already running: a faster cutter head rescales the wait for the next slab, and Wide Bore grows the bore (never shrinks it) from the next slab on
+    if (it.rateSeen === undefined) it.rateSeen = T.borerRate;
+    if (T.borerRate !== it.rateSeen) { if (T.borerRate > 0 && it.rateSeen > 0) it.timer *= T.borerRate / it.rateSeen; it.rateSeen = T.borerRate; }
+    if (it.bw === undefined) { it.bw = e.w; it.bh = e.h; }
+    if ((T.borerW > e.w || T.borerH > e.h) && !e.done) {
+      e.w = Math.max(e.w, T.borerW); e.h = Math.max(e.h, T.borerH);
+      it.obj.scale.set(e.w / it.bw, e.h / it.bh, 1);
+      game.ui.toast({ icon: '🚇', title: 'Borer upgraded', text: `This borer now cuts a ${e.w} x ${e.h} bore.` });
+    }
     b.teeth.rotation.z += dt * 7;
     b.ring.material = MATS.glowO;
     // smooth motion toward cell position
@@ -1012,7 +1021,7 @@ export class Machines {
       }
       if (chosen && chosen.skip) return;
       if (!chosen) { e.done = true; game.ui.toast({ icon: '🚇', title: 'Borer stopped', text: `The mountain presses too hard: ${why || 'no lining it has would hold'}. Better supports, or a narrower bore.` }); return; }
-      for (const [ci, cj, ck, tsp, tvr] of chosen.taken) { w.stabQueue.push({ i: ci, j: cj, k: ck }); if (tsp !== NEEDLE && !isSpecialCell(tsp)) game.borerEat({ sp: tsp, vr: tvr }, cellX(ci), cellY(cj), cellZ(ck), e); }   // the plush the cube's pillars and beams displace is cut and sold too, not lost
+      for (const [ci, cj, ck, tsp, tvr] of chosen.taken) { w.stabQueue.push({ i: ci, j: cj, k: ck }); if (tsp !== NEEDLE && !isSpecialCell(tsp)) game.borerEat({ sp: tsp, vr: tvr }, cellX(ci), cellY(cj), cellZ(ck), e, true); }   // the plush the cube's pillars and beams displace is cut and sold too, not lost
       if (chosen.cost) { game.S.money -= chosen.cost; game.ui.setMoney(game.S.money); }
       game.S.entities.push(chosen.ent);
       this.add(chosen.ent);

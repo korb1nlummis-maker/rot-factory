@@ -522,7 +522,7 @@ export default async function (ctx) {
       // count solid cells in the slab the next step will cut, then check exactly that many were eaten
       const nx = bor.i + bor.dx, nk = bor.k + bor.dz, px = bor.dz !== 0 ? 1 : 0, pz = bor.dx !== 0 ? 1 : 0, half = Math.floor((W - 1) / 2);
       let expect = 0, ring = 0; for (let o = -half - 1; o <= W - half; o++) for (let h = -1; h <= H; h++) { const s = w().get(nx + px * o, bor.j + h, nk + pz * o) ? 1 : 0; if (o >= -half && o < W - half && h >= 0 && h < H) expect += s; else ring += s; }
-      const c0 = S().stats.cells || 0, s0 = bor.steps; go(() => bor.steps > s0); const got = (S().stats.cells || 0) - c0;
+      let got = 0; const be0 = g.borerEat.bind(g); g.borerEat = (t, x, y, z, en, lining) => { if (!lining) got++; return be0(t, x, y, z, en, lining); }; const s0 = bor.steps; try { go(() => bor.steps > s0); } finally { delete g.borerEat; }   // (the slab's own cells: plush a lining cube displaces are sold too, flagged lining)
       if (expect < W) return `L${l}: test slab nearly empty (${expect})`;
       if (got !== expect) return `L${l}: bored ${got} cells, a ${W}x${H} slab held ${expect}`;
       let ring2 = 0; for (let o = -half - 1; o <= W - half; o++) for (let h = -1; h <= H; h++) if (!(o >= -half && o < W - half && h >= 0 && h < H) && w().get(nx + px * o, bor.j + h, nk + pz * o)) ring2++;

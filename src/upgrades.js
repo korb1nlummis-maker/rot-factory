@@ -129,7 +129,7 @@ export const UPGRADES = [
   { id: 'borer', cat: 'machine', name: 'Tunnel Borer', desc: 'Unlocks the Tunnel Borer. Drives a lined tunnel forward through the pile on its own, selling what it eats. It never eats The One: that cell stays in the pile.', max: 1, cost: [9000], req: { id: 'steel', lvl: 1 }, effect: (t) => { t.machines.push('borer'); t.borerMax += 1; } },
   { id: 'borerCount', cat: 'machine', name: 'Borer Fleet', desc: 'One more Tunnel Borer at once.', max: 4, cost: geo(16000, 2.6, 4), req: { id: 'borer', lvl: 1 }, effect: (t, l) => { t.borerMax += l; } },
   { id: 'borerSpeed', cat: 'machine', name: 'Cutter Head', desc: 'Borers dig faster.', max: 6, cost: geo(7000, 2.4, 6), req: { id: 'borer', lvl: 1 }, effect: (t, l) => { t.borerRate *= Math.pow(0.78, l); } },
-  { id: 'borerSize', cat: 'machine', name: 'Wide Bore', desc: 'Bigger tunnel cross-section for borers you place afterwards: 4x4, then 5x4 (up from 2x3).', max: 2, cost: [22000, 90000], req: { id: 'borer', lvl: 1 }, effect: (t, l) => { t.borerW = [3, 4, 5][l]; t.borerH = [3, 4, 4][l]; } },
+  { id: 'borerSize', cat: 'machine', name: 'Wide Bore', desc: 'Bigger tunnel cross-section for every borer, running ones too from their next cut: 4x4, then 5x4 (up from 2x3).', max: 2, cost: [22000, 90000], req: { id: 'borer', lvl: 1 }, effect: (t, l) => { t.borerW = [3, 4, 5][l]; t.borerH = [3, 4, 4][l]; } },
 ];
 
 // Everything is expensive on purpose: the early game is slow hand work, and the numbers only open up with machines.

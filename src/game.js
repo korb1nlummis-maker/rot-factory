@@ -2668,7 +2668,7 @@ export class Game {
     void ent;
   }
 
-  borerEat(taken, x, y, z, ent) {
+  borerEat(taken, x, y, z, ent, lining = false) {   // lining: displaced by a lining cube (not a cell of the slab the cutter took)
     const S = this.S;
     S.stats.plush++; S.stats.rar[species[taken.sp].rarity]++; S.stats.cells++;
     if (taken.vr & 128) S.stats.shiny++;
